@@ -145,13 +145,13 @@ class ProxyServer {
       const authHeader = lines.find(l => l.toLowerCase().startsWith('proxy-authorization: basic '));
       if (!authHeader) {
         socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
-        socket.destroy();
+        socket.end();
         return;
       }
       const matchAuth = authHeader.match(/basic\s+([a-zA-Z0-9+/=]+)/i);
       if (!matchAuth) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-        socket.destroy();
+        socket.end();
         return;
       }
       const b64 = matchAuth[1];
@@ -159,8 +159,9 @@ class ProxyServer {
       const [user, ...passParts] = decoded.split(':');
       const pass = passParts.join(':'); // In case password contains ':'
       if (user !== proxyConfig.user || pass !== proxyConfig.pass) {
+        getLogger().warn(`[Proxy] HTTP Auth failed. Expected: '${proxyConfig.user}':'${proxyConfig.pass}', Got: '${user}':'${pass}', Header: ${authHeader}, b64: ${b64}, decoded: ${decoded}`);
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-        socket.destroy();
+        socket.end();
         return;
       }
     }
