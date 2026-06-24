@@ -1,0 +1,36 @@
+{
+  "name": "bi-tunnel",
+  "version": "1.0.0",
+  "description": "Bi-directional tunnel and proxy",
+  "main": "src/index.js",
+  "bin": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "build:css": "npx tailwindcss -i ./src/web/public/input.css -o ./src/web/public/tailwind.css --minify",
+    "build": "npx pkg . --out-path dist"
+  },
+  "pkg": {
+    "scripts": "src/**/*.js",
+    "assets": "src/web/public/**/*",
+    "targets": [
+      "node16-win-x64",
+      "node16-linux-x64"
+    ]
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "express-basic-auth": "^1.2.1",
+    "ipaddr.js": "^2.1.0",
+    "node-forge": "^1.4.0",
+    "winston": "^3.10.0",
+    "winston-daily-rotate-file": "^4.7.1"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1",
+    "tailwindcss": "^4.3.1",
+    "vue": "^3.5.38"
+  }
+}
