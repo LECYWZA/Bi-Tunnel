@@ -148,8 +148,16 @@ class ProxyServer {
         socket.destroy();
         return;
       }
-      const b64 = authHeader.split(' ')[2];
-      const [user, pass] = Buffer.from(b64, 'base64').toString('utf8').split(':');
+      const matchAuth = authHeader.match(/basic\s+([a-zA-Z0-9+/=]+)/i);
+      if (!matchAuth) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      const b64 = matchAuth[1];
+      const decoded = Buffer.from(b64, 'base64').toString('utf8');
+      const [user, ...passParts] = decoded.split(':');
+      const pass = passParts.join(':'); // In case password contains ':'
       if (user !== proxyConfig.user || pass !== proxyConfig.pass) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.destroy();
