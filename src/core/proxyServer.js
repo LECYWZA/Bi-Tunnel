@@ -39,23 +39,28 @@ class ProxyServer {
 
     for (const p of desiredProxies) {
       if (!this.servers.has(p.listenPort)) {
-        this.startProxy(p);
+        this.startProxy(p.listenPort);
       }
     }
   }
 
-  startProxy(proxyConfig) {
+  startProxy(listenPort) {
     const server = net.createServer((socket) => {
-      this.handleConnection(socket, proxyConfig);
+      const currentConfig = configManager.getConfig()[this.mode]?.proxies.find(p => p.listenPort === listenPort);
+      if (!currentConfig) {
+        socket.destroy();
+        return;
+      }
+      this.handleConnection(socket, currentConfig);
     });
 
-    server.listen(proxyConfig.listenPort, '0.0.0.0', () => {
-      getLogger().info(`[Proxy] Listening on ${proxyConfig.listenPort}`);
-      this.servers.set(proxyConfig.listenPort, server);
+    server.listen(listenPort, '0.0.0.0', () => {
+      getLogger().info(`[Proxy] Listening on ${listenPort}`);
+      this.servers.set(listenPort, server);
     });
 
     server.on('error', (err) => {
-      getLogger().error(`[Proxy] Failed to listen on ${proxyConfig.listenPort}: ${err.message}`);
+      getLogger().error(`[Proxy] Failed to listen on ${listenPort}: ${err.message}`);
     });
   }
 

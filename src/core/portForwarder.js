@@ -63,13 +63,20 @@ class PortForwarder {
     // Start new forwards
     for (const fw of desiredForwards) {
       if (!this.servers.has(fw.listenPort)) {
-        this.startForward(fw.listenPort, fw.targetHost, fw.targetPort);
+        this.startForward(fw.listenPort);
       }
     }
   }
 
-  startForward(listenPort, targetHost, targetPort) {
+  startForward(listenPort) {
     const server = net.createServer((socket) => {
+      const currentConfig = configManager.getConfig()[this.mode]?.forwards.find(f => f.listenPort === listenPort);
+      if (!currentConfig) {
+        socket.destroy();
+        return;
+      }
+      const { targetHost, targetPort } = currentConfig;
+
       if (!this.currentSession) {
         getLogger().warn(`[Forward-${this.mode}] No active tunnel session, dropping connection`);
         socket.destroy();
@@ -96,7 +103,7 @@ class PortForwarder {
     });
 
     server.listen(listenPort, '0.0.0.0', () => {
-      getLogger().info(`[Forward-${this.mode}] Listening on ${listenPort}, forwarding to ${targetHost}:${targetPort}`);
+      getLogger().info(`[Forward-${this.mode}] Listening on ${listenPort} (dynamic target)`);
       this.servers.set(listenPort, server);
     });
 
