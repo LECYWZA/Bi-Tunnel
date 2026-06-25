@@ -30,7 +30,8 @@ class ProxyServer {
     const desiredProxies = modeConfig.proxies || [];
 
     for (const [listenPort, server] of this.servers.entries()) {
-      if (!desiredProxies.find(p => p.listenPort === listenPort)) {
+      const p = desiredProxies.find(p => p.listenPort === listenPort);
+      if (!p || server._bindHost !== (p.listenIp || '0.0.0.0')) {
         server.close();
         this.servers.delete(listenPort);
         getLogger().info(`[Proxy] Stopped proxy on port ${listenPort}`);
@@ -54,8 +55,12 @@ class ProxyServer {
       this.handleConnection(socket, currentConfig);
     });
 
-    server.listen(listenPort, '0.0.0.0', () => {
-      getLogger().info(`[Proxy] Listening on ${listenPort}`);
+    const currentConfig = configManager.getConfig()[this.mode]?.proxies.find(p => p.listenPort === listenPort);
+    const bindHost = currentConfig?.listenIp || '0.0.0.0';
+
+    server.listen(listenPort, bindHost, () => {
+      getLogger().info(`[Proxy] Listening on ${bindHost}:${listenPort}`);
+      server._bindHost = bindHost;
       this.servers.set(listenPort, server);
     });
 
@@ -129,8 +134,29 @@ class ProxyServer {
   }
 
   // Very basic HTTP Proxy implementation (CONNECT method mostly)
-  handleHttp(socket, initialData, proxyConfig) {
-    const reqStr = initialData.toString('utf8');
+  handleHttp(socket, dataChunk, proxyConfig) {
+    if (!socket._httpBuffer) socket._httpBuffer = Buffer.alloc(0);
+    socket._httpBuffer = Buffer.concat([socket._httpBuffer, dataChunk]);
+
+    const headerEndIdx = socket._httpBuffer.indexOf('\r\n\r\n');
+    if (headerEndIdx === -1) {
+      // Headers not fully received yet, wait for more data
+      // To prevent infinite buffering attacks, we can add a limit
+      if (socket._httpBuffer.length > 8192) {
+        socket.destroy();
+        return;
+      }
+      socket.once('data', (d) => this.handleHttp(socket, d, proxyConfig));
+      return;
+    }
+
+    const fullHeaders = socket._httpBuffer;
+    let leftover = Buffer.alloc(0);
+    if (headerEndIdx + 4 < fullHeaders.length) {
+      leftover = fullHeaders.slice(headerEndIdx + 4);
+    }
+
+    const reqStr = fullHeaders.toString('utf8', 0, headerEndIdx);
     const lines = reqStr.split('\r\n');
     const firstLine = lines[0];
     const match = firstLine.match(/^(CONNECT) ([^:]+):(\d+) HTTP\//) || firstLine.match(/^(GET|POST|PUT|DELETE|HEAD|OPTIONS) http:\/\/([^/:]+)(?::(\d+))?/);
@@ -142,7 +168,7 @@ class ProxyServer {
 
     // Auth check
     if (proxyConfig.useAuth) {
-      const authHeader = lines.find(l => l.toLowerCase().startsWith('proxy-authorization: basic '));
+      const authHeader = lines.find(l => l.toLowerCase().startsWith('proxy-authorization:'));
       if (!authHeader) {
         socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
         socket.end();
@@ -158,7 +184,7 @@ class ProxyServer {
       const decoded = Buffer.from(b64, 'base64').toString('utf8');
       const [user, ...passParts] = decoded.split(':');
       const pass = passParts.join(':'); // In case password contains ':'
-      if (user !== proxyConfig.user || pass !== proxyConfig.pass) {
+      if (user !== String(proxyConfig.user) || pass !== String(proxyConfig.pass)) {
         getLogger().warn(`[Proxy] HTTP Auth failed. Expected: '${proxyConfig.user}':'${proxyConfig.pass}', Got: '${user}':'${pass}', Header: ${authHeader}, b64: ${b64}, decoded: ${decoded}`);
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.end();
@@ -173,11 +199,14 @@ class ProxyServer {
     this.processTarget(socket, host, port, proxyConfig, (channel) => {
       if (method === 'CONNECT') {
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (leftover.length > 0) {
+          channel.write(leftover);
+        }
         socket.pipe(channel);
         channel.pipe(socket);
       } else {
         // Transparently pipe the initial GET/POST request over the channel
-        channel.write(initialData);
+        channel.write(fullHeaders);
         socket.pipe(channel);
         channel.pipe(socket);
       }

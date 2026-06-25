@@ -138,6 +138,10 @@
               <input type="number" v-model.number="px.listenPort" class="w-full border p-1 rounded mt-1">
             </div>
             <div>
+              <label class="block text-xs font-bold text-gray-700">监听 IP (默认 0.0.0.0)</label>
+              <input type="text" v-model="px.listenIp" placeholder="例如: 127.0.0.1" class="w-full border p-1 rounded mt-1">
+            </div>
+            <div>
               <label class="block text-xs font-bold text-gray-700">出网网络</label>
               <select v-model="px.useRemoteNetwork" class="w-full border p-1 rounded mt-1">
                 <option :value="true">使用对端网络出网</option>
@@ -359,6 +363,7 @@
         const addProxy = () => {
           activeConfig.value.proxies.push({
             listenPort: 1080,
+            listenIp: '0.0.0.0',
             useAuth: false,
             user: '',
             pass: '',
