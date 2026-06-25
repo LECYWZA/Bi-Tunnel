@@ -185,10 +185,10 @@ class ProxyServer {
       const [user, ...passParts] = decoded.split(':');
       const pass = passParts.join(':'); // In case password contains ':'
       
-      getLogger().info(`[Proxy Auth Debug] Received HTTP Proxy-Authorization -> User: '${user}', Pass: '${pass}'. (Config expects -> User: '${proxyConfig.user}', Pass: '${proxyConfig.pass}')`);
+      getLogger().info(`[Proxy Auth Debug] Received HTTP Proxy-Authorization -> User: '${user}'. (Config expects -> User: '${proxyConfig.user}')`);
       
       if (user !== String(proxyConfig.user) || pass !== String(proxyConfig.pass)) {
-        getLogger().warn(`[Proxy] HTTP Auth failed. Expected: '${proxyConfig.user}':'${proxyConfig.pass}', Got: '${user}':'${pass}'`);
+        getLogger().warn(`[Proxy] HTTP Auth failed. Expected user: '${proxyConfig.user}', Got user: '${user}'`);
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.end();
         return;
