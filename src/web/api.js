@@ -13,6 +13,7 @@ const { getLogger } = require('../utils/logger');
 const trafficLogger = require('../utils/trafficLogger');
 const { getCertificates } = require('../utils/tlsGenerator');
 const { enableSystemProxy, disableSystemProxy } = require('../utils/systemProxy');
+const ProxyDialer = require('../core/proxyDialer');
 
 // Dependency Injection to get current status
 let getStatus = () => ({});
@@ -115,6 +116,59 @@ function createWebServer(statusCallback) {
   app.post('/api/system-proxy/disable', async (req, res) => {
     const success = await disableSystemProxy();
     res.json({ success });
+  });
+
+  app.post('/api/test-latency', (req, res) => {
+    const { type, id } = req.body;
+    const globalConfig = configManager.getConfig();
+    let nodesToDial = [];
+
+    if (type === 'node') {
+      const node = globalConfig.proxyNodes?.find(n => n.id === id);
+      if (!node) return res.status(404).json({ success: false, message: 'Node not found' });
+      nodesToDial = [node];
+    } else if (type === 'chain') {
+      const chain = globalConfig.proxyChains?.find(c => c.id === id);
+      if (!chain) return res.status(404).json({ success: false, message: 'Chain not found' });
+      nodesToDial = chain.nodes.map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
+      if (nodesToDial.length === 0) return res.status(400).json({ success: false, message: 'Chain has no valid nodes' });
+    } else {
+      return res.status(400).json({ success: false, message: 'Invalid test type' });
+    }
+
+    const startTime = Date.now();
+    
+    ProxyDialer.dialChain(nodesToDial, 'www.gstatic.com', 80, false, null, (err, socket) => {
+      if (err) {
+        return res.json({ success: false, message: err.message, latency: 0 });
+      }
+
+      socket.setTimeout(5000);
+      
+      socket.once('error', (e) => {
+        socket.destroy();
+        res.json({ success: false, message: 'Target connection error: ' + e.message, latency: 0 });
+      });
+      
+      socket.once('timeout', () => {
+        socket.destroy();
+        res.json({ success: false, message: 'Target connection timeout', latency: 0 });
+      });
+
+      socket.once('data', (data) => {
+        const latency = Date.now() - startTime;
+        socket.destroy();
+        const responseStr = data.toString();
+        if (responseStr.includes('HTTP/1.1 204') || responseStr.includes('HTTP/1.0 204')) {
+          res.json({ success: true, message: 'OK', latency });
+        } else {
+          res.json({ success: true, message: 'Connected but received non-204 status', latency });
+        }
+      });
+
+      // Send standard HTTP ping
+      socket.write('GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n');
+    });
   });
 
   app.post('/api/test-proxy', (req, res) => {

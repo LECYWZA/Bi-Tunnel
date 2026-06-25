@@ -360,10 +360,50 @@ class ProxyServer {
       targetSession = this.sessions.values().next().value;
     }
 
-    if (action === 'proxy_chain' && proxyConfig.chainNodes && proxyConfig.chainNodes.length > 0) {
-      ProxyDialer.dialChain(proxyConfig.chainNodes, host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
+    if (action.startsWith('chain:')) {
+      const chainId = action.substring(6);
+      const globalConfig = configManager.getConfig();
+      const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
+      
+      if (!chain || !chain.nodes || chain.nodes.length === 0) {
+        getLogger().error(`[Proxy] Proxy chain ${chainId} not found or empty`);
+        socket.destroy();
+        return;
+      }
+
+      // Resolve nodeRefs to actual node objects
+      const resolvedNodes = chain.nodes.map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
+
+      if (resolvedNodes.length === 0) {
+        getLogger().error(`[Proxy] Proxy chain ${chainId} has no valid resolved nodes`);
+        socket.destroy();
+        return;
+      }
+
+      ProxyDialer.dialChain(resolvedNodes, host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
         if (err) {
           getLogger().error(`[Proxy] Proxy chain to ${host}:${port} failed: ${err.message}`);
+          socket.destroy();
+          return;
+        }
+        finalSocket.on('error', () => socket.destroy());
+        socket.on('error', () => finalSocket.destroy());
+        onConnected(finalSocket);
+      });
+    } else if (action.startsWith('node:')) {
+      const nodeId = action.substring(5);
+      const globalConfig = configManager.getConfig();
+      const node = globalConfig.proxyNodes?.find(n => n.id === nodeId);
+      
+      if (!node) {
+        getLogger().error(`[Proxy] Proxy node ${nodeId} not found`);
+        socket.destroy();
+        return;
+      }
+
+      ProxyDialer.dialChain([node], host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
+        if (err) {
+          getLogger().error(`[Proxy] Proxy node ${nodeId} to ${host}:${port} failed: ${err.message}`);
           socket.destroy();
           return;
         }

@@ -6,8 +6,8 @@
         <h1 class="text-2xl font-bold text-gray-800 m-0">Bi-Tunnel 控制台</h1>
       </div>
       
-      <div class="flex items-center gap-4" v-if="currentTab === 'config'">
-        <span class="text-sm text-gray-500 mr-2"><el-icon class="mr-1"><InfoFilled /></el-icon>修改配置后请点击保存</span>
+      <div class="flex items-center gap-4">
+        <span class="text-sm text-gray-500 mr-2" v-if="hasUnsavedChanges"><el-icon class="mr-1"><InfoFilled /></el-icon>有未保存的修改</span>
         <el-button type="success" size="large" :icon="Check" @click="saveConfig(false)" class="font-bold shadow-md px-8">
           保存配置
         </el-button>
@@ -15,47 +15,47 @@
     </el-header>
 
     <el-main class="mx-auto w-full p-6" style="max-width: 1400px;">
-      <el-menu :default-active="currentTab" mode="horizontal" class="mb-6 rounded-lg bg-white" @select="handleTabSelect">
-        <el-menu-item index="config">
+      <el-menu :default-active="$route.path" router mode="horizontal" class="mb-6 rounded-lg bg-white shadow-sm border-b-0">
+        <el-menu-item index="/config">
           <el-icon><Setting /></el-icon> 代理与映射配置
         </el-menu-item>
-        <el-menu-item index="tester">
+        <el-menu-item index="/nodes">
+          <el-icon><Monitor /></el-icon> 代理节点池
+        </el-menu-item>
+        <el-menu-item index="/chains">
+          <el-icon><Link /></el-icon> 代理链管理
+        </el-menu-item>
+        <el-menu-item index="/tester">
           <el-icon><Odometer /></el-icon> 代理测试台
         </el-menu-item>
-        <el-menu-item index="logs">
+        <el-menu-item index="/logs">
           <el-icon><DataLine /></el-icon> 流量审计
         </el-menu-item>
       </el-menu>
 
-      <transition name="el-fade-in-linear" mode="out-in">
-        <ConfigPanel 
-          v-if="currentTab === 'config'"
-          :config="config"
-          :status="status"
-          :availableIps="availableIps"
-          @start="startTunnel"
-          @stop="stopTunnel"
-        />
-        <ProxyTester 
-          v-else-if="currentTab === 'tester'"
-        />
-        <TrafficLogs
-          v-else-if="currentTab === 'logs'"
-        />
-      </transition>
+      <router-view v-slot="{ Component }">
+        <transition name="el-fade-in-linear" mode="out-in">
+          <component 
+            :is="Component" 
+            :config="config" 
+            :status="status" 
+            :availableIps="availableIps" 
+            @start="startTunnel" 
+            @stop="stopTunnel" 
+          />
+        </transition>
+      </router-view>
     </el-main>
   </el-container>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, computed, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification } from 'element-plus';
-import { Connection, Setting, Odometer, InfoFilled, Check, DataLine } from '@element-plus/icons-vue';
-import ConfigPanel from './components/ConfigPanel.vue';
-import ProxyTester from './components/ProxyTester.vue';
-import TrafficLogs from './components/TrafficLogs.vue';
+import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor } from '@element-plus/icons-vue';
 
-const currentTab = ref('config');
+const hasUnsavedChanges = ref(false);
 
 const config = reactive({
   mode: 'server',
@@ -154,6 +154,14 @@ const fetchConfig = async () => {
     if (!config.server.proxies) config.server.proxies = [];
     if (!config.client.forwards) config.client.forwards = [];
     if (!config.client.proxies) config.client.proxies = [];
+    if (!config.proxyChains) config.proxyChains = [];
+    
+    // Watch config to show "Unsaved Changes" indicator
+    watch(config, () => {
+      hasUnsavedChanges.value = true;
+    }, { deep: true });
+    
+    setTimeout(() => { hasUnsavedChanges.value = false; }, 100);
   } catch (e) {
     console.error(e);
   }
@@ -218,12 +226,15 @@ const saveConfig = async (silent = false) => {
       body: JSON.stringify(payload)
     });
     const result = await res.json();
-    if (result.success && !silent) {
-      ElNotification({
-        title: '保存成功',
-        message: '配置已保存，代理和映射规则已自动热重载。',
-        type: 'success',
-      });
+    if (result.success) {
+      hasUnsavedChanges.value = false;
+      if (!silent) {
+        ElNotification({
+          title: '保存成功',
+          message: '配置已保存，代理和映射规则已自动热重载。',
+          type: 'success',
+        });
+      }
     }
   } catch (e) {
     if (!silent) ElMessage.error('保存失败！');

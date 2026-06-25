@@ -12,6 +12,8 @@ const DEFAULT_CONFIG = {
     maxDays: 14,
     maxSizeMB: 20
   },
+  proxyNodes: [],
+  proxyChains: [],
   server: {
     autoStart: false,
     bindHost: '0.0.0.0',
@@ -40,6 +42,38 @@ function loadConfig() {
       // Migration: if loaded has flat config, ignore or clean it up. The user said they don't have much config, so we can just merge.
       if (!loaded.server) loaded.server = { ...DEFAULT_CONFIG.server };
       if (!loaded.client) loaded.client = { ...DEFAULT_CONFIG.client };
+      if (!loaded.proxyNodes) loaded.proxyNodes = [];
+      if (!loaded.proxyChains) loaded.proxyChains = [];
+      
+      // Upgrade existing proxyChains to use nodeRefs
+      if (loaded.proxyChains.length > 0) {
+        loaded.proxyChains.forEach(chain => {
+          if (chain.nodes && Array.isArray(chain.nodes)) {
+            const nodeRefs = [];
+            chain.nodes.forEach(node => {
+              if (typeof node === 'object' && node.type) {
+                const nodeId = 'node_' + Math.random().toString(36).substr(2, 9);
+                node.id = nodeId;
+                if (!node.displayName) node.displayName = `${node.type.toUpperCase()} Node`;
+                loaded.proxyNodes.push(node);
+                nodeRefs.push(nodeId);
+              } else if (typeof node === 'string') {
+                nodeRefs.push(node); // already a ref
+              }
+            });
+            chain.nodes = nodeRefs; // replace full objects with refs
+          }
+        });
+      }
+
+      // Upgrade existing inline chainNodes to decoupled proxyChains if any exist
+      if (loaded.server && loaded.server.proxies) {
+        loaded.server.proxies.forEach(px => migrateInlineChain(px, loaded));
+      }
+      if (loaded.client && loaded.client.proxies) {
+        loaded.client.proxies.forEach(px => migrateInlineChain(px, loaded));
+      }
+
       currentConfig = { ...DEFAULT_CONFIG, ...loaded };
       // Delete old flat properties if present
       delete currentConfig.tunnelPort;
@@ -69,6 +103,38 @@ function saveConfig(newConfig) {
 
 function getConfig() {
   return currentConfig;
+}
+
+function migrateInlineChain(px, loaded) {
+  if (px.chainNodes && px.chainNodes.length > 0) {
+    const chainId = 'chain_' + Math.random().toString(36).substr(2, 9);
+    const nodeRefs = [];
+    px.chainNodes.forEach(node => {
+      const nodeId = 'node_' + Math.random().toString(36).substr(2, 9);
+      node.id = nodeId;
+      if (!node.displayName) node.displayName = `${node.type.toUpperCase()} Node`;
+      loaded.proxyNodes.push(node);
+      nodeRefs.push(nodeId);
+    });
+
+    loaded.proxyChains.push({
+      id: chainId,
+      name: `Migrated Chain (Port ${px.listenPort})`,
+      nodes: nodeRefs
+    });
+    // Update rules that point to proxy_chain
+    if (px.proxyRules) {
+      px.proxyRules.forEach(r => {
+        if (r.action === 'proxy_chain') {
+          r.action = 'chain:' + chainId;
+        }
+      });
+    }
+    if (px.defaultRuleAction === 'proxy_chain') {
+      px.defaultRuleAction = 'chain:' + chainId;
+    }
+    delete px.chainNodes;
+  }
 }
 
 module.exports = {

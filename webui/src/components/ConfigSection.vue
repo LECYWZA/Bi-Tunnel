@@ -300,105 +300,57 @@
                     <el-button type="primary" plain size="small" :icon="Plus" @click="addRule(px)">添加规则</el-button>
                   </div>
                   
-                  <el-table :data="px.proxyRules" border size="small" empty-text="暂无匹配规则，所有流量将采用默认动作">
-                    <el-table-column prop="pattern" label="匹配模式 (支持通配符 *)" min-width="150">
-                      <template #default="scope">
-                        <el-input v-model="scope.row.pattern" size="small" placeholder="*.google.com" />
-                      </template>
-                    </el-table-column>
-                    <el-table-column prop="action" label="动作" width="160">
-                      <template #default="scope">
-                        <el-select v-model="scope.row.action" size="small">
-                          <el-option label="走代理链" value="proxy_chain" />
-                          <el-option label="直连 (本地网络)" value="direct_local" />
-                          <el-option label="直连 (远端隧道)" value="direct_remote" />
-                          <el-option label="拒绝连接" value="block" />
-                        </el-select>
-                      </template>
-                    </el-table-column>
-                    <el-table-column width="100" align="center">
-                      <template #default="scope">
-                        <el-button type="primary" link :icon="ArrowUp" :disabled="scope.$index === 0" @click="moveRuleUp(px, scope.$index)" style="padding: 0 4px;" />
-                        <el-button type="primary" link :icon="ArrowDown" :disabled="scope.$index === px.proxyRules.length - 1" @click="moveRuleDown(px, scope.$index)" style="padding: 0 4px;" />
-                        <el-button type="danger" link :icon="Delete" @click="px.proxyRules.splice(scope.$index, 1)" style="padding: 0 4px;" />
-                      </template>
-                    </el-table-column>
-                  </el-table>
+                  <div class="text-xs text-gray-400 mb-2 flex items-center gap-1">
+                    <el-icon><InfoFilled /></el-icon> 支持拖拽调整规则优先级。按从上到下的顺序依次匹配。
+                  </div>
                   
-                  <div class="mt-3 flex items-center justify-end gap-2 bg-gray-50 p-2 rounded">
+                  <draggable v-model="px.proxyRules" item-key="pattern" handle=".drag-handle" animation="200" ghost-class="ghost">
+                    <template #item="{ element: rule, index: rIdx }">
+                      <div class="flex items-center gap-3 p-2 mb-2 bg-gray-50 border border-gray-200 rounded-md shadow-sm relative group">
+                        <el-icon class="drag-handle cursor-move text-gray-400 hover:text-blue-500" :size="20"><Sort /></el-icon>
+                        <el-input v-model="rule.pattern" size="small" placeholder="匹配模式 (*.google.com)" class="flex-1" />
+                        <el-select v-model="rule.action" size="small" class="w-48">
+                          <el-option-group label="内置动作">
+                            <el-option label="直连 (本地网络)" value="direct_local" />
+                            <el-option label="直连 (远端隧道)" value="direct_remote" />
+                            <el-option label="拒绝连接" value="block" />
+                          </el-option-group>
+                          <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
+                            <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" />
+                          </el-option-group>
+                          <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
+                            <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" />
+                          </el-option-group>
+                        </el-select>
+                        <el-button type="danger" link :icon="Delete" @click="px.proxyRules.splice(rIdx, 1)" class="opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </template>
+                  </draggable>
+
+                  <el-empty v-if="!px.proxyRules || px.proxyRules.length === 0" description="暂无规则，将执行下方默认动作" :image-size="40" />
+
+                  <div class="mt-4 flex items-center justify-end gap-2 bg-blue-50 border border-blue-100 p-2 rounded">
                     <el-tooltip content="当以上所有规则都没有命中时，流量将执行此动作。" placement="top">
                       <el-icon class="text-gray-400"><InfoFilled /></el-icon>
                     </el-tooltip>
-                    <span class="text-xs font-bold text-gray-600">默认兜底动作:</span>
-                    <el-select v-model="px.defaultRuleAction" size="small" style="width: 150px;">
-                      <el-option label="走代理链" value="proxy_chain" />
-                      <el-option label="直连 (本地网络)" value="direct_local" />
-                      <el-option label="直连 (远端隧道)" value="direct_remote" />
-                      <el-option label="拒绝连接" value="block" />
+                    <span class="text-xs font-bold text-gray-700">默认兜底动作:</span>
+                    <el-select v-model="px.defaultRuleAction" size="small" style="width: 180px;">
+                      <el-option-group label="内置动作">
+                        <el-option label="直连 (本地网络)" value="direct_local" />
+                        <el-option label="直连 (远端隧道)" value="direct_remote" />
+                        <el-option label="拒绝连接" value="block" />
+                      </el-option-group>
+                      <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
+                        <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" />
+                      </el-option-group>
+                      <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
+                        <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" />
+                      </el-option-group>
                     </el-select>
                   </div>
                 </div>
 
-                <!-- Proxy Chain -->
-                <div class="bg-white p-4 rounded-md shadow-sm" style="border: 1px solid #f3f4f6;">
-                  <div class="flex justify-between items-center mb-3">
-                    <div class="flex items-center gap-1">
-                      <span class="font-bold text-sm text-gray-800">外部代理链 (Proxy Chain)</span>
-                      <el-tooltip effect="dark" placement="top" style="max-width: 300px;">
-                        <template #content>
-                          当规则的动作为“<b>走代理链</b>”时，流量将依次穿过以下节点。<br/>
-                          如果留空，则“走代理链”等同于“直连”。<br/>
-                          支持串联多个 HTTP/SOCKS5 代理。
-                        </template>
-                        <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
-                      </el-tooltip>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <el-button type="success" plain size="small" :icon="DocumentCopy" @click="importV2Ray(px)">从剪贴板导入 (v2ray/ss)</el-button>
-                      <el-button type="primary" plain size="small" :icon="Plus" @click="addChainNode(px)">添加跳板</el-button>
-                    </div>
-                  </div>
-                  <el-timeline class="pt-4 pl-1" v-if="px.chainNodes && px.chainNodes.length > 0">
-                    <el-timeline-item v-for="(node, nIdx) in px.chainNodes" :key="nIdx" type="primary" :hollow="true">
-                      <el-card shadow="never" class="bg-gray-50">
-                        <div class="flex justify-between items-center mb-2">
-                          <span class="text-xs font-bold text-gray-500">链节点 #{{ nIdx + 1 }}</span>
-                          <el-button type="danger" link :icon="Delete" @click="px.chainNodes.splice(nIdx, 1)" />
-                        </div>
-                        <el-row :gutter="8">
-                          <el-col :span="8" v-if="node.type !== 'v2ray'">
-                            <el-select v-model="node.type" size="small" class="w-full">
-                              <el-option label="HTTP" value="http" />
-                              <el-option label="SOCKS5" value="socks5" />
-                            </el-select>
-                          </el-col>
-                          <el-col :span="24" v-if="node.type === 'v2ray'">
-                            <div class="flex items-center gap-2 mb-1">
-                              <el-tag size="small" type="success" effect="dark">{{ node.v2rayType.toUpperCase() }}</el-tag>
-                              <span class="text-xs font-bold">{{ node.displayName }}</span>
-                            </div>
-                            <el-input v-model="node.rawUrl" size="small" type="password" show-password placeholder="vless://... / vmess://..." />
-                          </el-col>
-                          <el-col :span="10" v-if="node.type !== 'v2ray'">
-                            <el-input v-model="node.host" size="small" placeholder="IP/域名" />
-                          </el-col>
-                          <el-col :span="6" v-if="node.type !== 'v2ray'">
-                            <el-input-number v-model="node.port" size="small" :min="1" :max="65535" :controls="false" class="w-full" placeholder="端口" />
-                          </el-col>
-                        </el-row>
-                        <el-row :gutter="8" class="mt-2" v-if="node.type !== 'v2ray'">
-                          <el-col :span="12">
-                            <el-input v-model="node.user" size="small" placeholder="用户名(可选)" />
-                          </el-col>
-                          <el-col :span="12">
-                            <el-input v-model="node.pass" size="small" placeholder="密码(可选)" show-password />
-                          </el-col>
-                        </el-row>
-                      </el-card>
-                    </el-timeline-item>
-                  </el-timeline>
-                  <el-empty v-else description="暂无代理节点" :image-size="40" />
-                </div>
+
               </el-collapse-item>
             </el-collapse>
 
@@ -438,8 +390,8 @@
 
 <script setup>
 import { computed } from 'vue';
-import { Delete, Plus, ArrowUp, ArrowDown, User, Lock, Switch, HelpFilled, InfoFilled, DocumentCopy } from '@element-plus/icons-vue';
-import { parseProxyUrl } from '../utils/v2rayParser';
+import draggable from 'vuedraggable';
+import { Delete, Plus, User, Lock, Switch, HelpFilled, InfoFilled, Sort } from '@element-plus/icons-vue';
 
 const props = defineProps({
   mode: String,
@@ -492,54 +444,6 @@ const addRule = (px) => {
   px.proxyRules.push({ pattern: '', action: 'direct_local' });
 };
 
-const addChainNode = (px) => {
-  if (!px.chainNodes) px.chainNodes = [];
-  px.chainNodes.push({ type: 'socks5', host: '', port: 1080, user: '', pass: '' });
-};
-
-const importV2Ray = async (px) => {
-  try {
-    const text = await navigator.clipboard.readText();
-    if (!text) {
-      ElMessage.warning('剪贴板为空');
-      return;
-    }
-    
-    // Support multiple links separated by newline
-    const urls = text.split('\n').map(s => s.trim()).filter(s => s);
-    let imported = 0;
-    
-    if (!px.chainNodes) px.chainNodes = [];
-    
-    for (const url of urls) {
-      const parsed = parseProxyUrl(url);
-      if (parsed) {
-        if (parsed.type === 'v2ray') {
-          px.chainNodes.push(parsed);
-          imported++;
-        } else {
-          // Standard http/socks5
-          px.chainNodes.push({
-            type: parsed.type,
-            host: parsed.host,
-            port: parsed.port,
-            user: parsed.user,
-            pass: parsed.pass
-          });
-          imported++;
-        }
-      }
-    }
-    
-    if (imported > 0) {
-      ElMessage.success(`成功导入 ${imported} 个节点`);
-    } else {
-      ElMessage.warning('未在剪贴板中找到支持的代理链接 (支持 vmess://, vless://, trojan://, ss:// 等)');
-    }
-  } catch (err) {
-    ElMessage.error('无法读取剪贴板: ' + err.message);
-  }
-};
 
 const toggleSystemProxy = async (px) => {
   try {
@@ -575,19 +479,5 @@ const toggleSystemProxy = async (px) => {
   }
 };
 
-const moveRuleUp = (px, index) => {
-  if (index > 0) {
-    const temp = px.proxyRules[index];
-    px.proxyRules[index] = px.proxyRules[index - 1];
-    px.proxyRules[index - 1] = temp;
-  }
-};
 
-const moveRuleDown = (px, index) => {
-  if (index < px.proxyRules.length - 1) {
-    const temp = px.proxyRules[index];
-    px.proxyRules[index] = px.proxyRules[index + 1];
-    px.proxyRules[index + 1] = temp;
-  }
-};
 </script>
