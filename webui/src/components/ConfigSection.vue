@@ -90,6 +90,19 @@
               <el-input-number v-model="sectionConfig.tunnelPort" :min="1" :max="65535" class="w-full" controls-position="right" />
             </el-form-item>
           </el-col>
+          <el-col :span="12" v-if="mode === 'client'">
+            <el-form-item class="mb-4">
+              <template #label>
+                <div class="flex items-center gap-1">
+                  <span>客户端 ID</span>
+                  <el-tooltip content="用于服务端区分多台客户端。请确保所有接入同一个服务端的客户端 ID 不冲突。" placement="top">
+                    <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+              </template>
+              <el-input v-model="sectionConfig.clientId" placeholder="例如: client-1" />
+            </el-form-item>
+          </el-col>
         </el-row>
       </el-form>
     </el-card>
@@ -115,9 +128,18 @@
           </div>
           
           <el-row :gutter="12">
-            <el-col :span="24" class="mb-2">
+            <el-col :span="mode === 'server' ? 8 : 24" class="mb-2">
               <div class="text-xs text-gray-500 mb-1">本地监听端口</div>
               <el-input-number v-model="fw.listenPort" :min="1" :max="65535" class="w-full" controls-position="right" />
+            </el-col>
+            <el-col :span="16" class="mb-2" v-if="mode === 'server'">
+              <div class="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                <span>目标客户端 ID</span>
+                <el-tooltip content="指定该端口转发应通过哪个客户端的网络进行出站。" placement="top">
+                  <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </div>
+              <el-input v-model="fw.targetClientId" placeholder="例如: client-1" />
             </el-col>
             <el-col :span="14">
               <div class="text-xs text-gray-500 mb-1">目标 IP</div>
@@ -200,6 +222,19 @@
                     <el-option label="使用对端网络出网" :value="true" />
                     <el-option label="使用本地网络出网" :value="false" />
                   </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="24" v-if="mode === 'server' && px.useRemoteNetwork">
+                <el-form-item class="mb-2">
+                  <template #label>
+                    <div class="flex items-center gap-1">
+                      <span class="text-blue-600">目标客户端 ID</span>
+                      <el-tooltip content="指定该代理出网时应通过哪个客户端的网络。" placement="top">
+                        <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <el-input v-model="px.targetClientId" placeholder="例如: client-1" />
                 </el-form-item>
               </el-col>
             </el-row>

@@ -8,6 +8,7 @@ const { URL } = require('url');
 const basicAuth = require('express-basic-auth');
 const configManager = require('../config/config');
 const { getLogger } = require('../utils/logger');
+const trafficLogger = require('../utils/trafficLogger');
 const { getCertificates } = require('../utils/tlsGenerator');
 
 // Dependency Injection to get current status
@@ -69,6 +70,12 @@ function createWebServer(statusCallback) {
     
     // Remove duplicates
     res.json(Array.from(new Set(ips)));
+  });
+
+  app.get('/api/traffic-logs', (req, res) => {
+    const limit = parseInt(req.query.limit, 10) || 100;
+    const offset = parseInt(req.query.offset, 10) || 0;
+    res.json(trafficLogger.getLogs(limit, offset));
   });
 
   app.post('/api/tunnel/:mode/start', (req, res) => {

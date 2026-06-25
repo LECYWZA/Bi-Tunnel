@@ -22,6 +22,9 @@
         <el-menu-item index="tester">
           <el-icon><Odometer /></el-icon> 代理测试台
         </el-menu-item>
+        <el-menu-item index="logs">
+          <el-icon><DataLine /></el-icon> 流量审计
+        </el-menu-item>
       </el-menu>
 
       <transition name="el-fade-in-linear" mode="out-in">
@@ -36,6 +39,9 @@
         <ProxyTester 
           v-else-if="currentTab === 'tester'"
         />
+        <TrafficLogs
+          v-else-if="currentTab === 'logs'"
+        />
       </transition>
     </el-main>
   </el-container>
@@ -44,9 +50,10 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, ElNotification } from 'element-plus';
-import { Connection, Setting, Odometer, InfoFilled, Check } from '@element-plus/icons-vue';
+import { Connection, Setting, Odometer, InfoFilled, Check, DataLine } from '@element-plus/icons-vue';
 import ConfigPanel from './components/ConfigPanel.vue';
 import ProxyTester from './components/ProxyTester.vue';
+import TrafficLogs from './components/TrafficLogs.vue';
 
 const currentTab = ref('config');
 

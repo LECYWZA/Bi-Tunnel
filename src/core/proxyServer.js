@@ -4,18 +4,18 @@ const configManager = require('../config/config');
 const { getLogger, logTraffic } = require('../utils/logger');
 const Router = require('./router');
 const ProxyDialer = require('./proxyDialer');
+const trafficLogger = require('../utils/trafficLogger');
 
 // A simple parser to sniff protocol
 class ProxyServer {
   constructor(mode) {
     this.mode = mode;
     this.servers = new Map();
-    this.currentSession = null;
+    this.sessions = new Map();
   }
 
-  setSession(session) {
-    this.currentSession = session;
-    if (!session) return;
+  setSession(session, clientId) {
+    this.sessions.set(clientId, session);
     
     // Listen for incoming channel requests from remote
     session.on('channel', (channel) => {
@@ -23,6 +23,14 @@ class ProxyServer {
       // Proxy server doesn't currently handle incoming forward requests targeting local, 
       // but if we ever add reverse proxy, it would go here.
     });
+  }
+
+  removeSession(clientId) {
+    this.sessions.delete(clientId);
+  }
+
+  clearSessions() {
+    this.sessions.clear();
   }
 
   applyConfig() {
@@ -325,13 +333,31 @@ class ProxyServer {
       return;
     }
     
+    const startTime = Date.now();
     getLogger().info(`[Proxy] Routing ${host}:${port} via ${action}`);
     socket.on('close', () => {
-      logTraffic('Proxy', `to ${host}:${port} (${action})`, socket.bytesRead + socket.bytesWritten);
+      const bytes = socket.bytesRead + socket.bytesWritten;
+      logTraffic('Proxy', `to ${host}:${port} (${action})`, bytes);
+      trafficLogger.addLog({
+        module: `Proxy (${this.mode})`,
+        sourceIp: socket.remoteAddress,
+        target: `${host}:${port}`,
+        action: action,
+        bytesTransferred: bytes,
+        durationMs: Date.now() - startTime,
+        status: 'success'
+      });
     });
 
+    let targetSession = null;
+    if (this.mode === 'server') {
+      targetSession = this.sessions.get(proxyConfig.targetClientId || 'client-1');
+    } else {
+      targetSession = this.sessions.values().next().value;
+    }
+
     if (action === 'proxy_chain' && proxyConfig.chainNodes && proxyConfig.chainNodes.length > 0) {
-      ProxyDialer.dialChain(proxyConfig.chainNodes, host, port, proxyConfig.useRemoteNetwork, this.currentSession, (err, finalSocket) => {
+      ProxyDialer.dialChain(proxyConfig.chainNodes, host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
         if (err) {
           getLogger().error(`[Proxy] Proxy chain to ${host}:${port} failed: ${err.message}`);
           socket.destroy();
@@ -342,11 +368,11 @@ class ProxyServer {
         onConnected(finalSocket);
       });
     } else if (action === 'direct_remote') {
-      if (!this.currentSession) {
+      if (!targetSession) {
         socket.destroy();
         return;
       }
-      const channel = this.currentSession.createChannel({
+      const channel = targetSession.createChannel({
         type: 'forward',
         host: host,
         port: port

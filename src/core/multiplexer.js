@@ -75,7 +75,19 @@ class MuxSession extends EventEmitter {
 
   _handleFrame(type, id, payload) {
     if (type === TYPE_AUTH) {
-      this.emit('auth', payload.toString('utf8'));
+      const payloadStr = payload.toString('utf8');
+      let authData = payloadStr;
+      try {
+        authData = JSON.parse(payloadStr);
+      } catch (e) {
+        // Fallback for older clients sending just the password
+        authData = { password: payloadStr, clientId: 'legacy-client' };
+      }
+      // If parsed successfully but lacks clientId, provide a fallback
+      if (typeof authData === 'object' && !authData.clientId) {
+        authData.clientId = 'legacy-client';
+      }
+      this.emit('auth', authData);
       return;
     }
     if (type === TYPE_AUTH_RES) {

@@ -42,7 +42,11 @@ class TunnelClient extends EventEmitter {
       const session = new MuxSession(socket, false);
       this.session = session;
       
-      session.sendAuth(clientConfig.password);
+      const authPayload = JSON.stringify({
+        password: clientConfig.password,
+        clientId: clientConfig.clientId || 'client-1'
+      });
+      session.sendAuth(authPayload);
       
       session.on('auth_res', (ok) => {
         if (ok) {

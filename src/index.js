@@ -29,18 +29,18 @@ function init() {
       if (tunnelServer.server) return; // already running
       tunnelServer.start();
       
-      tunnelServer.on('session', (session) => {
-        getLogger().info('=== Server Tunnel Session Established ===');
-        serverForwarder.setSession(session);
-        serverProxy.setSession(session);
+      tunnelServer.on('session', (session, clientId) => {
+        getLogger().info(`=== Server Tunnel Session Established [${clientId}] ===`);
+        serverForwarder.setSession(session, clientId);
+        serverProxy.setSession(session, clientId);
         serverForwarder.applyConfig();
         serverProxy.applyConfig();
       });
 
-      tunnelServer.on('session_closed', () => {
-        getLogger().info('=== Server Tunnel Session Closed ===');
-        serverForwarder.setSession(null);
-        serverProxy.setSession(null);
+      tunnelServer.on('session_closed', (clientId) => {
+        getLogger().info(`=== Server Tunnel Session Closed [${clientId}] ===`);
+        serverForwarder.removeSession(clientId);
+        serverProxy.removeSession(clientId);
       });
     } else if (mode === 'client') {
       if (tunnelClient.shouldRetry) return; // already running
@@ -48,16 +48,16 @@ function init() {
       
       tunnelClient.on('session', (session) => {
         getLogger().info('=== Client Tunnel Session Established ===');
-        clientForwarder.setSession(session);
-        clientProxy.setSession(session);
+        clientForwarder.setSession(session, 'server');
+        clientProxy.setSession(session, 'server');
         clientForwarder.applyConfig();
         clientProxy.applyConfig();
       });
 
       tunnelClient.on('session_closed', () => {
         getLogger().info('=== Client Tunnel Session Closed ===');
-        clientForwarder.setSession(null);
-        clientProxy.setSession(null);
+        clientForwarder.removeSession('server');
+        clientProxy.removeSession('server');
       });
     }
   };
@@ -67,14 +67,14 @@ function init() {
       if (tunnelServer.stop) tunnelServer.stop();
       tunnelServer.removeAllListeners('session');
       tunnelServer.removeAllListeners('session_closed');
-      serverForwarder.setSession(null);
-      serverProxy.setSession(null);
+      serverForwarder.clearSessions();
+      serverProxy.clearSessions();
     } else if (mode === 'client') {
       if (tunnelClient.stop) tunnelClient.stop();
       tunnelClient.removeAllListeners('session');
       tunnelClient.removeAllListeners('session_closed');
-      clientForwarder.setSession(null);
-      clientProxy.setSession(null);
+      clientForwarder.clearSessions();
+      clientProxy.clearSessions();
     }
   };
 

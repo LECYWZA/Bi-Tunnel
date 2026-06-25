@@ -1,28 +1,36 @@
 const net = require('net');
 const configManager = require('../config/config');
 const { getLogger, logTraffic } = require('../utils/logger');
+const trafficLogger = require('../utils/trafficLogger');
 
 class PortForwarder {
   constructor(mode) {
     this.mode = mode;
     this.servers = new Map(); // listenPort -> net.Server
-    this.currentSession = null;
+    this.sessions = new Map(); // clientId -> session
   }
 
-  setSession(session) {
-    this.currentSession = session;
-    if (!session) return;
+  setSession(session, clientId) {
+    this.sessions.set(clientId, session);
     
     // Listen for incoming channel requests from remote
     session.on('channel', (channel) => {
       const { meta } = channel;
       if (meta && meta.type === 'forward') {
-        this.handleIncomingForward(channel, meta.host, meta.port);
+        this.handleIncomingForward(channel, meta.host, meta.port, socket => socket.remoteAddress);
       }
     });
   }
 
-  handleIncomingForward(channel, host, port) {
+  removeSession(clientId) {
+    this.sessions.delete(clientId);
+  }
+
+  clearSessions() {
+    this.sessions.clear();
+  }
+
+  handleIncomingForward(channel, host, port, getSourceIp) {
     getLogger().info(`[Forward-${this.mode}] Received forward request to ${host}:${port}, attempting connection...`);
     const socket = new net.Socket();
     socket.connect(port, host, () => {
@@ -37,7 +45,15 @@ class PortForwarder {
     });
 
     socket.on('close', () => {
-      logTraffic(`Forward Incoming (${this.mode})`, `to ${host}:${port}`, socket.bytesRead + socket.bytesWritten);
+      const bytes = socket.bytesRead + socket.bytesWritten;
+      logTraffic(`Forward Incoming (${this.mode})`, `to ${host}:${port}`, bytes);
+      trafficLogger.addLog({
+        module: `Forward Incoming (${this.mode})`,
+        target: `${host}:${port}`,
+        action: 'reverse_forward',
+        bytesTransferred: bytes,
+        status: 'success'
+      });
     });
 
     channel.on('error', () => {
@@ -75,17 +91,25 @@ class PortForwarder {
         socket.destroy();
         return;
       }
-      const { targetHost, targetPort } = currentConfig;
+      const { targetHost, targetPort, targetClientId } = currentConfig;
+      
+      let targetSession;
+      if (this.mode === 'server') {
+        targetSession = this.sessions.get(targetClientId || 'client-1');
+      } else {
+        targetSession = this.sessions.values().next().value;
+      }
 
-      if (!this.currentSession) {
-        getLogger().warn(`[Forward-${this.mode}] No active tunnel session, dropping connection`);
+      if (!targetSession) {
+        getLogger().warn(`[Forward-${this.mode}] No active tunnel session for client ${targetClientId || 'client-1'}, dropping connection`);
         socket.destroy();
         return;
       }
       
       getLogger().info(`[Forward-${this.mode}] New connection on local port ${listenPort}, tunneling to ${targetHost}:${targetPort}`);
+      const startTime = Date.now();
       
-      const channel = this.currentSession.createChannel({
+      const channel = targetSession.createChannel({
         type: 'forward',
         host: targetHost,
         port: targetPort
@@ -98,7 +122,17 @@ class PortForwarder {
       channel.on('error', () => socket.destroy());
       
       socket.on('close', () => {
-        logTraffic(`Forward Outgoing (${this.mode})`, `from :${listenPort} to ${targetHost}:${targetPort}`, socket.bytesRead + socket.bytesWritten);
+        const bytes = socket.bytesRead + socket.bytesWritten;
+        logTraffic(`Forward Outgoing (${this.mode})`, `to ${targetHost}:${targetPort}`, bytes);
+        trafficLogger.addLog({
+          module: `Forward Outgoing (${this.mode})`,
+          sourceIp: socket.remoteAddress,
+          target: `${targetHost}:${targetPort}`,
+          action: 'forward',
+          bytesTransferred: bytes,
+          durationMs: Date.now() - startTime,
+          status: 'success'
+        });
       });
     });
 
