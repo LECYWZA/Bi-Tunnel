@@ -10,7 +10,7 @@
 
     <el-empty v-if="!config.proxyChains || config.proxyChains.length === 0" description="暂无代理链，请点击右上角创建" :image-size="80" />
 
-    <el-card v-for="(chain, idx) in config.proxyChains" :key="chain.id" shadow="hover" class="mb-6">
+    <el-card v-for="(chain, idx) in config.proxyChains" :key="chain.id" shadow="hover" class="mb-6 rounded-xl border-0 bg-white" style="box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
       <template #header>
         <div class="flex justify-between items-center">
           <div class="flex items-center gap-2 flex-1">
@@ -56,26 +56,37 @@
           <el-icon><InfoFilled /></el-icon> 支持拖拽调整节点顺序。流量将按从上到下的顺序依次穿透。
         </div>
         
-        <draggable v-model="chain.nodes" item-key="id" handle=".drag-handle" animation="200" ghost-class="ghost">
+        <draggable v-model="chain.nodes" item-key="id" handle=".drag-handle" animation="300" ghost-class="ghost">
           <template #item="{ element: nodeId, index: nIdx }">
-            <div class="flex items-center gap-3 p-3 mb-2 bg-gray-50 border border-gray-200 rounded-md shadow-sm relative group">
-              <el-icon class="drag-handle cursor-move text-gray-400 hover:text-blue-500" :size="20"><Sort /></el-icon>
+            <div class="flex items-center gap-4 p-4 mb-3 bg-white border border-gray-100 rounded-lg shadow-sm hover:shadow-md transition-all relative group overflow-hidden">
+              <div class="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-400 to-indigo-500"></div>
+              
+              <el-icon class="drag-handle cursor-move text-gray-300 hover:text-indigo-500 transition-colors" :size="24"><Sort /></el-icon>
               
               <div class="flex-1 flex gap-3 items-center">
-                <span class="font-bold text-sm text-gray-700 w-6">#{{ nIdx + 1 }}</span>
+                <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 font-bold text-sm">
+                  {{ nIdx + 1 }}
+                </div>
+                
                 <template v-if="getNode(nodeId)">
-                  <el-tag size="small" :type="getNode(nodeId).type === 'v2ray' ? 'success' : 'info'" effect="dark">
+                  <el-tag 
+                    size="default" 
+                    :type="getNode(nodeId).type === 'v2ray' ? 'success' : 'primary'" 
+                    effect="dark"
+                    class="font-bold tracking-wider"
+                    :style="getNode(nodeId).type === 'v2ray' ? 'background: linear-gradient(135deg, #10b981 0%, #059669 100%); border:none;' : 'background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); border:none;'"
+                  >
                     {{ getNode(nodeId).type === 'v2ray' ? getNode(nodeId).v2rayType.toUpperCase() : getNode(nodeId).type.toUpperCase() }}
                   </el-tag>
-                  <span class="font-bold">{{ getNode(nodeId).displayName }}</span>
-                  <span class="text-xs text-gray-400 ml-2">(ID: {{ nodeId.split('_')[1] }})</span>
+                  <span class="font-bold text-gray-800 text-base">{{ getNode(nodeId).displayName }}</span>
+                  <span class="text-xs text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded">id: {{ nodeId.split('_')[1] }}</span>
                 </template>
                 <template v-else>
-                  <span class="text-red-500 italic">节点已丢失 (ID: {{ nodeId }})</span>
+                  <span class="text-red-500 italic bg-red-50 px-3 py-1 rounded-full text-sm">⚠️ 节点已丢失 (ID: {{ nodeId }})</span>
                 </template>
               </div>
 
-              <el-button type="danger" link :icon="Delete" @click="chain.nodes.splice(nIdx, 1)" class="opacity-0 group-hover:opacity-100 transition-opacity" />
+              <el-button type="danger" circle :icon="Delete" @click="chain.nodes.splice(nIdx, 1)" class="opacity-0 group-hover:opacity-100 transition-opacity shadow-sm" />
             </div>
           </template>
         </draggable>

@@ -304,25 +304,41 @@
                     <el-icon><InfoFilled /></el-icon> 支持拖拽调整规则优先级。按从上到下的顺序依次匹配。
                   </div>
                   
-                  <draggable v-model="px.proxyRules" item-key="pattern" handle=".drag-handle" animation="200" ghost-class="ghost">
+                  <draggable v-model="px.proxyRules" item-key="pattern" handle=".drag-handle" animation="300" ghost-class="ghost">
                     <template #item="{ element: rule, index: rIdx }">
-                      <div class="flex items-center gap-3 p-2 mb-2 bg-gray-50 border border-gray-200 rounded-md shadow-sm relative group">
-                        <el-icon class="drag-handle cursor-move text-gray-400 hover:text-blue-500" :size="20"><Sort /></el-icon>
-                        <el-input v-model="rule.pattern" size="small" placeholder="匹配模式 (*.google.com)" class="flex-1" />
-                        <el-select v-model="rule.action" size="small" class="w-48">
-                          <el-option-group label="内置动作">
-                            <el-option label="直连 (本地网络)" value="direct_local" />
-                            <el-option label="直连 (远端隧道)" value="direct_remote" />
-                            <el-option label="拒绝连接" value="block" />
-                          </el-option-group>
-                          <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
-                            <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" />
-                          </el-option-group>
-                          <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
-                            <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" />
-                          </el-option-group>
-                        </el-select>
-                        <el-button type="danger" link :icon="Delete" @click="px.proxyRules.splice(rIdx, 1)" class="opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div class="flex items-center gap-3 p-4 mb-3 bg-white border border-gray-100 rounded-lg shadow-sm hover:shadow-md transition-all relative group overflow-hidden">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-teal-400 to-emerald-500"></div>
+                        <el-icon class="drag-handle cursor-move text-gray-300 hover:text-emerald-500 transition-colors" :size="24"><Sort /></el-icon>
+                        
+                        <div class="flex-1 grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
+                          <!-- Match Pattern -->
+                          <div class="flex items-center border rounded-md focus-within:border-emerald-400 focus-within:ring-1 focus-within:ring-emerald-400 transition-all bg-gray-50 overflow-hidden">
+                            <span class="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-2 border-r select-none whitespace-nowrap">匹配域名/IP</span>
+                            <el-input v-model="rule.pattern" placeholder="例如: *.google.com 或 192.168.1.*" class="rule-input border-0 bg-transparent flex-1" />
+                          </div>
+
+                          <el-icon class="text-gray-300"><Right /></el-icon>
+
+                          <!-- Route Action -->
+                          <div class="flex items-center border rounded-md focus-within:border-emerald-400 focus-within:ring-1 focus-within:ring-emerald-400 transition-all bg-gray-50 overflow-hidden">
+                            <span class="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-2 border-r select-none whitespace-nowrap">转发至</span>
+                            <el-select v-model="rule.action" class="rule-select flex-1" style="width: 100%;">
+                              <el-option-group label="内置动作">
+                                <el-option label="🌍 直连 (本地网络)" value="direct_local" />
+                                <el-option label="☁️ 直连 (远端隧道)" value="direct_remote" />
+                                <el-option label="🚫 拒绝连接" value="block" />
+                              </el-option-group>
+                              <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
+                                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`🔗 走代理链: ${chain.name}`" :value="`chain:${chain.id}`" />
+                              </el-option-group>
+                              <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
+                                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`🎯 走节点: ${node.displayName}`" :value="`node:${node.id}`" />
+                              </el-option-group>
+                            </el-select>
+                          </div>
+                        </div>
+
+                        <el-button type="danger" circle :icon="Delete" @click="px.proxyRules.splice(rIdx, 1)" class="opacity-0 group-hover:opacity-100 transition-opacity ml-2 shadow-sm" />
                       </div>
                     </template>
                   </draggable>
@@ -391,7 +407,7 @@
 <script setup>
 import { computed } from 'vue';
 import draggable from 'vuedraggable';
-import { Delete, Plus, User, Lock, Switch, HelpFilled, InfoFilled, Sort } from '@element-plus/icons-vue';
+import { Delete, Plus, User, Lock, Switch, HelpFilled, InfoFilled, Sort, Right } from '@element-plus/icons-vue';
 
 const props = defineProps({
   mode: String,
@@ -481,3 +497,20 @@ const toggleSystemProxy = async (px) => {
 
 
 </script>
+
+<style scoped>
+.ghost {
+  opacity: 0.5;
+  background: #f0fdf4;
+}
+
+/* Custom styling to remove borders from inputs and selects within our custom flex containers */
+:deep(.rule-input .el-input__wrapper) {
+  box-shadow: none !important;
+  background: transparent !important;
+}
+:deep(.rule-select .el-input__wrapper) {
+  box-shadow: none !important;
+  background: transparent !important;
+}
+</style>

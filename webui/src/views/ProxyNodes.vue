@@ -10,34 +10,40 @@
 
     <el-empty v-if="!config.proxyNodes || config.proxyNodes.length === 0" description="暂无代理节点，请点击右上角添加" :image-size="80" />
 
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" v-else>
-      <el-card v-for="(node, idx) in config.proxyNodes" :key="node.id" shadow="hover" class="relative group">
-        <div class="flex justify-between items-start mb-2">
-          <div class="flex items-center gap-2 flex-1 mr-2">
-            <el-tag size="small" :type="node.type === 'v2ray' ? 'success' : 'info'" effect="dark">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" v-else>
+      <el-card v-for="(node, idx) in config.proxyNodes" :key="node.id" shadow="hover" class="relative group rounded-xl border-0 bg-white" style="box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
+        <div class="flex justify-between items-start mb-3">
+          <div class="flex items-center gap-3 flex-1 mr-2">
+            <el-tag 
+              size="default" 
+              :type="node.type === 'v2ray' ? 'success' : 'primary'" 
+              effect="dark"
+              class="font-bold tracking-wider"
+              :style="node.type === 'v2ray' ? 'background: linear-gradient(135deg, #10b981 0%, #059669 100%); border:none;' : 'background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); border:none;'"
+            >
               {{ node.type === 'v2ray' ? node.v2rayType.toUpperCase() : node.type.toUpperCase() }}
             </el-tag>
-            <el-input v-model="node.displayName" size="small" class="flex-1 font-bold" placeholder="节点名称" />
+            <el-input v-model="node.displayName" size="small" class="flex-1 font-bold text-gray-800" placeholder="节点名称" />
           </div>
           <el-popconfirm title="确定要删除此节点吗？" @confirm="deleteNode(idx, node.id)">
             <template #reference>
-              <el-button type="danger" link :icon="Delete" class="opacity-0 group-hover:opacity-100 transition-opacity" />
+              <el-button type="danger" circle :icon="Delete" size="small" class="opacity-0 group-hover:opacity-100 transition-opacity shadow-sm" />
             </template>
           </el-popconfirm>
         </div>
 
-        <div class="text-sm text-gray-600 mb-4 bg-gray-50 p-2 rounded border border-gray-100">
+        <div class="text-sm text-gray-600 mb-4 bg-gray-50/80 backdrop-blur p-3 rounded-lg border border-gray-100">
           <template v-if="node.type === 'v2ray'">
-            <div class="truncate mb-1"><span class="text-gray-400">URL:</span> <el-tooltip :content="node.rawUrl" placement="top"><span class="cursor-pointer">********</span></el-tooltip></div>
+            <div class="truncate mb-2"><span class="text-gray-400 text-xs uppercase font-bold mr-1">URL:</span> <el-tooltip :content="node.rawUrl" placement="top"><span class="cursor-pointer font-mono bg-white px-2 py-1 rounded shadow-sm">********</span></el-tooltip></div>
             <div class="flex gap-2 text-xs">
-              <el-tag size="small" type="info" plain>解析成功</el-tag>
+              <el-tag size="small" type="success" plain class="bg-green-50 border-green-200 text-green-600"><el-icon class="mr-1"><Check /></el-icon>解析成功</el-tag>
             </div>
           </template>
           <template v-else>
-            <div class="flex items-center gap-2 mb-1">
-              <el-input v-model="node.host" size="small" placeholder="IP/域名" class="flex-1" />
-              <span class="text-gray-400">:</span>
-              <el-input-number v-model="node.port" size="small" :min="1" :max="65535" :controls="false" class="w-20" placeholder="端口" />
+            <div class="flex items-center gap-2 mb-2">
+              <el-input v-model="node.host" size="small" placeholder="IP/域名" class="flex-1 font-mono" />
+              <span class="text-gray-400 font-bold">:</span>
+              <el-input-number v-model="node.port" size="small" :min="1" :max="65535" :controls="false" class="w-24 font-mono" placeholder="端口" />
             </div>
             <div class="flex gap-2">
               <el-input v-model="node.user" size="small" placeholder="用户名(可选)" />
@@ -46,14 +52,15 @@
           </template>
         </div>
 
-        <div class="flex justify-between items-center mt-2 border-t pt-2">
-          <span class="text-xs text-gray-400">ID: {{ node.id.split('_')[1] }}</span>
+        <div class="flex justify-between items-center mt-3 pt-3 border-t border-gray-100">
+          <span class="text-xs text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded">id: {{ node.id.split('_')[1] }}</span>
           <el-button 
             type="primary" 
             plain 
             size="small" 
             :icon="Connection" 
             :loading="testingNode === node.id"
+            class="rounded-full shadow-sm hover:shadow-md transition-shadow"
             @click="testLatency(node.id)"
           >
             {{ testingNode === node.id ? '测速中...' : '⚡ 测试延迟' }}
