@@ -2,6 +2,8 @@ const net = require('net');
 const ipaddr = require('ipaddr.js');
 const configManager = require('../config/config');
 const { getLogger, logTraffic } = require('../utils/logger');
+const Router = require('./router');
+const ProxyDialer = require('./proxyDialer');
 
 // A simple parser to sniff protocol
 class ProxyServer {
@@ -286,34 +288,64 @@ class ProxyServer {
   }
 
   processTarget(socket, host, port, proxyConfig, onConnected) {
-    // We should resolve DNS to check target IP ACL
-    // For simplicity, if it's a domain, we might skip target IP ACL if not possible locally
-    // If it's an IP, we can check it.
+    let action = 'direct_local';
+
+    // Helper to get fallback legacy action
+    const getLegacyAction = () => {
+      const isDirect = !proxyConfig.chainNodes || proxyConfig.chainNodes.length === 0;
+      if (isDirect) {
+        return proxyConfig.useRemoteNetwork ? 'direct_remote' : 'direct_local';
+      }
+      return 'proxy_chain';
+    };
+
     let targetIpForAcl = host;
     try {
-       // if it parses, it's an IP
-       ipaddr.process(host);
-        if (!this.checkAcl(targetIpForAcl, proxyConfig.targetAllowIps, proxyConfig.targetDenyIps)) {
-          getLogger().warn(`[Proxy] Denied access to ${host} due to target ACL`);
-          socket.destroy();
-          return;
+       ipaddr.process(host); // Throws if not IP
+       if (proxyConfig.proxyRules && proxyConfig.proxyRules.length > 0) {
+         action = Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
+       } else {
+         if (!this.checkAcl(targetIpForAcl, proxyConfig.targetAllowIps, proxyConfig.targetDenyIps)) {
+           action = 'block';
+         } else {
+           action = getLegacyAction();
+         }
        }
     } catch(e) {
-       // It's a domain. If there are strict target ACLs, we should technically resolve it.
-       // We'll skip domain target ACL for brevity unless explicitly implementing a resolver.
+       if (proxyConfig.proxyRules && proxyConfig.proxyRules.length > 0) {
+         action = Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
+       } else {
+         action = getLegacyAction();
+       }
+    }
+
+    if (action === 'block') {
+      getLogger().warn(`[Proxy] Denied access to ${host} due to routing rules / ACL`);
+      socket.destroy();
+      return;
     }
     
-    getLogger().info(`[Proxy] Proxying traffic to ${host}:${port} (${proxyConfig.useRemoteNetwork ? 'remote' : 'local'} network)`);
+    getLogger().info(`[Proxy] Routing ${host}:${port} via ${action}`);
     socket.on('close', () => {
-      logTraffic('Proxy', `to ${host}:${port} (${proxyConfig.useRemoteNetwork ? 'remote' : 'local'})`, socket.bytesRead + socket.bytesWritten);
+      logTraffic('Proxy', `to ${host}:${port} (${action})`, socket.bytesRead + socket.bytesWritten);
     });
 
-    if (proxyConfig.useRemoteNetwork) {
+    if (action === 'proxy_chain' && proxyConfig.chainNodes && proxyConfig.chainNodes.length > 0) {
+      ProxyDialer.dialChain(proxyConfig.chainNodes, host, port, proxyConfig.useRemoteNetwork, this.currentSession, (err, finalSocket) => {
+        if (err) {
+          getLogger().error(`[Proxy] Proxy chain to ${host}:${port} failed: ${err.message}`);
+          socket.destroy();
+          return;
+        }
+        finalSocket.on('error', () => socket.destroy());
+        socket.on('error', () => finalSocket.destroy());
+        onConnected(finalSocket);
+      });
+    } else if (action === 'direct_remote') {
       if (!this.currentSession) {
         socket.destroy();
         return;
       }
-      // Create channel to remote
       const channel = this.currentSession.createChannel({
         type: 'forward',
         host: host,
@@ -321,10 +353,9 @@ class ProxyServer {
       });
       channel.on('error', () => socket.destroy());
       socket.on('error', () => channel.end());
-      
       onConnected(channel);
     } else {
-      // Local network
+      // direct_local (or fallback if proxy_chain is selected but no nodes exist)
       const outbound = new net.Socket();
       outbound.connect(port, host, () => {
         onConnected(outbound);
