@@ -4,12 +4,15 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const net = require('net');
+const fs = require('fs');
+const os = require('os');
 const { URL } = require('url');
 const basicAuth = require('express-basic-auth');
 const configManager = require('../config/config');
 const { getLogger } = require('../utils/logger');
 const trafficLogger = require('../utils/trafficLogger');
 const { getCertificates } = require('../utils/tlsGenerator');
+const { enableSystemProxy, disableSystemProxy } = require('../utils/systemProxy');
 
 // Dependency Injection to get current status
 let getStatus = () => ({});
@@ -98,6 +101,20 @@ function createWebServer(statusCallback) {
     } else {
       res.status(500).json({ success: false, message: 'Tunnel control not bound.' });
     }
+  });
+
+  app.post('/api/system-proxy/enable', async (req, res) => {
+    const { host, port } = req.body;
+    if (!port) {
+      return res.status(400).json({ success: false, message: 'Port is required' });
+    }
+    const success = await enableSystemProxy(host || '127.0.0.1', port);
+    res.json({ success });
+  });
+
+  app.post('/api/system-proxy/disable', async (req, res) => {
+    const success = await disableSystemProxy();
+    res.json({ success });
   });
 
   app.post('/api/test-proxy', (req, res) => {

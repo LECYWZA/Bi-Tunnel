@@ -95,7 +95,11 @@ class PortForwarder {
       
       let targetSession;
       if (this.mode === 'server') {
-        targetSession = this.sessions.get(targetClientId || 'client-1');
+        const clientId = targetClientId || 'client-1';
+        targetSession = this.sessions.get(clientId);
+        if (!targetSession && this.sessions.size === 1) {
+          targetSession = this.sessions.values().next().value;
+        }
       } else {
         targetSession = this.sessions.values().next().value;
       }

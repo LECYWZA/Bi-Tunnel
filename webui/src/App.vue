@@ -87,7 +87,8 @@ const status = reactive({
   serverConnected: false,
   serverRunning: false,
   clientConnected: false,
-  clientRunning: false
+  clientRunning: false,
+  connectedClients: []
 });
 
 const availableIps = ref(['0.0.0.0', '127.0.0.1']);
@@ -104,6 +105,7 @@ const fetchStatus = async () => {
     status.serverRunning = data.serverRunning;
     status.clientConnected = data.clientConnected;
     status.clientRunning = data.clientRunning;
+    status.connectedClients = data.connectedClients || [];
   } catch (e) {}
 };
 

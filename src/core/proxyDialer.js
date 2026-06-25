@@ -30,30 +30,46 @@ class ProxyDialer {
       });
     };
 
-    if (useRemoteNetwork) {
-      if (!session) return callback(new Error('No remote session available'));
-      socket = session.createChannel({
-        type: 'forward',
-        host: firstNode.host,
-        port: firstNode.port
-      });
-      // The channel simulates a connected socket immediately, but it might error out later
-      // We'll proceed to handshake immediately.
-      socket.once('error', (err) => {
-         callback(new Error(`Remote tunnel error to first node: ${err.message}`));
-      });
-      // wait a tick for channel initialization or just proceed (channel stream supports immediate write)
-      process.nextTick(() => onFirstConnected(socket));
-    } else {
-      socket = new net.Socket();
-      socket.connect(firstNode.port, firstNode.host, () => {
-        socket.removeAllListeners('error');
-        onFirstConnected(socket);
-      });
-      socket.once('error', (err) => {
-        callback(new Error(`Failed to connect to first node ${firstNode.host}:${firstNode.port} - ${err.message}`));
-      });
-    }
+    const performDial = async () => {
+      try {
+        let connectHost = firstNode.host;
+        let connectPort = firstNode.port;
+
+        if (firstNode.type === 'v2ray') {
+          const { startXray } = require('./xrayManager');
+          const localPort = await startXray(firstNode);
+          if (!localPort) throw new Error('Failed to start Xray process for first v2ray node');
+          connectHost = '127.0.0.1';
+          connectPort = localPort;
+        }
+
+        if (useRemoteNetwork) {
+          if (!session) return callback(new Error('No remote session available'));
+          socket = session.createChannel({
+            type: 'forward',
+            host: connectHost,
+            port: connectPort
+          });
+          socket.once('error', (err) => {
+             callback(new Error(`Remote tunnel error to first node: ${err.message}`));
+          });
+          process.nextTick(() => onFirstConnected(socket));
+        } else {
+          socket = new net.Socket();
+          socket.connect(connectPort, connectHost, () => {
+            socket.removeAllListeners('error');
+            onFirstConnected(socket);
+          });
+          socket.once('error', (err) => {
+            callback(new Error(`Failed to connect to first node ${connectHost}:${connectPort} - ${err.message}`));
+          });
+        }
+      } catch (err) {
+        callback(err);
+      }
+    };
+
+    performDial();
   }
 
   static handshakeChain(socket, nodes, currentIndex, finalHost, finalPort, callback) {
@@ -76,6 +92,16 @@ class ProxyDialer {
       });
     } else if (currentNode.type === 'http') {
       this.handshakeHttp(socket, currentNode.user, currentNode.pass, nextHost, nextPort, (err) => {
+        if (err) return callback(err);
+        this.handshakeChain(socket, nodes, currentIndex + 1, finalHost, finalPort, callback);
+      });
+    } else if (currentNode.type === 'v2ray') {
+      if (currentIndex > 0) {
+        return callback(new Error('v2ray nodes must be the FIRST node in the proxy chain. Chaining after another proxy is not supported.'));
+      }
+      // If it's the first node, dialChain already started it and connected to it via local SOCKS5 port
+      // So we just perform a normal SOCKS5 handshake!
+      this.handshakeSocks5(socket, '', '', nextHost, nextPort, (err) => {
         if (err) return callback(err);
         this.handshakeChain(socket, nodes, currentIndex + 1, finalHost, finalPort, callback);
       });

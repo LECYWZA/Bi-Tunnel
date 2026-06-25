@@ -4,11 +4,18 @@ const tunnelClient = require('./core/tunnelClient');
 const PortForwarder = require('./core/portForwarder');
 const ProxyServer = require('./core/proxyServer');
 const { createWebServer } = require('./web/api');
+const { getCertificates } = require('./utils/tlsGenerator');
+const { downloadXray } = require('./utils/xrayDownloader');
+const { stopXray } = require('./core/xrayManager');
 const { getLogger } = require('./utils/logger');
 
 function init() {
   const logger = getLogger();
   logger.info('Starting Bi-Tunnel Application...');
+  
+  // Download Xray-core in the background
+  downloadXray().catch(e => getLogger().error('Xray download error: ' + e.message));
+
   configManager.loadConfig();
   const config = configManager.getConfig();
 
@@ -18,10 +25,11 @@ function init() {
   const clientProxy = new ProxyServer('client');
 
   const webApp = createWebServer(() => ({
-    serverConnected: tunnelServer.getSession() !== null,
+    serverConnected: tunnelServer.sessions ? tunnelServer.sessions.size > 0 : false,
     serverRunning: !!tunnelServer.server,
     clientConnected: tunnelClient.getSession() !== null,
-    clientRunning: tunnelClient.shouldRetry // from our implementation
+    clientRunning: tunnelClient.shouldRetry, // from our implementation
+    connectedClients: tunnelServer.sessions ? Array.from(tunnelServer.sessions.keys()) : []
   }));
 
   const startTunnel = (mode) => {
@@ -134,5 +142,13 @@ function init() {
 // Global unhandled rejections to prevent crash
 process.on('uncaughtException', (err) => getLogger().error('Uncaught Exception: ' + err.message));
 process.on('unhandledRejection', (err) => getLogger().error('Unhandled Rejection: ' + err));
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  getLogger().info('\nShutting down gracefully...');
+  const { stopXray } = require('./core/xrayManager');
+  stopXray();
+  process.exit(0);
+});
 
 init();

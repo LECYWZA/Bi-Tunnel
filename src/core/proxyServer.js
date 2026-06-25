@@ -351,7 +351,11 @@ class ProxyServer {
 
     let targetSession = null;
     if (this.mode === 'server') {
-      targetSession = this.sessions.get(proxyConfig.targetClientId || 'client-1');
+      const clientId = proxyConfig.targetClientId || 'client-1';
+      targetSession = this.sessions.get(clientId);
+      if (!targetSession && this.sessions.size === 1) {
+        targetSession = this.sessions.values().next().value;
+      }
     } else {
       targetSession = this.sessions.values().next().value;
     }
@@ -369,6 +373,7 @@ class ProxyServer {
       });
     } else if (action === 'direct_remote') {
       if (!targetSession) {
+        getLogger().warn(`[Proxy] direct_remote failed: targetSession (clientId: ${proxyConfig.targetClientId || 'client-1'}) not found`);
         socket.destroy();
         return;
       }

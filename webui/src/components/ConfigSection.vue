@@ -5,6 +5,12 @@
         <el-tag :type="isRunning ? 'success' : 'info'" effect="dark" round size="large">
           {{ title }}: {{ isRunning ? '运行中' : '已停止' }}
         </el-tag>
+        <el-tag v-if="mode === 'server' && isRunning" type="warning" round size="large">
+          <span v-if="status.connectedClients && status.connectedClients.length > 0">
+            已连接: {{ status.connectedClients.join(', ') }}
+          </span>
+          <span v-else>无客户端连接</span>
+        </el-tag>
       </div>
       <el-button v-if="!isRunning" type="primary" :icon="VideoPlay" @click="$emit('start')" shadow>
         启动{{ title }}
@@ -171,7 +177,19 @@
         <el-card v-for="(px, index) in sectionConfig.proxies" :key="index" shadow="never" class="bg-blue-50/20 mb-4">
           <div class="flex justify-between items-center mb-2 pb-2" style="border-bottom: 1px solid #dbeafe;">
             <span class="text-sm font-bold text-gray-600">混合代理 #{{ index + 1 }}</span>
-            <el-button type="danger" circle plain :icon="Delete" size="small" @click="sectionConfig.proxies.splice(index, 1)" />
+            <div class="flex items-center gap-2">
+              <el-tooltip content="将此代理设为 Windows 系统的全局代理。开启后，本机的所有网络请求都会经过此代理。" placement="top">
+                <el-switch 
+                  v-model="px.isSystemProxy" 
+                  inline-prompt 
+                  active-text="已设为全局" 
+                  inactive-text="设为全局" 
+                  @change="toggleSystemProxy(px)"
+                  :disabled="!isRunning"
+                />
+              </el-tooltip>
+              <el-button type="danger" circle plain :icon="Delete" size="small" @click="sectionConfig.proxies.splice(index, 1)" />
+            </div>
           </div>
           
           <el-form label-position="top">
@@ -335,7 +353,10 @@
                         <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
-                    <el-button type="primary" plain size="small" :icon="Plus" @click="addChainNode(px)">添加跳板</el-button>
+                    <div class="flex items-center gap-2">
+                      <el-button type="success" plain size="small" :icon="DocumentCopy" @click="importV2Ray(px)">从剪贴板导入 (v2ray/ss)</el-button>
+                      <el-button type="primary" plain size="small" :icon="Plus" @click="addChainNode(px)">添加跳板</el-button>
+                    </div>
                   </div>
                   <el-timeline class="pt-4 pl-1" v-if="px.chainNodes && px.chainNodes.length > 0">
                     <el-timeline-item v-for="(node, nIdx) in px.chainNodes" :key="nIdx" type="primary" :hollow="true">
@@ -345,20 +366,27 @@
                           <el-button type="danger" link :icon="Delete" @click="px.chainNodes.splice(nIdx, 1)" />
                         </div>
                         <el-row :gutter="8">
-                          <el-col :span="8">
+                          <el-col :span="8" v-if="node.type !== 'v2ray'">
                             <el-select v-model="node.type" size="small" class="w-full">
                               <el-option label="HTTP" value="http" />
                               <el-option label="SOCKS5" value="socks5" />
                             </el-select>
                           </el-col>
-                          <el-col :span="10">
+                          <el-col :span="24" v-if="node.type === 'v2ray'">
+                            <div class="flex items-center gap-2 mb-1">
+                              <el-tag size="small" type="success" effect="dark">{{ node.v2rayType.toUpperCase() }}</el-tag>
+                              <span class="text-xs font-bold">{{ node.displayName }}</span>
+                            </div>
+                            <el-input v-model="node.rawUrl" size="small" type="password" show-password placeholder="vless://... / vmess://..." />
+                          </el-col>
+                          <el-col :span="10" v-if="node.type !== 'v2ray'">
                             <el-input v-model="node.host" size="small" placeholder="IP/域名" />
                           </el-col>
-                          <el-col :span="6">
+                          <el-col :span="6" v-if="node.type !== 'v2ray'">
                             <el-input-number v-model="node.port" size="small" :min="1" :max="65535" :controls="false" class="w-full" placeholder="端口" />
                           </el-col>
                         </el-row>
-                        <el-row :gutter="8" class="mt-2">
+                        <el-row :gutter="8" class="mt-2" v-if="node.type !== 'v2ray'">
                           <el-col :span="12">
                             <el-input v-model="node.user" size="small" placeholder="用户名(可选)" />
                           </el-col>
@@ -410,7 +438,8 @@
 
 <script setup>
 import { computed } from 'vue';
-import { Delete, Plus, ArrowUp, ArrowDown, User, Lock, Switch, HelpFilled, InfoFilled } from '@element-plus/icons-vue';
+import { Delete, Plus, ArrowUp, ArrowDown, User, Lock, Switch, HelpFilled, InfoFilled, DocumentCopy } from '@element-plus/icons-vue';
+import { parseProxyUrl } from '../utils/v2rayParser';
 
 const props = defineProps({
   mode: String,
@@ -443,6 +472,7 @@ const addProxy = () => {
   sectionConfig.value.proxies.push({
     listenPort: 1080,
     listenIp: '0.0.0.0',
+    isSystemProxy: false,
     useAuth: false,
     user: '',
     pass: '',
@@ -465,6 +495,84 @@ const addRule = (px) => {
 const addChainNode = (px) => {
   if (!px.chainNodes) px.chainNodes = [];
   px.chainNodes.push({ type: 'socks5', host: '', port: 1080, user: '', pass: '' });
+};
+
+const importV2Ray = async (px) => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) {
+      ElMessage.warning('剪贴板为空');
+      return;
+    }
+    
+    // Support multiple links separated by newline
+    const urls = text.split('\n').map(s => s.trim()).filter(s => s);
+    let imported = 0;
+    
+    if (!px.chainNodes) px.chainNodes = [];
+    
+    for (const url of urls) {
+      const parsed = parseProxyUrl(url);
+      if (parsed) {
+        if (parsed.type === 'v2ray') {
+          px.chainNodes.push(parsed);
+          imported++;
+        } else {
+          // Standard http/socks5
+          px.chainNodes.push({
+            type: parsed.type,
+            host: parsed.host,
+            port: parsed.port,
+            user: parsed.user,
+            pass: parsed.pass
+          });
+          imported++;
+        }
+      }
+    }
+    
+    if (imported > 0) {
+      ElMessage.success(`成功导入 ${imported} 个节点`);
+    } else {
+      ElMessage.warning('未在剪贴板中找到支持的代理链接 (支持 vmess://, vless://, trojan://, ss:// 等)');
+    }
+  } catch (err) {
+    ElMessage.error('无法读取剪贴板: ' + err.message);
+  }
+};
+
+const toggleSystemProxy = async (px) => {
+  try {
+    if (px.isSystemProxy) {
+      // First turn off any other proxies that might have this flag on
+      sectionConfig.value.proxies.forEach(p => {
+        if (p !== px) p.isSystemProxy = false;
+      });
+      const res = await fetch('/api/system-proxy/enable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: '127.0.0.1', port: px.listenPort })
+      });
+      const data = await res.json();
+      if (data.success) {
+        ElMessage.success('已开启全局系统代理');
+      } else {
+        px.isSystemProxy = false;
+        ElMessage.error('无法开启系统代理，请检查权限');
+      }
+    } else {
+      const res = await fetch('/api/system-proxy/disable', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        ElMessage.success('已关闭全局系统代理并恢复原样');
+      } else {
+        ElMessage.error('关闭系统代理失败');
+      }
+    }
+  } catch (err) {
+    px.isSystemProxy = !px.isSystemProxy;
+    ElMessage.error('请求失败: ' + err.message);
+  }
 };
 
 const moveRuleUp = (px, index) => {
