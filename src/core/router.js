@@ -34,29 +34,33 @@ class Router {
     };
 
     for (const rule of rules) {
-      const pattern = (rule.pattern || '').trim().toLowerCase();
+      let patterns = rule.pattern;
+      if (!patterns) continue;
+      if (!Array.isArray(patterns)) patterns = [patterns];
       
-      if (pattern.startsWith('geoip:')) {
-        await resolveIpIfNeeded();
-        if (resolvedIp) {
-          const expectedCountry = pattern.substring(6).toUpperCase();
-          const invert = expectedCountry.startsWith('!');
-          const countryCode = invert ? expectedCountry.substring(1) : expectedCountry;
-          
-          // Allow internal/private IPs to be treated as CN to not route them via foreign proxy unexpectedly
-          // But technically geoip-lite might return null for private IPs. We let the user handle local IPs via explicit rules or default actions.
-          const geo = geoip.lookup(resolvedIp);
-          const actualCountry = geo ? geo.country : null;
-          
-          if (invert) {
-            if (actualCountry !== countryCode) return { action: rule.action, rulePattern: pattern };
-          } else {
-            if (actualCountry === countryCode) return { action: rule.action, rulePattern: pattern };
+      for (const p of patterns) {
+        const pattern = (p || '').trim().toLowerCase();
+        
+        if (pattern.startsWith('geoip:')) {
+          await resolveIpIfNeeded();
+          if (resolvedIp) {
+            const expectedCountry = pattern.substring(6).toUpperCase();
+            const invert = expectedCountry.startsWith('!');
+            const countryCode = invert ? expectedCountry.substring(1) : expectedCountry;
+            
+            const geo = geoip.lookup(resolvedIp);
+            const actualCountry = geo ? geo.country : null;
+            
+            if (invert) {
+              if (actualCountry !== countryCode) return { action: rule.action, rulePattern: pattern };
+            } else {
+              if (actualCountry === countryCode) return { action: rule.action, rulePattern: pattern };
+            }
           }
-        }
-      } else {
-        if (this.match(host, pattern)) {
-          return { action: rule.action, rulePattern: pattern };
+        } else {
+          if (this.match(host, pattern)) {
+            return { action: rule.action, rulePattern: pattern };
+          }
         }
       }
     }

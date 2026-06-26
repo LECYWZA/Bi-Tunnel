@@ -18,7 +18,7 @@
             </div>
           </div>
           
-          <div class="flex gap-4 items-center bg-gray-50 p-2 rounded">
+          <div class="flex gap-4 items-center p-2 rounded" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
             <el-input v-model="searchQuery.target" placeholder="搜索访问目标 (如 google.com)" size="small" class="w-64" clearable @change="fetchLogs" />
             <el-select v-model="searchQuery.action" placeholder="路由策略" size="small" class="w-32" clearable @change="fetchLogs">
               <el-option label="本地直连" value="direct_local" />

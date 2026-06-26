@@ -1,23 +1,27 @@
 <template>
   <div class="space-y-6">
-    <div class="flex justify-between items-center bt-section-status">
-      <div class="flex items-center gap-3">
-        <el-icon :size="24" style="color: var(--bt-primary)"><Link /></el-icon>
-        <span class="font-bold text-lg bt-text">代理链管理 (Proxy Chains)</span>
-      </div>
-      <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-bold bt-text whitespace-nowrap">测速目标:</span>
-          <el-input v-model="testTarget" placeholder="host:port" class="w-48" size="small" />
+    <div class="flex flex-col gap-4">
+      <div class="flex justify-between items-center bt-section-status">
+        <div class="flex items-center gap-3">
+          <el-icon :size="24" style="color: var(--bt-primary)"><Link /></el-icon>
+          <span class="font-bold text-lg bt-text">代理链管理 (Proxy Chains)</span>
         </div>
-        <el-button type="primary" :icon="Plus" @click="addChain">创建新代理链</el-button>
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-bold bt-text whitespace-nowrap">测速目标:</span>
+            <el-input v-model="testTarget" placeholder="host:port" class="w-48" size="small" />
+          </div>
+          <el-button type="warning" plain :icon="Connection" size="small" @click="testAllLatency" :loading="testingAllLatency">测速全部(延迟)</el-button>
+          <el-button type="success" plain :icon="Odometer" size="small" @click="testAllSpeed" :loading="testingAllSpeed">测速全部(速度)</el-button>
+          <el-button type="primary" :icon="Plus" @click="addChain">创建新代理链</el-button>
+        </div>
       </div>
     </div>
 
     <el-empty v-if="!config.proxyChains || config.proxyChains.length === 0" description="暂无代理链，请点击右上角创建" :image-size="80" />
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6" v-else>
-      <el-card v-for="(chain, idx) in config.proxyChains" :key="chain.id" shadow="hover" class="bt-card h-full" body-class="flex flex-col h-full">
+      <el-card v-for="(chain, idx) in config.proxyChains" :key="chain.id" shadow="hover" class="bt-card h-full transition-transform hover:-translate-y-1" body-class="flex flex-col h-full">
         <div class="flex justify-between items-center mb-4 pb-3" style="border-bottom: 1px solid var(--bt-border);">
           <div class="font-bold text-lg bt-text truncate flex-1">{{ chain.name }}</div>
           <el-tag size="small" type="info" effect="plain" round>ID: {{ chain.id.split('_')[1] }}</el-tag>
@@ -43,20 +47,46 @@
           </div>
         </div>
 
+        <!-- Metrics Section -->
+        <div class="flex items-center gap-4 mb-3 text-xs bg-gray-100/50 dark:bg-gray-800/30 p-2 rounded">
+          <div class="flex items-center gap-1 flex-1">
+            <el-icon :class="getLatencyColor(chain._latency)"><Clock /></el-icon>
+            <span class="text-gray-500">延迟:</span>
+            <span class="font-bold font-mono" :class="getLatencyColor(chain._latency)">{{ chain._latency ? chain._latency + ' ms' : '--' }}</span>
+          </div>
+          <div class="flex items-center gap-1 flex-1">
+            <el-icon :class="getSpeedColor(chain._speed)"><Odometer /></el-icon>
+            <span class="text-gray-500">速度:</span>
+            <span class="font-bold font-mono" :class="getSpeedColor(chain._speed)">{{ chain._speed ? chain._speed + ' MB/s' : '--' }}</span>
+          </div>
+        </div>
+
         <div class="flex justify-between items-center mt-auto pt-3" style="border-top: 1px solid var(--bt-border);">
-          <el-button 
-            type="primary" 
-            :plain="testingChain !== chain.id" 
-            size="small" 
-            :icon="Connection" 
-            :loading="testingChain === chain.id"
-            @click="testChain(chain.id)"
-          >
-            {{ testingChain === chain.id ? '测速中...' : '⚡ 测试延迟' }}
-          </el-button>
+          <div class="flex gap-2">
+            <el-button 
+              type="primary" 
+              link
+              size="small" 
+              :icon="Connection" 
+              :loading="testingChain === chain.id"
+              @click="testChain(chain.id)"
+            >
+              测延迟
+            </el-button>
+            <el-button 
+              type="success" 
+              link
+              size="small" 
+              :icon="Odometer" 
+              :loading="testingSpeedChain === chain.id"
+              @click="testSpeedChain(chain.id)"
+            >
+              测速度
+            </el-button>
+          </div>
           
           <div class="flex gap-2">
-            <el-button type="primary" plain :icon="Edit" size="small" @click="openChainEditor(chain)">编辑</el-button>
+            <el-button type="primary" plain :icon="Edit" size="small" @click="openChainEditor(chain)" />
             <el-popconfirm title="确定要删除整条代理链吗？" @confirm="config.proxyChains.splice(idx, 1)">
               <template #reference>
                 <el-button type="danger" plain :icon="Delete" size="small" />
@@ -137,7 +167,7 @@
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import draggable from 'vuedraggable';
-import { Plus, Delete, Link, InfoFilled, Sort, Connection } from '@element-plus/icons-vue';
+import { Plus, Delete, Link, InfoFilled, Sort, Connection, Clock, Odometer, Edit } from '@element-plus/icons-vue';
 
 const props = defineProps({
   config: Object
@@ -145,8 +175,25 @@ const props = defineProps({
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const testingChain = ref(null);
+const testingSpeedChain = ref(null);
+const testingAllLatency = ref(false);
+const testingAllSpeed = ref(false);
 const selectedNodeToAdd = ref('');
 const testTarget = ref('www.bing.com:443');
+
+const getLatencyColor = (latency) => {
+  if (!latency) return 'text-gray-400';
+  if (latency < 200) return 'text-green-500';
+  if (latency < 1000) return 'text-yellow-500';
+  return 'text-red-500';
+};
+
+const getSpeedColor = (speed) => {
+  if (!speed) return 'text-gray-400';
+  if (speed > 5) return 'text-green-500';
+  if (speed > 1) return 'text-yellow-500';
+  return 'text-red-500';
+};
 
 const addChain = () => {
   if (!props.config.proxyChains) props.config.proxyChains = [];
@@ -178,7 +225,7 @@ const addNodeToChain = (chain) => {
   selectedNodeToAdd.value = ''; // reset
 };
 
-const testChain = async (chainId) => {
+const testChain = async (chainId, silent = false) => {
   testingChain.value = chainId;
   try {
     const parts = testTarget.value.split(':');
@@ -191,16 +238,65 @@ const testChain = async (chainId) => {
       body: JSON.stringify({ type: 'chain', id: chainId, targetHost, targetPort })
     });
     const data = await res.json();
+    const chain = props.config.proxyChains.find(c => c.id === chainId);
+    
     if (data.success) {
-      ElMessage.success(`测试成功! 完整链路延迟: ${data.latency}ms`);
+      if (chain) chain._latency = data.latency;
+      if (!silent) ElMessage.success(`测试成功! 完整链路延迟: ${data.latency}ms`);
     } else {
-      ElMessage.error(`测试失败: ${data.message}`);
+      if (chain) chain._latency = null;
+      if (!silent) ElMessage.error(`测试失败: ${data.message}`);
     }
   } catch (err) {
-    ElMessage.error('请求失败');
+    if (!silent) ElMessage.error('请求失败');
   } finally {
-    testingChain.value = null;
+    if (testingChain.value === chainId) testingChain.value = null;
   }
+};
+
+const testSpeedChain = async (chainId, silent = false) => {
+  testingSpeedChain.value = chainId;
+  try {
+    const res = await fetch('/api/test-speed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'chain', id: chainId })
+    });
+    const data = await res.json();
+    const chain = props.config.proxyChains.find(c => c.id === chainId);
+    
+    if (data.success) {
+      if (chain) chain._speed = data.speed;
+      if (!silent) ElMessage.success(`测试成功! 预估速度: ${data.speed} MB/s`);
+    } else {
+      if (chain) chain._speed = null;
+      if (!silent) ElMessage.error(`测试失败: ${data.message}`);
+    }
+  } catch (err) {
+    if (!silent) ElMessage.error('请求失败');
+  } finally {
+    if (testingSpeedChain.value === chainId) testingSpeedChain.value = null;
+  }
+};
+
+const testAllLatency = async () => {
+  if (!props.config.proxyChains || props.config.proxyChains.length === 0) return;
+  testingAllLatency.value = true;
+  ElMessage.info('开始全部代理链延迟测试，请稍候...');
+  const promises = props.config.proxyChains.map(c => testChain(c.id, true));
+  await Promise.allSettled(promises);
+  testingAllLatency.value = false;
+  ElMessage.success('全部代理链延迟测试完成');
+};
+
+const testAllSpeed = async () => {
+  if (!props.config.proxyChains || props.config.proxyChains.length === 0) return;
+  testingAllSpeed.value = true;
+  ElMessage.info('开始全部代理链速度测试，请稍候...');
+  const promises = props.config.proxyChains.map(c => testSpeedChain(c.id, true));
+  await Promise.allSettled(promises);
+  testingAllSpeed.value = false;
+  ElMessage.success('全部代理链速度测试完成');
 };
 </script>
 

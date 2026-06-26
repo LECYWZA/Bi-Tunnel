@@ -20,7 +20,6 @@
         
         <div class="flex justify-between items-center mb-5 pb-4" style="border-bottom: 1px solid var(--bt-border);">
           <div class="flex items-center gap-3 flex-1">
-            <span class="font-bold bt-text text-lg">测试配置</span>
             <el-input v-model="profile.name" placeholder="配置名称" size="small" class="w-48" @change="saveProfiles" />
           </div>
           <div class="flex gap-2 items-center">

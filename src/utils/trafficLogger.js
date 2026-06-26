@@ -8,7 +8,7 @@ class TrafficLogger extends EventEmitter {
     this.nextId = 1;
   }
 
-  addLog({ module, sourceIp, target, action, rulePattern = '', bytesTransferred = 0, durationMs = 0, status = 'success', error = '' }) {
+  addLog({ module, sourceIp, target, action, rulePattern = '', bytesTransferred = 0, durationMs = 0, status = 'success', error = '', clientId = '' }) {
     const logEntry = {
       id: this.nextId++,
       timestamp: Date.now(),
@@ -20,7 +20,8 @@ class TrafficLogger extends EventEmitter {
       bytesTransferred,
       durationMs,
       status,
-      error
+      error,
+      clientId
     };
 
     this.logs.unshift(logEntry);
@@ -45,6 +46,9 @@ class TrafficLogger extends EventEmitter {
     }
     if (query.action) {
       filteredLogs = filteredLogs.filter(l => l.action === query.action);
+    }
+    if (query.clientId) {
+      filteredLogs = filteredLogs.filter(l => l.clientId === query.clientId);
     }
 
     return {

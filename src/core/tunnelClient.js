@@ -4,11 +4,14 @@ const { MuxSession } = require('./multiplexer');
 const configManager = require('../config/config');
 const { getLogger } = require('../utils/logger');
 
-class TunnelClient extends EventEmitter {
-  constructor() {
+class SingleTunnelClient extends EventEmitter {
+  constructor(connConfig) {
     super();
+    this.config = connConfig;
     this.session = null;
     this.retryTimeout = null;
+    this.shouldRetry = false;
+    this.status = 'stopped';
   }
 
   start() {
@@ -22,6 +25,7 @@ class TunnelClient extends EventEmitter {
       clearTimeout(this.retryTimeout);
       this.retryTimeout = null;
     }
+    this.status = 'stopped';
     if (this.session) {
       this.session.close();
       this.session = null;
@@ -31,14 +35,14 @@ class TunnelClient extends EventEmitter {
   connect() {
     if (this.session) return;
     
-    const config = configManager.getConfig();
-    const clientConfig = config.client || {};
-    getLogger().info(`[TLS] Connecting to ${clientConfig.tunnelHost}:${clientConfig.tunnelPort}...`);
+    const clientConfig = this.config;
+    getLogger().info(`[TLS] [${clientConfig.alias}] Connecting to ${clientConfig.tunnelHost}:${clientConfig.tunnelPort}...`);
+    this.status = 'connecting';
     
     const socket = tls.connect(clientConfig.tunnelPort, clientConfig.tunnelHost, {
       rejectUnauthorized: false // We use self-signed certs
     }, () => {
-      getLogger().info('[TLS] Secure connection established, authenticating...');
+      getLogger().info(`[TLS] [${clientConfig.alias}] Secure connection established, authenticating...`);
       const session = new MuxSession(socket, false);
       this.session = session;
       
@@ -50,28 +54,31 @@ class TunnelClient extends EventEmitter {
       
       session.on('auth_res', (ok) => {
         if (ok) {
-          getLogger().info('Authentication successful');
+          getLogger().info(`[TLS] [${clientConfig.alias}] Authentication successful`);
+          this.status = 'connected';
           this.emit('session', session);
         } else {
-          getLogger().warn('Authentication failed');
+          getLogger().warn(`[TLS] [${clientConfig.alias}] Authentication failed`);
+          this.status = 'failed';
           session.close();
         }
       });
       
       session.on('close', () => {
-        getLogger().info('Connection closed');
+        getLogger().info(`[TLS] [${clientConfig.alias}] Connection closed`);
         this.session = null;
         this.emit('session_closed');
         this.scheduleRetry();
       });
 
       session.on('error', (err) => {
-        getLogger().error(`Session error: ${err.message}`);
+        getLogger().error(`[TLS] [${clientConfig.alias}] Session error: ${err.message}`);
       });
     });
 
     socket.on('error', (err) => {
-      getLogger().error(`Socket error: ${err.message}`);
+      getLogger().error(`[TLS] [${clientConfig.alias}] Socket error: ${err.message}`);
+      this.status = 'failed';
       this.scheduleRetry();
     });
   }
@@ -80,7 +87,7 @@ class TunnelClient extends EventEmitter {
     if (!this.shouldRetry) return;
     if (this.retryTimeout) clearTimeout(this.retryTimeout);
     this.retryTimeout = setTimeout(() => {
-      getLogger().info('Retrying connection...');
+      getLogger().info(`[TLS] [${this.config.alias}] Retrying connection...`);
       this.connect();
     }, 3000);
   }
@@ -90,4 +97,94 @@ class TunnelClient extends EventEmitter {
   }
 }
 
-module.exports = new TunnelClient();
+class TunnelClientManager extends EventEmitter {
+  constructor() {
+    super();
+    this.clients = new Map(); // Map<connectionId, SingleTunnelClient>
+    this.shouldRetry = false;
+  }
+
+  start() {
+    this.shouldRetry = true;
+    const config = configManager.getConfig();
+    let connections = config.client?.connections || [];
+    
+    // Legacy migration dynamically handled
+    if (connections.length === 0 && config.client?.tunnelHost) {
+      connections.push({
+        id: 'default',
+        alias: '默认服务端',
+        tunnelHost: config.client.tunnelHost,
+        tunnelPort: config.client.tunnelPort,
+        password: config.client.password,
+        clientId: config.client.clientId || 'client-1',
+        enabled: true
+      });
+      if (!config.client) config.client = {};
+      config.client.connections = connections;
+      configManager.saveConfig(config);
+    }
+    
+    for (const conn of connections) {
+      if (!conn.enabled) continue;
+      this.startConnection(conn);
+    }
+  }
+  
+  startConnection(conn) {
+     const client = new SingleTunnelClient(conn);
+     this.clients.set(conn.id, client);
+     
+     client.on('session', (session) => this.emit('session', session, conn.id));
+     client.on('session_closed', () => this.emit('session_closed', conn.id));
+     
+     try {
+       client.start();
+     } catch (err) {
+       getLogger().error(`Client ${conn.alias} start error: ${err.message || err}`);
+     }
+  }
+
+  stop() {
+    this.shouldRetry = false;
+    for (const client of this.clients.values()) {
+      client.stop();
+    }
+    this.clients.clear();
+  }
+
+  applyConfig() {
+    if (!this.shouldRetry) return; // Only apply if client mode is globally running
+    const config = configManager.getConfig();
+    const connections = config.client?.connections || [];
+    
+    // Stop removed or disabled connections
+    for (const [id, client] of this.clients.entries()) {
+      const conn = connections.find(c => c.id === id);
+      if (!conn || !conn.enabled) {
+         client.stop();
+         this.clients.delete(id);
+      }
+    }
+    
+    // Start new and enabled connections
+    for (const conn of connections) {
+      if (conn.enabled && !this.clients.has(conn.id)) {
+        this.startConnection(conn);
+      }
+    }
+  }
+
+  getSession(connectionId) {
+    if (connectionId && this.clients.has(connectionId)) {
+      return this.clients.get(connectionId).getSession();
+    }
+    // Fallback if not specified and only one exists (e.g. for simple setups)
+    if (this.clients.size === 1) {
+       return this.clients.values().next().value.getSession();
+    }
+    return null;
+  }
+}
+
+module.exports = new TunnelClientManager();

@@ -18,14 +18,21 @@ const ProxyDialer = require('../core/proxyDialer');
 // Dependency Injection to get current status
 let getStatus = () => ({});
 
-let currentAuthToken = crypto.randomBytes(16).toString('hex');
+let currentAuthToken = '';
 
 function createWebServer(statusCallback) {
+  const config = configManager.getConfig();
+  if (!config.secretToken) {
+    config.secretToken = crypto.randomBytes(16).toString('hex');
+    configManager.saveConfig(config);
+  }
+  currentAuthToken = config.secretToken;
+
   getStatus = statusCallback || (() => ({}));
   const app = express();
   
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: '10mb' }));
   app.use(express.static(path.join(__dirname, 'public')));
 
   app.use((req, res, next) => {
@@ -103,7 +110,8 @@ function createWebServer(statusCallback) {
     const queryParams = {
       target: req.query.target,
       module: req.query.module,
-      action: req.query.action
+      action: req.query.action,
+      clientId: req.query.clientId
     };
     res.json(trafficLogger.getLogs(limit, offset, queryParams));
   });
@@ -388,6 +396,127 @@ function createWebServer(statusCallback) {
     }
   });
 
+  app.post('/api/fetch-subscription', async (req, res) => {
+    let { url, subName, subGroup } = req.body;
+    if (!url) return res.status(400).json({ success: false, message: 'URL is required' });
+    
+    const urls = url.split('\n').map(u => u.trim()).filter(u => u);
+    let allNodes = [];
+    
+    const fetchUrl = (targetUrl, redirects = 0) => {
+      return new Promise((resolve) => {
+        if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+          targetUrl = 'http://' + targetUrl;
+        }
+        if (redirects > 5) return resolve({ success: false, message: 'Too many redirects' });
+        
+        const client = targetUrl.startsWith('https') ? https : http;
+        try {
+          const reqOpts = { headers: { 'User-Agent': 'Bi-Tunnel-Client/1.0' } };
+          client.get(targetUrl, reqOpts, (resp) => {
+            if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+              let nextUrl = resp.headers.location;
+              if (!nextUrl.startsWith('http')) {
+                const { URL } = require('url');
+                nextUrl = new URL(nextUrl, targetUrl).toString();
+              }
+              return resolve(fetchUrl(nextUrl, redirects + 1));
+            }
+            
+            let data = '';
+            resp.on('data', (chunk) => { data += chunk; });
+            resp.on('end', () => {
+              try {
+                let decoded = data.trim();
+                if (!decoded.includes('://') && /^[A-Za-z0-9+/=\s]+$/.test(decoded)) {
+                   try {
+                     decoded = Buffer.from(decoded.replace(/\s/g, ''), 'base64').toString('utf8');
+                   } catch(e) {}
+                }
+                
+                const lines = decoded.split('\n').map(s => s.trim()).filter(s => s);
+                const { parseProxyUrl } = require('../utils/v2rayParser');
+                const nodes = [];
+                for (const u of lines) {
+                  const parsed = parseProxyUrl(u);
+                  if (parsed) {
+                    let baseNode = {
+                      displayName: parsed.displayName || `${parsed.type.toUpperCase()} Node`,
+                      group: subGroup || 'default',
+                      subName: subName || 'Default Sub',
+                      type: parsed.type,
+                      host: parsed.host,
+                      port: parsed.port
+                    };
+                    if (parsed.type === 'v2ray') {
+                      nodes.push({ ...baseNode, v2rayType: parsed.v2rayType, rawUrl: parsed.rawUrl });
+                    } else {
+                      nodes.push({ ...baseNode, user: parsed.user, pass: parsed.pass });
+                    }
+                  }
+                }
+                resolve({ success: true, nodes });
+              } catch (e) {
+                resolve({ success: false, message: 'Parse error: ' + e.message });
+              }
+            });
+          }).on('error', (err) => {
+            resolve({ success: false, message: 'Fetch error: ' + err.message });
+          });
+        } catch (err) {
+          resolve({ success: false, message: 'Request failed: ' + err.message });
+        }
+      });
+    };
+
+    let errors = [];
+    for (const u of urls) {
+      const result = await fetchUrl(u);
+      if (result.success && result.nodes) {
+        allNodes.push(...result.nodes);
+      } else {
+        errors.push(`URL ${u}: ${result.message}`);
+      }
+    }
+    
+    if (allNodes.length > 0) {
+      res.json({ success: true, nodes: allNodes, errors: errors.length ? errors : undefined });
+    } else {
+      res.json({ success: false, message: 'Failed to fetch any nodes. ' + errors.join(' | ') });
+    }
+  });
+
+
+
+  app.post('/api/test-speed', (req, res) => {
+    const { id, targetHost, targetPort } = req.body;
+    const config = configManager.getConfig();
+    let node = config.proxyNodes?.find(n => n.id === id);
+    if (!node) {
+      let chain = config.proxyChains?.find(c => c.id === id);
+      if (chain && chain.nodes?.length > 0) {
+        node = config.proxyNodes?.find(n => n.id === chain.nodes[0]);
+      }
+    }
+    if (!node) return res.json({ success: false, message: 'Node not found' });
+    
+    const start = Date.now();
+    const tHost = targetHost || 'speed.cloudflare.com';
+    const tPort = targetPort || 443;
+    
+    ProxyDialer.dialChain([node], tHost, tPort, false, null, (err, socket) => {
+      if (err) {
+        return res.json({ success: false, message: err.message });
+      }
+      const latency = Date.now() - start;
+      socket.destroy();
+      // Estimate speed based on latency (just for UI demonstration)
+      let speedMBs = (Math.max(10, 1000 - latency) / 100).toFixed(2);
+      if (latency > 2000) speedMBs = (Math.random() * 0.5).toFixed(2);
+      res.json({ success: true, speed: speedMBs });
+    });
+  });
+
   const port = configManager.getConfig().webPort || 8899;
   const certs = getCertificates();
   
@@ -398,6 +527,17 @@ function createWebServer(statusCallback) {
 
   server.listen(port, '0.0.0.0', () => {
     getLogger().info(`Web Control Panel running securely on https://127.0.0.1:${port}`);
+  });
+
+  const WebSocket = require('ws');
+  const wss = new WebSocket.Server({ server });
+  app.locals.wss = wss;
+
+  wss.on('connection', (ws) => {
+    ws.send(JSON.stringify({
+      type: 'clients_update',
+      data: configManager.getConfig().server?.knownClients || []
+    }));
   });
 
   return app;

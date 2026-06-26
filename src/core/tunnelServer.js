@@ -10,6 +10,7 @@ class TunnelServer extends EventEmitter {
     super();
     this.server = null;
     this.sessions = new Map(); // Map<clientId, TunnelSession>
+    this.clientStats = new Map(); // Maps clientId to connection data
   }
 
   start() {
@@ -38,6 +39,17 @@ class TunnelServer extends EventEmitter {
             this.sessions.get(clientId).close();
           }
 
+          if (!serverConfig.knownClients) serverConfig.knownClients = [];
+          let clientEntry = serverConfig.knownClients.find(c => c.id === clientId);
+          if (!clientEntry) {
+            clientEntry = { id: clientId, firstSeen: Date.now() };
+            serverConfig.knownClients.push(clientEntry);
+          }
+          clientEntry.lastConnected = Date.now();
+          clientEntry.online = true;
+          this.clientStats.set(clientId, { connectTime: Date.now() });
+          configManager.saveConfig(config);
+
           session.sendAuthRes(true);
           getLogger().info(`[TLS] Client '${clientId}' authenticated successfully`);
           sessionClientId = clientId;
@@ -53,6 +65,19 @@ class TunnelServer extends EventEmitter {
       session.on('close', () => {
         getLogger().info(`[TLS] Client ${sessionClientId || socket.remoteAddress} disconnected`);
         if (sessionClientId && this.sessions.get(sessionClientId) === session) {
+          const config = configManager.getConfig();
+          if (config.server && config.server.knownClients) {
+            const clientEntry = config.server.knownClients.find(c => c.id === sessionClientId);
+            if (clientEntry) {
+              clientEntry.online = false;
+              if (this.clientStats.has(sessionClientId)) {
+                const stats = this.clientStats.get(sessionClientId);
+                clientEntry.totalDuration = (clientEntry.totalDuration || 0) + (Date.now() - stats.connectTime);
+                this.clientStats.delete(sessionClientId);
+              }
+              configManager.saveConfig(config);
+            }
+          }
           this.sessions.delete(sessionClientId);
           this.emit('session_closed', sessionClientId);
         }

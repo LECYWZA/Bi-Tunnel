@@ -38,12 +38,18 @@ class ProxyServer {
     if (!this.mode || this.mode === 'none') return;
     const config = configManager.getConfig();
     const modeConfig = config[this.mode] || {};
-    const desiredProxies = modeConfig.proxies || [];
+    let desiredProxies = modeConfig.proxies || [];
+    desiredProxies = desiredProxies.filter(p => p.enabled !== false);
 
     for (const [listenPort, server] of this.servers.entries()) {
       const p = desiredProxies.find(p => p.listenPort === listenPort);
       if (!p || server._bindHost !== (p.listenIp || '0.0.0.0')) {
         server.close();
+        if (server._sockets) {
+          for (const socket of server._sockets) {
+            socket.destroy();
+          }
+        }
         this.servers.delete(listenPort);
         getLogger().info(`[Proxy] Stopped proxy on port ${listenPort}`);
       }
@@ -67,6 +73,14 @@ class ProxyServer {
           return;
         }
         this.handleConnection(socket, currentConfig);
+      });
+      
+      server._sockets = new Set();
+      server.on('connection', (socket) => {
+        server._sockets.add(socket);
+        socket.on('close', () => {
+          server._sockets.delete(socket);
+        });
       });
 
       const currentConfig = configManager.getConfig()[this.mode]?.proxies.find(p => p.listenPort === listenPort);
@@ -233,10 +247,14 @@ class ProxyServer {
       const [user, ...passParts] = decoded.split(':');
       const pass = passParts.join(':'); // In case password contains ':'
       
-      getLogger().info(`[Proxy Auth Debug] Received HTTP Proxy-Authorization -> User: '${user}'. (Config expects -> User: '${proxyConfig.user}')`);
+      if (!proxyConfig.users) {
+        proxyConfig.users = [{ user: String(proxyConfig.user || ''), pass: String(proxyConfig.pass || '') }];
+      }
       
-      if (user !== String(proxyConfig.user) || pass !== String(proxyConfig.pass)) {
-        getLogger().warn(`[Proxy] HTTP Auth failed. Expected user: '${proxyConfig.user}', Got user: '${user}'`);
+      const authenticated = proxyConfig.users.some(u => String(u.user) === user && String(u.pass) === pass);
+
+      if (!authenticated) {
+        getLogger().warn(`[Proxy] HTTP Auth failed. Got user: '${user}'`);
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.end();
         return;
@@ -299,7 +317,12 @@ class ProxyServer {
         const plen = authData[2 + ulen];
         const pass = authData.slice(3 + ulen, 3 + ulen + plen).toString('utf8');
         
-        if (user === proxyConfig.user && pass === proxyConfig.pass) {
+        if (!proxyConfig.users) {
+          proxyConfig.users = [{ user: String(proxyConfig.user || ''), pass: String(proxyConfig.pass || '') }];
+        }
+        const authenticated = proxyConfig.users.some(u => String(u.user) === user && String(u.pass) === pass);
+
+        if (authenticated) {
           socket.write(Buffer.from([0x01, 0x00])); // Success
           this.readSocks5Request(socket, proxyConfig);
         } else {
@@ -355,16 +378,16 @@ class ProxyServer {
   }
 
   async processTarget(socket, host, port, proxyConfig, onConnected) {
-    let action = 'direct_local';
+    let actionResult = ['direct_local'];
     let rulePattern = '默认策略 (无规则)';
 
     // Helper to get fallback legacy action
     const getLegacyAction = () => {
       const isDirect = !proxyConfig.chainNodes || proxyConfig.chainNodes.length === 0;
       if (isDirect) {
-        return proxyConfig.useRemoteNetwork ? 'direct_remote' : 'direct_local';
+        return [proxyConfig.useRemoteNetwork ? 'direct_remote' : 'direct_local'];
       }
-      return 'proxy_chain';
+      return ['proxy_chain'];
     };
 
     let targetIpForAcl = host;
@@ -372,48 +395,33 @@ class ProxyServer {
        ipaddr.process(host); // Throws if not IP
        if (proxyConfig.proxyRules && proxyConfig.proxyRules.length > 0) {
          const result = await Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
-         action = result.action;
+         actionResult = result.action;
          rulePattern = result.rulePattern;
        } else {
          if (!this.checkAcl(targetIpForAcl, proxyConfig.targetAllowIps, proxyConfig.targetDenyIps)) {
-           action = 'block';
+           actionResult = ['block'];
            rulePattern = 'ACL 拒绝';
          } else {
-           action = getLegacyAction();
+           actionResult = getLegacyAction();
          }
        }
     } catch(e) {
        if (proxyConfig.proxyRules && proxyConfig.proxyRules.length > 0) {
          const result = await Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
-         action = result.action;
+         actionResult = result.action;
          rulePattern = result.rulePattern;
        } else {
-         action = getLegacyAction();
+         actionResult = getLegacyAction();
        }
     }
 
-    if (action === 'block') {
+    let actions = Array.isArray(actionResult) ? actionResult : [actionResult];
+
+    if (actions.length === 0 || actions[0] === 'block') {
       getLogger().warn(`[Proxy] Denied access to ${host} due to routing rules / ACL`);
       socket.destroy();
       return;
     }
-    
-    const startTime = Date.now();
-    getLogger().info(`[Proxy] Routing ${host}:${port} via ${action} (Rule: ${rulePattern})`);
-    socket.on('close', () => {
-      const bytes = socket.bytesRead + socket.bytesWritten;
-      logTraffic('Proxy', `to ${host}:${port} (${action})`, bytes);
-      trafficLogger.addLog({
-        module: `Proxy (${this.mode})`,
-        sourceIp: socket.remoteAddress,
-        target: `${host}:${port}`,
-        action: action,
-        rulePattern: rulePattern,
-        bytesTransferred: bytes,
-        durationMs: Date.now() - startTime,
-        status: 'success'
-      });
-    });
 
     let targetSession = null;
     if (this.mode === 'server') {
@@ -423,83 +431,102 @@ class ProxyServer {
         targetSession = this.sessions.values().next().value;
       }
     } else {
-      targetSession = this.sessions.values().next().value;
+      const serverConnId = proxyConfig.targetClientId || 'default';
+      targetSession = this.sessions.get(serverConnId);
+      if (!targetSession && this.sessions.size === 1) {
+        targetSession = this.sessions.values().next().value;
+      }
     }
 
-    if (action.startsWith('chain:')) {
-      const chainId = action.substring(6);
-      const globalConfig = configManager.getConfig();
-      const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
-      
-      if (!chain || !chain.nodes || chain.nodes.length === 0) {
-        getLogger().error(`[Proxy] Proxy chain ${chainId} not found or empty`);
-        socket.destroy();
-        return;
-      }
-
-      // Resolve nodeRefs to actual node objects
-      const resolvedNodes = chain.nodes.map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
-
-      if (resolvedNodes.length === 0) {
-        getLogger().error(`[Proxy] Proxy chain ${chainId} has no valid resolved nodes`);
-        socket.destroy();
-        return;
-      }
-
-      ProxyDialer.dialChain(resolvedNodes, host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
-        if (err) {
-          getLogger().error(`[Proxy] Proxy chain to ${host}:${port} failed: ${err.message}`);
-          socket.destroy();
-          return;
+    const tryAction = (action) => {
+      return new Promise((resolve, reject) => {
+        if (action.startsWith('chain:')) {
+          const chainId = action.substring(6);
+          const globalConfig = configManager.getConfig();
+          const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
+          if (!chain || !chain.nodes || chain.nodes.length === 0) return reject(new Error(`Proxy chain ${chainId} not found or empty`));
+          
+          const resolvedNodes = chain.nodes.map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
+          if (resolvedNodes.length === 0) return reject(new Error(`Proxy chain ${chainId} has no valid resolved nodes`));
+          
+          ProxyDialer.dialChain(resolvedNodes, host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
+            if (err) return reject(err);
+            resolve(finalSocket);
+          });
+        } else if (action.startsWith('node:')) {
+          const nodeId = action.substring(5);
+          const globalConfig = configManager.getConfig();
+          const node = globalConfig.proxyNodes?.find(n => n.id === nodeId);
+          if (!node) return reject(new Error(`Proxy node ${nodeId} not found`));
+          
+          ProxyDialer.dialChain([node], host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
+            if (err) return reject(err);
+            resolve(finalSocket);
+          });
+        } else if (action === 'direct_remote') {
+          if (!targetSession) return reject(new Error(`direct_remote failed: targetSession not found`));
+          const channel = targetSession.createChannel({ type: 'forward', host: host, port: port });
+          let resolved = false;
+          channel.once('error', (err) => {
+            if (!resolved) { resolved = true; reject(err); }
+          });
+          setTimeout(() => {
+             if (!resolved) { resolved = true; resolve(channel); }
+          }, 100);
+        } else {
+          const outbound = new net.Socket();
+          let resolved = false;
+          outbound.connect(port, host, () => {
+            if (!resolved) { resolved = true; resolve(outbound); }
+          });
+          outbound.once('error', (err) => {
+            if (!resolved) { resolved = true; reject(err); }
+          });
         }
-        finalSocket.on('error', () => socket.destroy());
-        socket.on('error', () => finalSocket.destroy());
-        onConnected(finalSocket);
       });
-    } else if (action.startsWith('node:')) {
-      const nodeId = action.substring(5);
-      const globalConfig = configManager.getConfig();
-      const node = globalConfig.proxyNodes?.find(n => n.id === nodeId);
-      
-      if (!node) {
-        getLogger().error(`[Proxy] Proxy node ${nodeId} not found`);
-        socket.destroy();
-        return;
-      }
+    };
 
-      ProxyDialer.dialChain([node], host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
-        if (err) {
-          getLogger().error(`[Proxy] Proxy node ${nodeId} to ${host}:${port} failed: ${err.message}`);
-          socket.destroy();
-          return;
-        }
-        finalSocket.on('error', () => socket.destroy());
-        socket.on('error', () => finalSocket.destroy());
-        onConnected(finalSocket);
-      });
-    } else if (action === 'direct_remote') {
-      if (!targetSession) {
-        getLogger().warn(`[Proxy] direct_remote failed: targetSession (clientId: ${proxyConfig.targetClientId || 'client-1'}) not found`);
-        socket.destroy();
-        return;
+    let successfulAction = null;
+    let finalSocket = null;
+
+    for (const action of actions) {
+      if (action === 'block') continue;
+      try {
+        finalSocket = await tryAction(action);
+        successfulAction = action;
+        break;
+      } catch (err) {
+        getLogger().warn(`[Proxy] Action ${action} to ${host}:${port} failed: ${err.message}. Trying next...`);
       }
-      const channel = targetSession.createChannel({
-        type: 'forward',
-        host: host,
-        port: port
-      });
-      channel.on('error', () => socket.destroy());
-      socket.on('error', () => channel.end());
-      onConnected(channel);
-    } else {
-      // direct_local (or fallback if proxy_chain is selected but no nodes exist)
-      const outbound = new net.Socket();
-      outbound.connect(port, host, () => {
-        onConnected(outbound);
-      });
-      outbound.on('error', () => socket.destroy());
-      socket.on('error', () => outbound.destroy());
     }
+
+    if (!finalSocket) {
+      getLogger().error(`[Proxy] All actions failed for ${host}:${port}`);
+      socket.destroy();
+      return;
+    }
+
+    const startTime = Date.now();
+    getLogger().info(`[Proxy] Routing ${host}:${port} via ${successfulAction} (Rule: ${rulePattern})`);
+    
+    socket.on('close', () => {
+      const bytes = socket.bytesRead + socket.bytesWritten;
+      logTraffic('Proxy', `to ${host}:${port} (${successfulAction})`, bytes);
+      trafficLogger.addLog({
+        module: `Proxy (${this.mode})`,
+        sourceIp: socket.remoteAddress,
+        target: `${host}:${port}`,
+        action: successfulAction,
+        rulePattern: rulePattern,
+        bytesTransferred: bytes,
+        durationMs: Date.now() - startTime,
+        status: 'success'
+      });
+    });
+
+    finalSocket.on('error', () => socket.destroy());
+    socket.on('error', () => finalSocket.destroy());
+    onConnected(finalSocket);
   }
 }
 

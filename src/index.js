@@ -29,7 +29,11 @@ function init() {
     serverRunning: !!tunnelServer.server,
     clientConnected: tunnelClient.getSession() !== null,
     clientRunning: tunnelClient.shouldRetry, // from our implementation
-    connectedClients: tunnelServer.sessions ? Array.from(tunnelServer.sessions.keys()) : []
+    connectedClients: tunnelServer.sessions ? Array.from(tunnelServer.sessions.keys()) : [],
+    clientConnections: tunnelClient.clients ? Array.from(tunnelClient.clients.entries()).map(([id, c]) => ({
+      id,
+      status: c.status
+    })) : []
   }));
 
   const startTunnel = async (mode) => {
@@ -38,41 +42,41 @@ function init() {
         if (tunnelServer.server) return; // already running
         await tunnelServer.start();
         
-        await Promise.all([
-          serverForwarder.applyConfig(),
-          serverProxy.applyConfig()
-        ]);
-        
-        tunnelServer.on('session', (session, clientId) => {
+          tunnelServer.on('session', (session, clientId) => {
           getLogger().info(`=== Server Tunnel Session Established [${clientId}] ===`);
           serverForwarder.setSession(session, clientId);
           serverProxy.setSession(session, clientId);
+          
+          if (webApp.locals.wss) {
+            const clients = configManager.getConfig().server?.knownClients || [];
+            webApp.locals.wss.clients.forEach(c => c.send(JSON.stringify({ type: 'clients_update', data: clients })));
+          }
         });
 
         tunnelServer.on('session_closed', (clientId) => {
           getLogger().info(`=== Server Tunnel Session Closed [${clientId}] ===`);
           serverForwarder.removeSession(clientId);
           serverProxy.removeSession(clientId);
+          
+          if (webApp.locals.wss) {
+            const clients = configManager.getConfig().server?.knownClients || [];
+            webApp.locals.wss.clients.forEach(c => c.send(JSON.stringify({ type: 'clients_update', data: clients })));
+          }
         });
       } else if (mode === 'client') {
         if (tunnelClient.shouldRetry) return; // already running
-        tunnelClient.start(); // client connect doesn't bind a listen port, so it doesn't throw EADDRINUSE normally
+        tunnelClient.start();
         
-        await Promise.all([
-          clientForwarder.applyConfig(),
-          clientProxy.applyConfig()
-        ]);
-        
-        tunnelClient.on('session', (session) => {
-          getLogger().info('=== Client Tunnel Session Established ===');
-          clientForwarder.setSession(session, 'server');
-          clientProxy.setSession(session, 'server');
+        tunnelClient.on('session', (session, connId) => {
+          getLogger().info(`=== Client Tunnel Session Established [${connId}] ===`);
+          clientForwarder.setSession(session, connId);
+          clientProxy.setSession(session, connId);
         });
 
-        tunnelClient.on('session_closed', () => {
-          getLogger().info('=== Client Tunnel Session Closed ===');
-          clientForwarder.removeSession('server');
-          clientProxy.removeSession('server');
+        tunnelClient.on('session_closed', (connId) => {
+          getLogger().info(`=== Client Tunnel Session Closed [${connId}] ===`);
+          clientForwarder.removeSession(connId);
+          clientProxy.removeSession(connId);
         });
       }
     } catch (e) {
@@ -116,41 +120,42 @@ function init() {
                               newConfig.server.bindHost !== oldConfig.server.bindHost || 
                               newConfig.server.password !== oldConfig.server.password;
                               
-    const clientCoreChanged = newConfig.client.tunnelPort !== oldConfig.client.tunnelPort || 
-                              newConfig.client.tunnelHost !== oldConfig.client.tunnelHost || 
-                              newConfig.client.password !== oldConfig.client.password;
-
     if (serverCoreChanged && tunnelServer.server) {
       getLogger().info('Server core config changed, restarting server tunnel...');
       stopTunnel('server');
       startTunnel('server');
-    } else {
-      serverForwarder.applyConfig();
-      serverProxy.applyConfig();
     }
+    serverForwarder.applyConfig();
+    serverProxy.applyConfig();
 
-    if (clientCoreChanged && tunnelClient.shouldRetry) {
-      getLogger().info('Client core config changed, restarting client tunnel...');
-      stopTunnel('client');
-      startTunnel('client');
-    } else {
-      clientForwarder.applyConfig();
-      clientProxy.applyConfig();
+    if (tunnelClient.shouldRetry && typeof tunnelClient.applyConfig === 'function') {
+      tunnelClient.applyConfig();
     }
+    clientForwarder.applyConfig();
+    clientProxy.applyConfig();
     
     lastConfigStr = newConfigStr;
   };
 
-  // Auto start based on config
+  // Auto start server based on config
   if (config.server && config.server.autoStart) {
-    startTunnel('server');
+    startTunnel('server').catch(err => {
+      getLogger().error('Auto-start server failed: ' + (err.message || err));
+    });
+  } else {
+    getLogger().info('Auto-start is disabled for server mode.');
   }
-  if (config.client && config.client.autoStart) {
-    startTunnel('client');
-  }
-  if (!config.server?.autoStart && !config.client?.autoStart) {
-    getLogger().info('Auto-start is disabled for both modes.');
-  }
+
+  // Client manager always runs (it manages individual enabled connections)
+  startTunnel('client').catch(err => {
+    getLogger().error('Auto-start client failed: ' + (err.message || err));
+  });
+
+  // Always apply port forwards and proxies regardless of tunnel status
+  serverForwarder.applyConfig();
+  serverProxy.applyConfig();
+  clientForwarder.applyConfig();
+  clientProxy.applyConfig();
 }
 
 // Global unhandled rejections to prevent crash

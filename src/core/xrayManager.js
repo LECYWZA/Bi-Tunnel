@@ -88,14 +88,16 @@ function parseVless(rawUrl) {
   if (streamSettings.security === 'tls' || streamSettings.security === 'reality') {
     streamSettings.tlsSettings = {
       serverName: params.get('sni') || host,
-      alpn: params.get('alpn') ? params.get('alpn').split(',') : undefined
+      alpn: params.get('alpn') ? params.get('alpn').split(',') : undefined,
+      fingerprint: params.get('fp') || 'chrome'
     };
     if (streamSettings.security === 'reality') {
       streamSettings.realitySettings = {
         serverName: params.get('sni') || host,
         publicKey: params.get('pbk'),
         shortId: params.get('sid') || '',
-        spiderX: params.get('spx') || '/'
+        spiderX: params.get('spx') || '/',
+        fingerprint: params.get('fp') || 'chrome'
       };
     }
   }
@@ -180,29 +182,72 @@ async function startXray(v2rayNode) {
     const configPath = path.join(BIN_DIR, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       getLogger().info(`[Xray] Starting xray-core on local SOCKS5 port ${localPort}...`);
       currentXrayProcess = spawn(XRAY_EXE, ['run', '-c', configPath], {
-        stdio: 'ignore',
+        stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       });
+
+      let errorLogs = '';
+      currentXrayProcess.stderr.on('data', (data) => {
+        const msg = data.toString();
+        errorLogs += msg;
+        getLogger().error(`[Xray Core] ${msg.trim()}`);
+      });
+      currentXrayProcess.stdout.on('data', (data) => {
+        const msg = data.toString();
+        errorLogs += msg;
+        getLogger().info(`[Xray Core] ${msg.trim()}`);
+      });
+
+      let isResolved = false;
 
       currentXrayProcess.on('error', (err) => {
         getLogger().error(`[Xray] Process error: ${err.message}`);
         currentListenPort = 0;
         currentV2rayUrl = null;
+        if (!isResolved) {
+          isResolved = true;
+          reject(new Error(`Failed to start Xray: ${err.message}`));
+        }
       });
 
-      currentXrayProcess.on('exit', () => {
+      currentXrayProcess.on('exit', (code) => {
+        getLogger().error(`[Xray] Process exited with code ${code}`);
         currentListenPort = 0;
         currentV2rayUrl = null;
+        if (!isResolved) {
+          isResolved = true;
+          reject(new Error(`Xray exited prematurely: ${errorLogs || 'Unknown error'}`));
+        }
       });
 
-      // Give it a moment to bind the port
-      setTimeout(() => {
-        currentListenPort = localPort;
-        resolve(localPort);
-      }, 1000);
+      // Poll port to see if it's listening
+      const checkPort = () => {
+        if (isResolved) return;
+        const sock = new net.Socket();
+        sock.setTimeout(500);
+        sock.on('connect', () => {
+          sock.destroy();
+          if (!isResolved) {
+            isResolved = true;
+            currentListenPort = localPort;
+            resolve(localPort);
+          }
+        });
+        sock.on('error', () => {
+          sock.destroy();
+          if (!isResolved) setTimeout(checkPort, 100);
+        });
+        sock.on('timeout', () => {
+          sock.destroy();
+          if (!isResolved) setTimeout(checkPort, 100);
+        });
+        sock.connect(localPort, '127.0.0.1');
+      };
+
+      checkPort();
     });
   })();
 

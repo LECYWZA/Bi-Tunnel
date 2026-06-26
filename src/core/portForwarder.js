@@ -71,6 +71,11 @@ class PortForwarder {
     for (const [listenPort, server] of this.servers.entries()) {
       if (!desiredForwards.find(f => f.listenPort === listenPort)) {
         server.close();
+        if (server._sockets) {
+          for (const s of server._sockets) {
+            s.destroy();
+          }
+        }
         this.servers.delete(listenPort);
         getLogger().info(`[Forward-${this.mode}] Stopped listening on port ${listenPort}`);
       }
@@ -89,6 +94,10 @@ class PortForwarder {
   startForward(listenPort) {
     return new Promise((resolve, reject) => {
       const server = net.createServer((socket) => {
+      if (!server._sockets) server._sockets = new Set();
+      server._sockets.add(socket);
+      socket.on('close', () => server._sockets.delete(socket));
+
       const currentConfig = configManager.getConfig()[this.mode]?.forwards.find(f => f.listenPort === listenPort);
       if (!currentConfig) {
         socket.destroy();
@@ -104,7 +113,11 @@ class PortForwarder {
           targetSession = this.sessions.values().next().value;
         }
       } else {
-        targetSession = this.sessions.values().next().value;
+        const serverConnId = targetClientId || 'default';
+        targetSession = this.sessions.get(serverConnId);
+        if (!targetSession && this.sessions.size === 1) {
+          targetSession = this.sessions.values().next().value;
+        }
       }
 
       if (!targetSession) {

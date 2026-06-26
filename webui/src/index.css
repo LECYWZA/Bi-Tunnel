@@ -181,6 +181,28 @@ html.dark {
   border-bottom: none !important;
 }
 
+.bt-nav-header {
+  border-bottom: none !important;
+  background: transparent !important;
+  height: 60px;
+}
+.bt-nav-header .el-menu-item {
+  height: 60px !important;
+  line-height: 60px !important;
+  color: var(--bt-text-secondary) !important;
+  background: transparent !important;
+  border-bottom: 2px solid transparent !important;
+  transition: color 0.3s !important;
+}
+.bt-nav-header .el-menu-item.is-active {
+  color: var(--bt-primary) !important;
+  font-weight: 600;
+  border-bottom-color: var(--bt-primary) !important;
+}
+.bt-nav-header .el-menu-item:hover {
+  color: var(--bt-text) !important;
+}
+
 .bt-nav .el-menu-item {
   border-radius: 8px !important;
   margin: 0 2px !important;
@@ -400,6 +422,40 @@ html.dark .el-table {
   --el-table-border-color: var(--bt-border);
   --el-table-text-color: var(--bt-text);
   --el-table-header-text-color: var(--bt-text-secondary);
+}
+
+/* Button contrast fixes */
+.el-button {
+  font-weight: 600;
+}
+html.dark .el-button--plain {
+  --el-button-bg-color: rgba(255, 255, 255, 0.05) !important;
+  --el-button-border-color: rgba(255, 255, 255, 0.1) !important;
+  --el-button-text-color: #f1f5f9 !important;
+  --el-button-hover-bg-color: rgba(255, 255, 255, 0.1) !important;
+  --el-button-hover-text-color: #ffffff !important;
+}
+html:not(.dark) .el-button--plain {
+  --el-button-bg-color: #ffffff !important;
+  --el-button-text-color: #1e293b !important;
+  --el-button-hover-bg-color: #f8fafc !important;
+}
+html:not(.dark) .el-button--primary.is-plain {
+  --el-button-text-color: #4f46e5 !important;
+}
+html.dark .el-button--primary.is-plain {
+  --el-button-text-color: #a5b4fc !important;
+}
+
+/* Global Messages Positioning */
+.el-message {
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+.el-notification {
+  top: 50% !important;
+  transform: translateY(-50%) !important;
 }
 
 html.dark .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
