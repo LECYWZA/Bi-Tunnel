@@ -8,6 +8,14 @@ dist/
 config.json
 *.pem
 
+# Xray Core and downloaded binaries
+bin/
+
+# Test scripts
+test-*.js
+download*.js
+verify-proxy.js
+
 # IDEs and Editors
 .idea/
 .vscode/

@@ -77,15 +77,18 @@ class PortForwarder {
     }
 
     // Start new forwards
+    const startPromises = [];
     for (const fw of desiredForwards) {
       if (!this.servers.has(fw.listenPort)) {
-        this.startForward(fw.listenPort);
+        startPromises.push(this.startForward(fw.listenPort));
       }
     }
+    return Promise.all(startPromises);
   }
 
   startForward(listenPort) {
-    const server = net.createServer((socket) => {
+    return new Promise((resolve, reject) => {
+      const server = net.createServer((socket) => {
       const currentConfig = configManager.getConfig()[this.mode]?.forwards.find(f => f.listenPort === listenPort);
       if (!currentConfig) {
         socket.destroy();
@@ -140,15 +143,22 @@ class PortForwarder {
       });
     });
 
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        reject({ code: 'PORT_IN_USE', port: listenPort });
+      } else {
+        getLogger().error(`[Forward-${this.mode}] Failed to listen on ${listenPort}: ${err.message}`);
+        reject(err);
+      }
+    });
+
     server.listen(listenPort, '0.0.0.0', () => {
       getLogger().info(`[Forward-${this.mode}] Listening on ${listenPort} (dynamic target)`);
       this.servers.set(listenPort, server);
+      resolve();
     });
-
-    server.on('error', (err) => {
-      getLogger().error(`[Forward-${this.mode}] Failed to listen on ${listenPort}: ${err.message}`);
-    });
-  }
+  });
+}
 }
 
 module.exports = PortForwarder;

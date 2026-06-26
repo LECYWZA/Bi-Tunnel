@@ -32,41 +32,52 @@ function init() {
     connectedClients: tunnelServer.sessions ? Array.from(tunnelServer.sessions.keys()) : []
   }));
 
-  const startTunnel = (mode) => {
-    if (mode === 'server') {
-      if (tunnelServer.server) return; // already running
-      tunnelServer.start();
-      
-      tunnelServer.on('session', (session, clientId) => {
-        getLogger().info(`=== Server Tunnel Session Established [${clientId}] ===`);
-        serverForwarder.setSession(session, clientId);
-        serverProxy.setSession(session, clientId);
-        serverForwarder.applyConfig();
-        serverProxy.applyConfig();
-      });
+  const startTunnel = async (mode) => {
+    try {
+      if (mode === 'server') {
+        if (tunnelServer.server) return; // already running
+        await tunnelServer.start();
+        
+        await Promise.all([
+          serverForwarder.applyConfig(),
+          serverProxy.applyConfig()
+        ]);
+        
+        tunnelServer.on('session', (session, clientId) => {
+          getLogger().info(`=== Server Tunnel Session Established [${clientId}] ===`);
+          serverForwarder.setSession(session, clientId);
+          serverProxy.setSession(session, clientId);
+        });
 
-      tunnelServer.on('session_closed', (clientId) => {
-        getLogger().info(`=== Server Tunnel Session Closed [${clientId}] ===`);
-        serverForwarder.removeSession(clientId);
-        serverProxy.removeSession(clientId);
-      });
-    } else if (mode === 'client') {
-      if (tunnelClient.shouldRetry) return; // already running
-      tunnelClient.start();
-      
-      tunnelClient.on('session', (session) => {
-        getLogger().info('=== Client Tunnel Session Established ===');
-        clientForwarder.setSession(session, 'server');
-        clientProxy.setSession(session, 'server');
-        clientForwarder.applyConfig();
-        clientProxy.applyConfig();
-      });
+        tunnelServer.on('session_closed', (clientId) => {
+          getLogger().info(`=== Server Tunnel Session Closed [${clientId}] ===`);
+          serverForwarder.removeSession(clientId);
+          serverProxy.removeSession(clientId);
+        });
+      } else if (mode === 'client') {
+        if (tunnelClient.shouldRetry) return; // already running
+        tunnelClient.start(); // client connect doesn't bind a listen port, so it doesn't throw EADDRINUSE normally
+        
+        await Promise.all([
+          clientForwarder.applyConfig(),
+          clientProxy.applyConfig()
+        ]);
+        
+        tunnelClient.on('session', (session) => {
+          getLogger().info('=== Client Tunnel Session Established ===');
+          clientForwarder.setSession(session, 'server');
+          clientProxy.setSession(session, 'server');
+        });
 
-      tunnelClient.on('session_closed', () => {
-        getLogger().info('=== Client Tunnel Session Closed ===');
-        clientForwarder.removeSession('server');
-        clientProxy.removeSession('server');
-      });
+        tunnelClient.on('session_closed', () => {
+          getLogger().info('=== Client Tunnel Session Closed ===');
+          clientForwarder.removeSession('server');
+          clientProxy.removeSession('server');
+        });
+      }
+    } catch (e) {
+      stopTunnel(mode);
+      throw e;
     }
   };
 

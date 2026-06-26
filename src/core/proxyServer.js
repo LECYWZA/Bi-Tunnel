@@ -1,4 +1,5 @@
 const net = require('net');
+const os = require('os');
 const ipaddr = require('ipaddr.js');
 const configManager = require('../config/config');
 const { getLogger, logTraffic } = require('../utils/logger');
@@ -48,34 +49,44 @@ class ProxyServer {
       }
     }
 
+    const startPromises = [];
     for (const p of desiredProxies) {
       if (!this.servers.has(p.listenPort)) {
-        this.startProxy(p.listenPort);
+        startPromises.push(this.startProxy(p.listenPort));
       }
     }
+    return Promise.all(startPromises);
   }
 
   startProxy(listenPort) {
-    const server = net.createServer((socket) => {
+    return new Promise((resolve, reject) => {
+      const server = net.createServer((socket) => {
+        const currentConfig = configManager.getConfig()[this.mode]?.proxies.find(p => p.listenPort === listenPort);
+        if (!currentConfig) {
+          socket.destroy();
+          return;
+        }
+        this.handleConnection(socket, currentConfig);
+      });
+
       const currentConfig = configManager.getConfig()[this.mode]?.proxies.find(p => p.listenPort === listenPort);
-      if (!currentConfig) {
-        socket.destroy();
-        return;
-      }
-      this.handleConnection(socket, currentConfig);
-    });
+      const bindHost = currentConfig?.listenIp || '0.0.0.0';
 
-    const currentConfig = configManager.getConfig()[this.mode]?.proxies.find(p => p.listenPort === listenPort);
-    const bindHost = currentConfig?.listenIp || '0.0.0.0';
+      server.once('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          reject({ code: 'PORT_IN_USE', port: listenPort });
+        } else {
+          getLogger().error(`[Proxy] Failed to listen on ${listenPort}: ${err.message}`);
+          reject(err);
+        }
+      });
 
-    server.listen(listenPort, bindHost, () => {
-      getLogger().info(`[Proxy] Listening on ${bindHost}:${listenPort}`);
-      server._bindHost = bindHost;
-      this.servers.set(listenPort, server);
-    });
-
-    server.on('error', (err) => {
-      getLogger().error(`[Proxy] Failed to listen on ${listenPort}: ${err.message}`);
+      server.listen(listenPort, bindHost, () => {
+        getLogger().info(`[Proxy] Listening on ${bindHost}:${listenPort}`);
+        server._bindHost = bindHost;
+        this.servers.set(listenPort, server);
+        resolve();
+      });
     });
   }
 
@@ -119,6 +130,25 @@ class ProxyServer {
     } catch (e) {
       return false; // Ignore bad CIDR formats
     }
+  }
+
+  isLocalIp(ip) {
+    if (!ip) return false;
+    // Handle IPv4-mapped IPv6 addresses
+    if (ip.startsWith('::ffff:')) {
+      ip = ip.substring(7);
+    }
+    if (ip === '127.0.0.1' || ip === '::1') return true;
+
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.address === ip) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   handleConnection(socket, proxyConfig) {
@@ -177,7 +207,15 @@ class ProxyServer {
     }
 
     // Auth check
-    if (proxyConfig.useAuth) {
+    let requireAuth = proxyConfig.useAuth;
+    const clientIp = socket.remoteAddress;
+    
+    // Auto-bypass auth for localhost if it's the active system proxy
+    if (requireAuth && proxyConfig.isSystemProxy && this.isLocalIp(clientIp)) {
+      requireAuth = false;
+    }
+
+    if (requireAuth) {
       const authHeader = lines.find(l => l.toLowerCase().startsWith('proxy-authorization:'));
       if (!authHeader) {
         socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
@@ -229,7 +267,15 @@ class ProxyServer {
   // SOCKS5 Handshake
   handleSocks5(socket, initialData, proxyConfig) {
     // 1. Auth selection
-    if (proxyConfig.useAuth) {
+    let requireAuth = proxyConfig.useAuth;
+    const clientIp = socket.remoteAddress;
+    
+    // Auto-bypass auth for localhost if it's the active system proxy
+    if (requireAuth && proxyConfig.isSystemProxy && this.isLocalIp(clientIp)) {
+      requireAuth = false;
+    }
+
+    if (requireAuth) {
       // Require Username/Password (0x02)
       if (!initialData.includes(0x02, 2)) { // Methods are from byte 2 onwards
         socket.write(Buffer.from([0x05, 0xFF])); // No acceptable auth methods

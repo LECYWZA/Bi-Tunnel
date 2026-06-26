@@ -281,7 +281,7 @@
               </el-collapse-transition>
             </div>
 
-            <el-collapse class="mt-4 border-t-0">
+            <el-collapse class="mt-4" style="border-top: none;">
               <el-collapse-item name="1" title="高级路由与代理链配置" class="bg-transparent">
                 <!-- Routing Rules -->
                 <div class="mb-5 bg-white p-4 rounded-md shadow-sm" style="border: 1px solid #f3f4f6;">
@@ -306,46 +306,45 @@
                   
                   <draggable v-model="px.proxyRules" item-key="pattern" handle=".drag-handle" animation="300" ghost-class="ghost">
                     <template #item="{ element: rule, index: rIdx }">
-                      <div class="flex items-center gap-3 p-4 mb-3 bg-white border border-gray-100 rounded-lg shadow-sm hover:shadow-md transition-all relative group overflow-hidden">
-                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-teal-400 to-emerald-500"></div>
-                        <el-icon class="drag-handle cursor-move text-gray-300 hover:text-emerald-500 transition-colors" :size="24"><Sort /></el-icon>
+                      <div class="flex items-center gap-3 p-3 mb-2 bg-gray-50 rounded-md relative group" style="border: 1px solid #e4e7ed;">
+                        <el-icon class="drag-handle cursor-move text-gray-400 hover:text-blue-500 transition-colors" :size="20"><Sort /></el-icon>
                         
                         <div class="flex-1 grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
                           <!-- Match Pattern -->
-                          <div class="flex items-center border rounded-md focus-within:border-emerald-400 focus-within:ring-1 focus-within:ring-emerald-400 transition-all bg-gray-50 overflow-hidden">
-                            <span class="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-2 border-r select-none whitespace-nowrap">匹配域名/IP</span>
-                            <el-input v-model="rule.pattern" placeholder="例如: *.google.com 或 192.168.1.*" class="rule-input border-0 bg-transparent flex-1" />
+                          <div class="flex items-center bg-white rounded overflow-hidden" style="border: 1px solid #e4e7ed;">
+                            <span class="text-xs text-gray-500 bg-gray-100 px-3 py-1.5 select-none whitespace-nowrap" style="border-right: 1px solid #e4e7ed;">匹配域名/IP</span>
+                            <el-input v-model="rule.pattern" placeholder="例如: *.google.com 或 192.168.1.*" class="rule-input flex-1" style="border: none;" />
                           </div>
 
-                          <el-icon class="text-gray-300"><Right /></el-icon>
+                          <el-icon class="text-gray-400"><Right /></el-icon>
 
                           <!-- Route Action -->
-                          <div class="flex items-center border rounded-md focus-within:border-emerald-400 focus-within:ring-1 focus-within:ring-emerald-400 transition-all bg-gray-50 overflow-hidden">
-                            <span class="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-2 border-r select-none whitespace-nowrap">转发至</span>
+                          <div class="flex items-center bg-white rounded overflow-hidden" style="border: 1px solid #e4e7ed;">
+                            <span class="text-xs text-gray-500 bg-gray-100 px-3 py-1.5 select-none whitespace-nowrap" style="border-right: 1px solid #e4e7ed;">转发至</span>
                             <el-select v-model="rule.action" class="rule-select flex-1" style="width: 100%;">
                               <el-option-group label="内置动作">
-                                <el-option label="🌍 直连 (本地网络)" value="direct_local" />
-                                <el-option label="☁️ 直连 (远端隧道)" value="direct_remote" />
-                                <el-option label="🚫 拒绝连接" value="block" />
+                                <el-option label="直连 (本地网络)" value="direct_local" />
+                                <el-option label="直连 (远端隧道)" value="direct_remote" />
+                                <el-option label="拒绝连接" value="block" />
                               </el-option-group>
                               <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
-                                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`🔗 走代理链: ${chain.name}`" :value="`chain:${chain.id}`" />
+                                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" />
                               </el-option-group>
                               <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
-                                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`🎯 走节点: ${node.displayName}`" :value="`node:${node.id}`" />
+                                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" />
                               </el-option-group>
                             </el-select>
                           </div>
                         </div>
 
-                        <el-button type="danger" circle :icon="Delete" @click="px.proxyRules.splice(rIdx, 1)" class="opacity-0 group-hover:opacity-100 transition-opacity ml-2 shadow-sm" />
+                        <el-button type="danger" link :icon="Delete" @click="px.proxyRules.splice(rIdx, 1)" class="opacity-0 group-hover:opacity-100 transition-opacity ml-2" />
                       </div>
                     </template>
                   </draggable>
 
                   <el-empty v-if="!px.proxyRules || px.proxyRules.length === 0" description="暂无规则，将执行下方默认动作" :image-size="40" />
 
-                  <div class="mt-4 flex items-center justify-end gap-2 bg-blue-50 border border-blue-100 p-2 rounded">
+                  <div class="mt-4 flex items-center justify-end gap-2 bg-blue-50 p-2 rounded" style="border: 1px solid #dbeafe;">
                     <el-tooltip content="当以上所有规则都没有命中时，流量将执行此动作。" placement="top">
                       <el-icon class="text-gray-400"><InfoFilled /></el-icon>
                     </el-tooltip>
@@ -406,6 +405,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { ElMessage } from 'element-plus';
 import draggable from 'vuedraggable';
 import { Delete, Plus, User, Lock, Switch, HelpFilled, InfoFilled, Sort, Right } from '@element-plus/icons-vue';
 

@@ -217,4 +217,13 @@ function stopXray() {
   }
 }
 
-module.exports = { startXray, stopXray, getActiveXrayPort };
+function getStatus() {
+  return {
+    running: !!currentXrayProcess,
+    pid: currentXrayProcess ? currentXrayProcess.pid : null,
+    port: currentListenPort,
+    url: currentV2rayUrl
+  };
+}
+
+module.exports = { startXray, stopXray, getActiveXrayPort, getStatus };

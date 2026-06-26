@@ -1,11 +1,30 @@
 <template>
   <el-container class="min-h-screen bg-gray-50">
     <el-header height="80px" class="bg-white flex items-center justify-between px-8">
-      <div class="flex items-center gap-4">
-        <el-icon :size="28" color="#409EFC"><Connection /></el-icon>
-        <h1 class="text-2xl font-bold text-gray-800 m-0">Bi-Tunnel 控制台</h1>
+      <div class="flex items-center gap-6">
+        <div class="flex items-center gap-4">
+          <el-icon :size="28" color="#409EFC"><Connection /></el-icon>
+          <h1 class="text-2xl font-bold text-gray-800 m-0">Bi-Tunnel 控制台</h1>
+        </div>
+
+        <!-- Xray Status Badge -->
+        <el-tooltip  :content="xrayStatus.running ? 'Xray 内核正在处理代理流量' : 'Xray 内核处于休眠状态，当产生相关代理连接时按需启动'" placement="bottom">
+          <div style="margin-left: 50px" class="flex items-center gap-2 px-3 py-1 rounded-full border transition-colors duration-300 cursor-default"
+               :class="xrayStatus.running ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500'">
+            <span class="relative flex h-2.5 w-2.5">
+              <span v-if="xrayStatus.running" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2.5 w-2.5" :class="xrayStatus.running ? 'bg-green-500' : 'bg-gray-400'"></span>
+            </span>
+            <span class="text-xs font-bold tracking-wide"><el-tag>XRAY CORE</el-tag></span>
+            <span v-if="xrayStatus.running" class="text-[10px] ml-1 opacity-80 border-l border-green-200 pl-2">
+              <el-tag>PID: {{xrayStatus.pid}} | PORT: {{xrayStatus.port}}</el-tag>
+            </span>
+          </div>
+        </el-tooltip>
+
+
       </div>
-      
+
       <div class="flex items-center gap-4">
         <span class="text-sm text-gray-500 mr-2" v-if="hasUnsavedChanges"><el-icon class="mr-1"><InfoFilled /></el-icon>有未保存的修改</span>
         <el-button type="success" size="large" :icon="Check" @click="saveConfig(false)" class="font-bold shadow-md px-8">
@@ -15,7 +34,7 @@
     </el-header>
 
     <el-main class="mx-auto w-full p-6" style="max-width: 1400px;">
-      <el-menu :default-active="$route.path" router mode="horizontal" class="mb-6 rounded-lg bg-white shadow-sm border-b-0">
+      <el-menu :default-active="$route.path" router mode="horizontal" class="mb-6 rounded-lg bg-white shadow-sm" style="border-bottom: none;">
         <el-menu-item index="/config">
           <el-icon><Setting /></el-icon> 代理与映射配置
         </el-menu-item>
@@ -52,7 +71,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElMessage, ElNotification } from 'element-plus';
+import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
 import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor } from '@element-plus/icons-vue';
 
 const hasUnsavedChanges = ref(false);
@@ -91,6 +110,12 @@ const status = reactive({
   connectedClients: []
 });
 
+const xrayStatus = reactive({
+  running: false,
+  pid: null,
+  port: 0
+});
+
 const availableIps = ref(['0.0.0.0', '127.0.0.1']);
 
 const handleTabSelect = (index) => {
@@ -106,6 +131,16 @@ const fetchStatus = async () => {
     status.clientConnected = data.clientConnected;
     status.clientRunning = data.clientRunning;
     status.connectedClients = data.connectedClients || [];
+  } catch (e) {}
+};
+
+const fetchXrayStatus = async () => {
+  try {
+    const res = await fetch('/api/xray-status');
+    const data = await res.json();
+    xrayStatus.running = data.running;
+    xrayStatus.pid = data.pid;
+    xrayStatus.port = data.port;
   } catch (e) {}
 };
 
@@ -181,10 +216,30 @@ const startTunnel = async (targetMode) => {
       ElMessage.success(`${targetMode === 'server' ? '服务端' : '客户端'} 隧道已启动`);
       fetchStatus();
     } else {
-      ElMessage.error('启动失败: ' + result.message);
+      if (result.code === 'PORT_IN_USE') {
+        try {
+          await ElMessageBox.confirm(`端口 ${result.port} 正被其他程序占用，隧道启动失败！\n是否要强制结束占用该端口的后台进程？`, '端口冲突', {
+            confirmButtonText: '强制杀掉并重试',
+            cancelButtonText: '取消',
+            type: 'warning'
+          });
+          const killRes = await fetch(`/api/kill-port/${result.port}`, { method: 'POST' });
+          const killData = await killRes.json();
+          if (killData.success) {
+            ElMessage.success(killData.message);
+            setTimeout(() => startTunnel(targetMode), 1000);
+          } else {
+            ElMessage.error(killData.message);
+          }
+        } catch (e) {
+          // user cancelled
+        }
+      } else {
+        ElMessage.error('启动失败: ' + result.message);
+      }
     }
   } catch (e) {
-    ElMessage.error('请求失败');
+    ElMessage.error('请求失败: ' + e.message);
   }
 };
 
@@ -245,6 +300,10 @@ onMounted(() => {
   fetchNetworkInterfaces();
   fetchConfig();
   fetchStatus();
-  setInterval(fetchStatus, 3000);
+  fetchXrayStatus();
+  setInterval(() => {
+    fetchStatus();
+    fetchXrayStatus();
+  }, 3000);
 });
 </script>

@@ -82,15 +82,63 @@ function createWebServer(statusCallback) {
     res.json(trafficLogger.getLogs(limit, offset));
   });
 
-  app.post('/api/tunnel/:mode/start', (req, res) => {
+  app.post('/api/tunnel/:mode/start', async (req, res) => {
     const { mode } = req.params;
     if (app.locals.startTunnel) {
-      app.locals.startTunnel(mode);
-      getLogger().info(`Tunnel started manually via API in mode: ${mode}`);
-      res.json({ success: true, message: `Tunnel started in ${mode} mode.` });
+      try {
+        await app.locals.startTunnel(mode);
+        getLogger().info(`Tunnel started manually via API in mode: ${mode}`);
+        res.json({ success: true, message: `Tunnel started in ${mode} mode.` });
+      } catch (err) {
+        if (err.code === 'PORT_IN_USE') {
+          res.json({ success: false, code: 'PORT_IN_USE', port: err.port, message: `端口 ${err.port} 被占用` });
+        } else {
+          res.status(500).json({ success: false, message: err.message || '启动失败' });
+        }
+      }
     } else {
       res.status(500).json({ success: false, message: 'Tunnel control not bound.' });
     }
+  });
+
+  app.post('/api/kill-port/:port', (req, res) => {
+    const port = parseInt(req.params.port);
+    if (!port) return res.status(400).json({ success: false, message: 'Port is required' });
+
+    const { exec } = require('child_process');
+    // Find PID on Windows using netstat and findstr
+    exec(`netstat -ano | findstr :${port}`, (err, stdout) => {
+      if (err || !stdout) {
+        return res.json({ success: false, message: `未找到占用端口 ${port} 的进程` });
+      }
+      
+      const lines = stdout.trim().split('\n');
+      let targetPid = null;
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        // Protocol, Local Address, Foreign Address, State, PID
+        if (parts.length >= 4 && parts[1].endsWith(`:${port}`) && parts[parts.length - 1] !== '0') {
+          targetPid = parts[parts.length - 1];
+          break;
+        }
+      }
+
+      if (!targetPid) {
+        return res.json({ success: false, message: `未找到占用端口 ${port} 的有效 PID` });
+      }
+
+      exec(`taskkill /PID ${targetPid} /F`, (killErr) => {
+        if (killErr) {
+          return res.json({ success: false, message: `强杀进程 ${targetPid} 失败: ${killErr.message}` });
+        }
+        res.json({ success: true, message: `成功结束进程 ${targetPid}，端口 ${port} 已释放` });
+      });
+    });
+  });
+
+  app.get('/api/xray-status', (req, res) => {
+    const xrayManager = require('../core/xrayManager');
+    res.json(xrayManager.getStatus());
   });
 
   app.post('/api/tunnel/:mode/stop', (req, res) => {
@@ -115,6 +163,8 @@ function createWebServer(statusCallback) {
 
   app.post('/api/system-proxy/disable', async (req, res) => {
     const success = await disableSystemProxy();
+    const { stopXray } = require('../core/xrayManager');
+    stopXray();
     res.json({ success });
   });
 

@@ -13,9 +13,10 @@ class TunnelServer extends EventEmitter {
   }
 
   start() {
-    const config = configManager.getConfig();
-    const serverConfig = config.server || {};
-    const certs = getCertificates();
+    return new Promise((resolve, reject) => {
+      const config = configManager.getConfig();
+      const serverConfig = config.server || {};
+      const certs = getCertificates();
 
     this.server = tls.createServer({
       key: certs.key,
@@ -67,10 +68,22 @@ class TunnelServer extends EventEmitter {
     });
 
     const bindHost = serverConfig.bindHost || '0.0.0.0';
+
+    this.server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        reject({ code: 'PORT_IN_USE', port: serverConfig.tunnelPort });
+      } else {
+        getLogger().error(`[TLS] Server error: ${err.message}`);
+        reject(err);
+      }
+    });
+
     this.server.listen(serverConfig.tunnelPort, bindHost, () => {
       getLogger().info(`[TLS] Tunnel Server listening on ${bindHost}:${serverConfig.tunnelPort}`);
+      resolve();
     });
-  }
+  });
+}
 
   stop() {
     if (this.server) {
