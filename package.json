@@ -11,7 +11,10 @@
   },
   "pkg": {
     "scripts": "src/**/*.js",
-    "assets": "src/web/public/**/*",
+    "assets": [
+      "src/web/public/**/*",
+      "bin/**/*"
+    ],
     "targets": [
       "node16-win-x64",
       "node16-linux-x64"
@@ -23,6 +26,7 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "express-basic-auth": "^1.2.1",
+    "geoip-lite": "^1.4.10",
     "ipaddr.js": "^2.1.0",
     "node-forge": "^1.4.0",
     "winston": "^3.10.0",

@@ -8,7 +8,7 @@ class TrafficLogger extends EventEmitter {
     this.nextId = 1;
   }
 
-  addLog({ module, sourceIp, target, action, bytesTransferred = 0, durationMs = 0, status = 'success', error = '' }) {
+  addLog({ module, sourceIp, target, action, rulePattern = '', bytesTransferred = 0, durationMs = 0, status = 'success', error = '' }) {
     const logEntry = {
       id: this.nextId++,
       timestamp: Date.now(),
@@ -16,6 +16,7 @@ class TrafficLogger extends EventEmitter {
       sourceIp: sourceIp || 'Local',
       target,
       action,
+      rulePattern,
       bytesTransferred,
       durationMs,
       status,
@@ -32,10 +33,23 @@ class TrafficLogger extends EventEmitter {
     this.emit('new_log', logEntry);
   }
 
-  getLogs(limit = 100, offset = 0) {
+  getLogs(limit = 100, offset = 0, query = {}) {
+    let filteredLogs = this.logs;
+    
+    if (query.target) {
+      const q = query.target.toLowerCase();
+      filteredLogs = filteredLogs.filter(l => l.target && l.target.toLowerCase().includes(q));
+    }
+    if (query.module) {
+      filteredLogs = filteredLogs.filter(l => l.module && l.module.includes(query.module));
+    }
+    if (query.action) {
+      filteredLogs = filteredLogs.filter(l => l.action === query.action);
+    }
+
     return {
-      total: this.logs.length,
-      logs: this.logs.slice(offset, offset + limit)
+      total: filteredLogs.length,
+      logs: filteredLogs.slice(offset, offset + limit)
     };
   }
 

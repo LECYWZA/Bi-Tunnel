@@ -1,5 +1,8 @@
 <template>
-  <div class="min-h-screen" :style="{ background: 'var(--bt-bg)' }">
+  <div v-if="!isLoggedIn">
+    <Login v-model:isDark="isDark" @login-success="onLoginSuccess" />
+  </div>
+  <div v-else class="min-h-screen" :style="{ background: 'var(--bt-bg)' }">
     <!-- Header -->
     <header class="bt-header px-6 py-0 flex items-center justify-between" style="height: 60px;">
       <div class="flex items-center gap-5">
@@ -83,6 +86,17 @@ import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
 import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor } from '@element-plus/icons-vue';
+import Login from './components/Login.vue';
+
+const isLoggedIn = ref(false);
+
+const onLoginSuccess = () => {
+  isLoggedIn.value = true;
+  fetchConfig();
+  fetchNetworkInterfaces();
+  fetchStatus();
+  fetchXrayStatus();
+};
 
 const isDark = ref(false);
 const hasUnsavedChanges = ref(false);
@@ -184,7 +198,12 @@ const fetchNetworkInterfaces = async () => {
 const fetchConfig = async () => {
   try {
     const res = await fetch('/api/config');
+    if (res.status === 401) {
+      isLoggedIn.value = false;
+      return;
+    }
     const data = await res.json();
+    isLoggedIn.value = true;
     
     // Format arrays for textareas
     if (data.server && data.server.proxies) {
@@ -323,13 +342,18 @@ const saveConfig = async (silent = false) => {
 
 onMounted(() => {
   initTheme();
-  fetchNetworkInterfaces();
   fetchConfig();
-  fetchStatus();
-  fetchXrayStatus();
-  setInterval(() => {
+  if (isLoggedIn.value) {
+    fetchNetworkInterfaces();
     fetchStatus();
     fetchXrayStatus();
-  }, 3000);
+  }
+  
+  statusTimer = setInterval(() => {
+    if (isLoggedIn.value) {
+      fetchStatus();
+      fetchXrayStatus();
+    }
+  }, 2000);
 });
 </script>

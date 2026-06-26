@@ -7,7 +7,7 @@ const net = require('net');
 const fs = require('fs');
 const os = require('os');
 const { URL } = require('url');
-const basicAuth = require('express-basic-auth');
+const crypto = require('crypto');
 const configManager = require('../config/config');
 const { getLogger } = require('../utils/logger');
 const trafficLogger = require('../utils/trafficLogger');
@@ -18,28 +18,49 @@ const ProxyDialer = require('../core/proxyDialer');
 // Dependency Injection to get current status
 let getStatus = () => ({});
 
+let currentAuthToken = crypto.randomBytes(16).toString('hex');
+
 function createWebServer(statusCallback) {
   getStatus = statusCallback || (() => ({}));
   const app = express();
   
-  // Basic Auth Middleware
-  app.use((req, res, next) => {
-    const config = configManager.getConfig();
-    const users = {};
-    users[config.webUsername || 'admin'] = config.webPassword || 'password';
-    
-    const authMiddleware = basicAuth({
-      users: users,
-      challenge: true,
-      realm: 'Bi-Tunnel Secure Panel'
-    });
-    
-    authMiddleware(req, res, next);
-  });
-
   app.use(cors());
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
+
+  app.use((req, res, next) => {
+    // allow static files and login endpoints
+    if (req.path === '/api/login' || !req.path.startsWith('/api/')) {
+      return next();
+    }
+    
+    const cookies = req.headers.cookie || '';
+    const token = cookies.split('; ').find(row => row.startsWith('bt_token='))?.split('=')[1];
+    
+    if (token && token === currentAuthToken) {
+      return next();
+    } else {
+      res.status(401).json({ error: 'Unauthorized', message: 'Not logged in' });
+    }
+  });
+
+  app.post('/api/login', (req, res) => {
+    const config = configManager.getConfig();
+    const validUser = config.webUsername || 'admin';
+    const validPass = config.webPassword || 'password';
+    
+    if (req.body.username === validUser && req.body.password === validPass) {
+      res.cookie('bt_token', currentAuthToken, { httpOnly: true, sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });
+      res.json({ success: true });
+    } else {
+      res.status(401).json({ success: false, message: '账号或密码错误' });
+    }
+  });
+
+  app.post('/api/logout', (req, res) => {
+    res.clearCookie('bt_token');
+    res.json({ success: true });
+  });
 
   app.get('/api/config', (req, res) => {
     res.json(configManager.getConfig());
@@ -79,7 +100,12 @@ function createWebServer(statusCallback) {
   app.get('/api/traffic-logs', (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 100;
     const offset = parseInt(req.query.offset, 10) || 0;
-    res.json(trafficLogger.getLogs(limit, offset));
+    const queryParams = {
+      target: req.query.target,
+      module: req.query.module,
+      action: req.query.action
+    };
+    res.json(trafficLogger.getLogs(limit, offset, queryParams));
   });
 
   app.post('/api/tunnel/:mode/start', async (req, res) => {
@@ -187,8 +213,10 @@ function createWebServer(statusCallback) {
     }
 
     const startTime = Date.now();
+    const targetHost = req.body.targetHost || 'www.bing.com';
+    const targetPort = parseInt(req.body.targetPort) || 443;
     
-    ProxyDialer.dialChain(nodesToDial, 'www.google.com', 443, false, null, (err, socket) => {
+    ProxyDialer.dialChain(nodesToDial, targetHost, targetPort, false, null, (err, socket) => {
       if (err) {
         return res.json({ success: false, message: err.message, latency: 0 });
       }

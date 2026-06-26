@@ -5,12 +5,18 @@
         <el-icon :size="24" style="color: var(--bt-primary)"><Monitor /></el-icon>
         <span class="font-bold text-lg bt-text">代理节点池 (Global Proxy Nodes)</span>
       </div>
-      <el-button type="primary" :icon="Plus" @click="openImportDialog">添加/导入节点</el-button>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-bold bt-text whitespace-nowrap">测速目标:</span>
+          <el-input v-model="testTarget" placeholder="host:port" class="w-48" size="small" />
+        </div>
+        <el-button type="primary" :icon="Plus" @click="openImportDialog">添加/导入节点</el-button>
+      </div>
     </div>
 
     <el-empty v-if="!config.proxyNodes || config.proxyNodes.length === 0" description="暂无代理节点，请点击右上角添加" :image-size="80" />
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" v-else>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6" v-else>
       <el-card v-for="(node, idx) in config.proxyNodes" :key="node.id" shadow="hover" body-class="flex flex-col h-full" class="bt-card h-full">
         
         <!-- Header Section -->
@@ -41,9 +47,7 @@
           <template v-if="node.type === 'v2ray'">
             <div class="flex items-center gap-2 mb-2 text-sm">
               <span class="text-gray-500 w-12">URL:</span>
-              <el-tooltip :content="node.rawUrl" placement="top">
-                <span class="font-mono text-gray-600 truncate flex-1 cursor-pointer">********</span>
-              </el-tooltip>
+              <span class="font-mono text-gray-600 truncate flex-1">********</span>
             </div>
             <div class="flex items-center gap-2 text-sm">
               <span class="text-gray-500 w-12">状态:</span>
@@ -191,6 +195,7 @@ const importTab = ref('text');
 const importText = ref('');
 const manualForm = ref({ displayName: '自建节点', type: 'socks5', host: '', port: 1080, user: '', pass: '' });
 const testingNode = ref(null);
+const testTarget = ref('www.bing.com:443');
 
 const v2rayEditDialogVisible = ref(false);
 const v2rayEditForm = ref({});
@@ -252,10 +257,14 @@ const deleteNode = (idx, nodeId) => {
 const testLatency = async (nodeId) => {
   testingNode.value = nodeId;
   try {
+    const parts = testTarget.value.split(':');
+    const targetHost = parts[0] || 'www.bing.com';
+    const targetPort = parseInt(parts[1]) || 443;
+
     const res = await fetch('/api/test-latency', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'node', id: nodeId })
+      body: JSON.stringify({ type: 'node', id: nodeId, targetHost, targetPort })
     });
     const data = await res.json();
     if (data.success) {

@@ -5,23 +5,45 @@
         <el-icon :size="24" style="color: var(--bt-primary)"><Link /></el-icon>
         <span class="font-bold text-lg bt-text">代理链管理 (Proxy Chains)</span>
       </div>
-      <el-button type="primary" :icon="Plus" @click="addChain">创建新代理链</el-button>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-bold bt-text whitespace-nowrap">测速目标:</span>
+          <el-input v-model="testTarget" placeholder="host:port" class="w-48" size="small" />
+        </div>
+        <el-button type="primary" :icon="Plus" @click="addChain">创建新代理链</el-button>
+      </div>
     </div>
 
     <el-empty v-if="!config.proxyChains || config.proxyChains.length === 0" description="暂无代理链，请点击右上角创建" :image-size="80" />
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" v-else>
-      <el-card v-for="(chain, idx) in config.proxyChains" :key="chain.id" shadow="hover" class="h-full" body-class="flex flex-col h-full">
-        <div class="flex justify-between items-center mb-2 pb-2" style="border-bottom: 1px solid #e4e7ed;">
-          <div class="font-bold truncate flex-1">{{ chain.name }}</div>
-          <el-tag size="small" type="info">ID: {{ chain.id.split('_')[1] }}</el-tag>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6" v-else>
+      <el-card v-for="(chain, idx) in config.proxyChains" :key="chain.id" shadow="hover" class="bt-card h-full" body-class="flex flex-col h-full">
+        <div class="flex justify-between items-center mb-4 pb-3" style="border-bottom: 1px solid var(--bt-border);">
+          <div class="font-bold text-lg bt-text truncate flex-1">{{ chain.name }}</div>
+          <el-tag size="small" type="info" effect="plain" round>ID: {{ chain.id.split('_')[1] }}</el-tag>
         </div>
 
-        <div class="text-sm text-gray-500 mb-4 flex-1">
-          包含节点数: <span class="font-bold text-gray-800">{{ chain.nodes ? chain.nodes.length : 0 }}</span>
+        <div class="flex-1 mb-4">
+          <el-empty v-if="!chain.nodes || chain.nodes.length === 0" description="空代理链" :image-size="40" />
+          <div v-else class="flex flex-col gap-2">
+            <div v-for="(nodeId, nIdx) in chain.nodes" :key="nIdx" class="flex items-center gap-2 p-2 rounded-lg" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
+              <div class="flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs" style="background: var(--bt-primary-light); color: var(--bt-primary);">
+                {{ nIdx + 1 }}
+              </div>
+              <template v-if="getNode(nodeId)">
+                <el-tag size="small" :type="getNode(nodeId).type === 'v2ray' ? 'success' : 'primary'" effect="dark">
+                  {{ getNode(nodeId).type === 'v2ray' ? getNode(nodeId).v2rayType.toUpperCase() : getNode(nodeId).type.toUpperCase() }}
+                </el-tag>
+                <span class="font-bold bt-text text-sm truncate flex-1">{{ getNode(nodeId).displayName }}</span>
+              </template>
+              <template v-else>
+                <span class="text-red-500 text-sm">节点已失效或被删除</span>
+              </template>
+            </div>
+          </div>
         </div>
 
-        <div class="flex justify-between items-center mt-auto pt-2" style="border-top: 1px solid #e4e7ed;">
+        <div class="flex justify-between items-center mt-auto pt-3" style="border-top: 1px solid var(--bt-border);">
           <el-button 
             type="primary" 
             :plain="testingChain !== chain.id" 
@@ -30,7 +52,7 @@
             :loading="testingChain === chain.id"
             @click="testChain(chain.id)"
           >
-            {{ testingChain === chain.id ? '测速...' : '测速' }}
+            {{ testingChain === chain.id ? '测速中...' : '⚡ 测试延迟' }}
           </el-button>
           
           <div class="flex gap-2">
@@ -75,11 +97,11 @@
           
           <draggable v-model="editingChain.nodes" item-key="id" handle=".drag-handle" animation="300" ghost-class="ghost">
             <template #item="{ element: nodeId, index: nIdx }">
-              <div class="flex items-center gap-4 p-3 mb-2 bg-gray-50 rounded-md relative group" style="border: 1px solid #e4e7ed;">
-                <el-icon class="drag-handle cursor-move text-gray-300 hover:text-indigo-500 transition-colors" :size="24"><Sort /></el-icon>
+              <div class="flex items-center gap-4 p-3 mb-2 rounded-lg relative group transition-all" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
+                <el-icon class="drag-handle cursor-move transition-colors" style="color: var(--bt-text-muted);" :size="24"><Sort /></el-icon>
                 
                 <div class="flex-1 flex gap-3 items-center">
-                  <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 font-bold text-sm">
+                  <div class="flex items-center justify-center w-8 h-8 rounded-full font-bold text-sm" style="background: var(--bt-primary-light); color: var(--bt-primary);">
                     {{ nIdx + 1 }}
                   </div>
                   
@@ -91,8 +113,7 @@
                     >
                       {{ getNode(nodeId).type === 'v2ray' ? getNode(nodeId).v2rayType.toUpperCase() : getNode(nodeId).type.toUpperCase() }}
                     </el-tag>
-                    <span class="font-bold text-gray-800 text-base">{{ getNode(nodeId).displayName }}</span>
-                    <span class="text-xs text-gray-400 font-mono bg-white border px-2 py-1 rounded" style="border-color: #e4e7ed;">id: {{ nodeId.split('_')[1] }}</span>
+                    <span class="font-bold bt-text text-base">{{ getNode(nodeId).displayName }}</span>
                   </template>
                   <template v-else>
                     <span class="text-red-500 italic bg-red-50 px-3 py-1 rounded-full text-sm">⚠️ 节点已丢失 (ID: {{ nodeId }})</span>
@@ -125,6 +146,7 @@ const props = defineProps({
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const testingChain = ref(null);
 const selectedNodeToAdd = ref('');
+const testTarget = ref('www.bing.com:443');
 
 const addChain = () => {
   if (!props.config.proxyChains) props.config.proxyChains = [];
@@ -159,10 +181,14 @@ const addNodeToChain = (chain) => {
 const testChain = async (chainId) => {
   testingChain.value = chainId;
   try {
+    const parts = testTarget.value.split(':');
+    const targetHost = parts[0] || 'www.bing.com';
+    const targetPort = parseInt(parts[1]) || 443;
+
     const res = await fetch('/api/test-latency', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'chain', id: chainId })
+      body: JSON.stringify({ type: 'chain', id: chainId, targetHost, targetPort })
     });
     const data = await res.json();
     if (data.success) {

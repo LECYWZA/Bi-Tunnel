@@ -247,21 +247,29 @@ class ProxyServer {
     let host = match[2];
     let port = parseInt(match[3]) || 80;
 
-    this.processTarget(socket, host, port, proxyConfig, (channel) => {
-      if (method === 'CONNECT') {
-        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-        if (leftover.length > 0) {
-          channel.write(leftover);
-        }
-        socket.pipe(channel);
-        channel.pipe(socket);
-      } else {
-        // Transparently pipe the initial GET/POST request over the channel
-        channel.write(fullHeaders);
-        socket.pipe(channel);
-        channel.pipe(socket);
+    // Use async wrapper to catch errors since handleHttp is synchronous in its callback flow
+    (async () => {
+      try {
+        await this.processTarget(socket, host, port, proxyConfig, (channel) => {
+          if (method === 'CONNECT') {
+            socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+            if (leftover.length > 0) {
+              channel.write(leftover);
+            }
+            socket.pipe(channel);
+            channel.pipe(socket);
+          } else {
+            // Transparently pipe the initial GET/POST request over the channel
+            channel.write(fullHeaders);
+            socket.pipe(channel);
+            channel.pipe(socket);
+          }
+        });
+      } catch (err) {
+        getLogger().error(`[Proxy] Error processing target ${host}: ${err.message}`);
+        socket.destroy();
       }
-    });
+    })();
   }
 
   // SOCKS5 Handshake
@@ -306,7 +314,7 @@ class ProxyServer {
   }
 
   readSocks5Request(socket, proxyConfig) {
-    socket.once('data', (reqData) => {
+    socket.once('data', async (reqData) => {
       if (reqData.length < 10 || reqData[0] !== 0x05 || reqData[1] !== 0x01) {
         socket.destroy();
         return;
@@ -331,18 +339,24 @@ class ProxyServer {
       
       port = reqData.readUInt16BE(offset);
 
-      this.processTarget(socket, host, port, proxyConfig, (channel) => {
-        // Send SOCKS5 success reply
-        const reply = Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
-        socket.write(reply);
-        socket.pipe(channel);
-        channel.pipe(socket);
-      });
+      try {
+        await this.processTarget(socket, host, port, proxyConfig, (channel) => {
+          // Send SOCKS5 success reply
+          const reply = Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+          socket.write(reply);
+          socket.pipe(channel);
+          channel.pipe(socket);
+        });
+      } catch (err) {
+        getLogger().error(`[Proxy] Error processing SOCKS5 target ${host}: ${err.message}`);
+        socket.destroy();
+      }
     });
   }
 
-  processTarget(socket, host, port, proxyConfig, onConnected) {
+  async processTarget(socket, host, port, proxyConfig, onConnected) {
     let action = 'direct_local';
+    let rulePattern = '默认策略 (无规则)';
 
     // Helper to get fallback legacy action
     const getLegacyAction = () => {
@@ -357,17 +371,22 @@ class ProxyServer {
     try {
        ipaddr.process(host); // Throws if not IP
        if (proxyConfig.proxyRules && proxyConfig.proxyRules.length > 0) {
-         action = Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
+         const result = await Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
+         action = result.action;
+         rulePattern = result.rulePattern;
        } else {
          if (!this.checkAcl(targetIpForAcl, proxyConfig.targetAllowIps, proxyConfig.targetDenyIps)) {
            action = 'block';
+           rulePattern = 'ACL 拒绝';
          } else {
            action = getLegacyAction();
          }
        }
     } catch(e) {
        if (proxyConfig.proxyRules && proxyConfig.proxyRules.length > 0) {
-         action = Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
+         const result = await Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
+         action = result.action;
+         rulePattern = result.rulePattern;
        } else {
          action = getLegacyAction();
        }
@@ -380,7 +399,7 @@ class ProxyServer {
     }
     
     const startTime = Date.now();
-    getLogger().info(`[Proxy] Routing ${host}:${port} via ${action}`);
+    getLogger().info(`[Proxy] Routing ${host}:${port} via ${action} (Rule: ${rulePattern})`);
     socket.on('close', () => {
       const bytes = socket.bytesRead + socket.bytesWritten;
       logTraffic('Proxy', `to ${host}:${port} (${action})`, bytes);
@@ -389,6 +408,7 @@ class ProxyServer {
         sourceIp: socket.remoteAddress,
         target: `${host}:${port}`,
         action: action,
+        rulePattern: rulePattern,
         bytesTransferred: bytes,
         durationMs: Date.now() - startTime,
         status: 'success'

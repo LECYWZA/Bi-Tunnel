@@ -15,108 +15,122 @@
 
     <el-empty v-if="profiles.length === 0" description="暂无测试配置，请点击右上角添加" :image-size="80" />
 
-    <el-tabs v-model="activeTab" type="border-card" class="mt-4" @edit="handleTabsEdit" addable closable v-if="profiles.length > 0">
-      <el-tab-pane v-for="(profile, index) in profiles" :key="String(profile.id)" :label="profile.name || '未命名'" :name="String(profile.id)">
-        <div class="flex justify-between items-center mb-4">
-          <div class="flex items-center gap-3 w-1/2">
-            <span class="font-bold text-gray-600">配置名称</span>
-            <el-input v-model="profile.name" placeholder="配置名称" size="small" class="w-64" @change="saveProfiles" />
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6" v-if="profiles.length > 0">
+      <el-card v-for="(profile, index) in profiles" :key="String(profile.id)" shadow="hover" class="bt-card h-full" body-class="flex flex-col h-full p-5">
+        
+        <div class="flex justify-between items-center mb-5 pb-4" style="border-bottom: 1px solid var(--bt-border);">
+          <div class="flex items-center gap-3 flex-1">
+            <span class="font-bold bt-text text-lg">测试配置</span>
+            <el-input v-model="profile.name" placeholder="配置名称" size="small" class="w-48" @change="saveProfiles" />
           </div>
-          <el-button type="danger" plain :icon="Delete" size="small" @click="removeProfile(index)">删除此配置</el-button>
+          <div class="flex gap-2 items-center">
+            <el-button type="primary" plain :icon="CopyDocument" size="small" @click="copyProxyUrl(profile)">复制链接</el-button>
+            <el-button type="danger" plain :icon="Delete" size="small" @click="removeProfile(index)">删除</el-button>
+          </div>
         </div>
 
-      <el-form label-position="top" size="large">
-        <el-row :gutter="24">
-          <el-col :xs="24" :sm="12">
-            <el-form-item label="代理协议">
-              <el-select v-model="profile.type" class="w-full" @change="saveProfiles">
-                <el-option label="HTTP / HTTPS 代理" value="http" />
-                <el-option label="SOCKS5 代理" value="socks5" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item label="代理服务器 IP">
-              <el-input v-model="profile.host" placeholder="例如: 127.0.0.1" @change="saveProfiles" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item label="代理服务器端口">
-              <el-input-number v-model="profile.port" :min="1" :max="65535" class="w-full" controls-position="right" @change="saveProfiles" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item label="目标测试网址 (要求能够连通)">
-              <el-input v-model="profile.targetUrl" placeholder="例如: https://cn.bing.com" @change="saveProfiles" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <div class="bg-blue-50/50 p-4 rounded-lg my-4">
-          <el-row :gutter="24">
+        <el-form label-position="top" size="default" class="flex-1">
+          <el-row :gutter="20">
             <el-col :xs="24" :sm="12">
-              <el-form-item label="代理用户名 (可选)" class="mb-0">
-                <el-input v-model="profile.username" placeholder="留空表示无密码" :prefix-icon="User" @change="saveProfiles" />
+              <el-form-item label="代理协议">
+                <el-select v-model="profile.type" class="w-full" @change="saveProfiles">
+                  <el-option label="HTTP / HTTPS 代理" value="http" />
+                  <el-option label="SOCKS5 代理" value="socks5" />
+                </el-select>
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
-              <el-form-item label="代理密码 (可选)" class="mb-0 mt-4 sm:mt-0">
-                <el-input v-model="profile.password" placeholder="留空表示无密码" show-password :prefix-icon="Lock" @change="saveProfiles" />
+              <el-form-item label="代理服务器 IP">
+                <el-input v-model="profile.host" placeholder="例如: 127.0.0.1" @change="saveProfiles" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="代理服务器端口">
+                <el-input-number v-model="profile.port" :min="1" :max="65535" class="w-full" controls-position="right" @change="saveProfiles" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="目标测试网址">
+                <el-input v-model="profile.targetUrl" placeholder="例如: https://cn.bing.com" @change="saveProfiles" />
               </el-form-item>
             </el-col>
           </el-row>
-        </div>
 
-        <div class="flex justify-end mt-6">
-          <el-button 
-            type="success" 
-            size="large" 
-            :icon="VideoPlay" 
-            :loading="profile.testing" 
-            @click="runTest(profile)" 
-            class="px-10 font-bold"
-          >
-            {{ profile.testing ? '正在测试中...' : '开始测试' }}
-          </el-button>
-        </div>
-      </el-form>
-
-      <el-card v-if="profile.logs && profile.logs.length > 0" shadow="never" class="bg-[#1e1e1e] mt-6" body-style="padding: 0;">
-        <div class="flex justify-between items-center p-3 bg-[#2d2d2d] rounded-t-lg" style="border-bottom: 1px solid #374151;">
-          <span class="text-gray-300 font-mono text-sm flex items-center gap-2">
-            <el-icon><Monitor /></el-icon> 日志输出
-          </span>
-          <el-tag 
-            :type="profile.testResult === true ? 'success' : (profile.testResult === false ? 'danger' : 'warning')" 
-            effect="dark" 
-            size="small"
-          >
-            {{ profile.testResult === true ? '✅ 测试成功' : (profile.testResult === false ? '❌ 测试失败' : '⏳ 等待结果') }}
-          </el-tag>
-        </div>
-        
-        <el-scrollbar height="250px" class="p-4" always>
-          <div class="font-mono text-[13px] leading-relaxed space-y-1">
-            <div v-for="(log, idx) in profile.logs" :key="idx" 
-                 :class="{
-                   'text-[#f87171]': log.toLowerCase().includes('error') || log.toLowerCase().includes('fail') || log.toLowerCase().includes('forbidden'),
-                   'text-[#4ade80]': log.toLowerCase().includes('successful') || log.toLowerCase().includes('success') || log.toLowerCase().includes('200'),
-                   'text-[#d4d4d8]': !log.toLowerCase().includes('error') && !log.toLowerCase().includes('fail') && !log.toLowerCase().includes('forbidden') && !log.toLowerCase().includes('successful') && !log.toLowerCase().includes('success') && !log.toLowerCase().includes('200')
-                 }">
-              <span class="text-gray-500 mr-2">></span>{{ log }}
-            </div>
+          <div class="p-4 rounded-lg mb-4" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
+            <el-row :gutter="20">
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="代理用户名 (可选)" class="mb-0">
+                  <el-input v-model="profile.username" placeholder="留空表示无密码" :prefix-icon="User" @change="saveProfiles" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="代理密码 (可选)" class="mb-0 mt-4 sm:mt-0">
+                  <el-input v-model="profile.password" placeholder="留空表示无密码" show-password :prefix-icon="Lock" @change="saveProfiles" />
+                </el-form-item>
+              </el-col>
+            </el-row>
           </div>
-        </el-scrollbar>
+
+          <div class="flex justify-end mt-2 gap-2">
+            <el-button 
+              v-if="profile.testing"
+              type="danger" 
+              size="default" 
+              :icon="CircleClose" 
+              @click="cancelTest(profile)" 
+              class="px-6 font-bold"
+            >
+              取消测试
+            </el-button>
+            <el-button 
+              v-else
+              type="success" 
+              size="default" 
+              :icon="VideoPlay" 
+              @click="runTest(profile)" 
+              class="px-8 font-bold"
+            >
+              ⚡ 开始测试
+            </el-button>
+          </div>
+        </el-form>
+
+        <div v-if="profile.logs && profile.logs.length > 0" class="mt-5 rounded-lg overflow-hidden" style="border: 1px solid var(--bt-border);">
+          <div class="flex justify-between items-center p-3" style="background: var(--bt-input-bg); border-bottom: 1px solid var(--bt-border);">
+            <span class="font-mono text-xs flex items-center gap-2 bt-text-secondary">
+              <el-icon><Monitor /></el-icon> 日志输出
+            </span>
+            <el-tag 
+              :type="profile.testResult === true ? 'success' : (profile.testResult === false ? 'danger' : 'warning')" 
+              effect="dark" 
+              size="small"
+            >
+              {{ profile.testResult === true ? '✅ 测试成功' : (profile.testResult === false ? '❌ 测试失败' : '⏳ 等待结果') }}
+            </el-tag>
+          </div>
+          
+          <el-scrollbar height="180px" class="p-3" style="background: #1e1e1e;" always>
+            <div class="font-mono text-[12px] leading-relaxed space-y-1">
+              <div v-for="(log, idx) in profile.logs" :key="idx" 
+                   :class="{
+                     'text-[#f87171]': log.toLowerCase().includes('error') || log.toLowerCase().includes('fail') || log.toLowerCase().includes('forbidden'),
+                     'text-[#4ade80]': log.toLowerCase().includes('successful') || log.toLowerCase().includes('success') || log.toLowerCase().includes('200'),
+                     'text-[#d4d4d8]': !log.toLowerCase().includes('error') && !log.toLowerCase().includes('fail') && !log.toLowerCase().includes('forbidden') && !log.toLowerCase().includes('successful') && !log.toLowerCase().includes('success') && !log.toLowerCase().includes('200')
+                   }">
+                <span class="text-gray-500 mr-2">></span>{{ log }}
+              </div>
+            </div>
+          </el-scrollbar>
+        </div>
       </el-card>
-      </el-tab-pane>
-    </el-tabs>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
-import { Odometer, User, Lock, VideoPlay, Monitor, Plus, Delete } from '@element-plus/icons-vue';
+import { Odometer, User, Lock, VideoPlay, Monitor, Plus, Delete, CopyDocument, CircleClose } from '@element-plus/icons-vue';
 
 const STORAGE_KEY = 'bi_tunnel_tester_profiles';
 
@@ -190,6 +204,23 @@ const removeProfile = (index) => {
   }
 };
 
+const copyProxyUrl = async (profile) => {
+  try {
+    let url = `${profile.type}://`;
+    if (profile.username && profile.password) {
+      url += `${encodeURIComponent(profile.username)}:${encodeURIComponent(profile.password)}@`;
+    } else if (profile.username) {
+      url += `${encodeURIComponent(profile.username)}@`;
+    }
+    url += `${profile.host}:${profile.port}`;
+    
+    await navigator.clipboard.writeText(url);
+    ElMessage.success('代理链接已复制到剪贴板！');
+  } catch (err) {
+    ElMessage.error('复制失败，请手动复制。');
+  }
+};
+
 const handleTabsEdit = (targetName, action) => {
   if (action === 'add') {
     addProfile();
@@ -212,8 +243,14 @@ const runTest = async (profile) => {
   profile.testResult = null;
 
   try {
+    if (profile._abortController) {
+      profile._abortController.abort();
+    }
+    profile._abortController = new AbortController();
+
     const res = await fetch('/api/test-proxy', {
       method: 'POST',
+      signal: profile._abortController.signal,
       headers: {
         'Content-Type': 'application/json'
       },
@@ -237,11 +274,24 @@ const runTest = async (profile) => {
       ElMessage.error(`${profile.name} 测试失败，请查看日志！`);
     }
   } catch (err) {
-    profile.logs.push(`[Client Error] 请求失败: ${err.message}`);
-    profile.testResult = false;
-    ElMessage.error('请求后端接口失败！');
+    if (err.name === 'AbortError') {
+      profile.logs.push(`[Client] 测试已被用户取消。`);
+      profile.testResult = false;
+      ElMessage.info('测试已取消');
+    } else {
+      profile.logs.push(`[Client Error] 请求失败: ${err.message}`);
+      profile.testResult = false;
+      ElMessage.error('请求后端接口失败！');
+    }
   } finally {
     profile.testing = false;
+    profile._abortController = null;
+  }
+};
+
+const cancelTest = (profile) => {
+  if (profile._abortController) {
+    profile._abortController.abort();
   }
 };
 

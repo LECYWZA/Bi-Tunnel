@@ -127,35 +127,37 @@
       <el-empty v-if="!sectionConfig.forwards || sectionConfig.forwards.length === 0" description="暂无规则" :image-size="40" />
       
       <div v-else class="space-y-4">
-        <div v-for="(fw, index) in sectionConfig.forwards" :key="index" class="bg-gray-50 p-3 rounded">
+        <div v-for="(fw, index) in sectionConfig.forwards" :key="index" class="p-3 rounded mb-3" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
           <div class="flex justify-between items-center mb-2">
             <span class="text-xs font-bold text-gray-500">映射规则 #{{ index + 1 }}</span>
             <el-button type="danger" circle plain :icon="Delete" size="small" @click="sectionConfig.forwards.splice(index, 1)" />
           </div>
           
-          <el-row :gutter="12">
-            <el-col :span="mode === 'server' ? 8 : 24" class="mb-2">
-              <div class="text-xs text-gray-500 mb-1">本地监听端口</div>
-              <el-input-number v-model="fw.listenPort" :min="1" :max="65535" class="w-full" controls-position="right" />
-            </el-col>
-            <el-col :span="16" class="mb-2" v-if="mode === 'server'">
-              <div class="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                <span>目标客户端 ID</span>
-                <el-tooltip content="指定该端口转发应通过哪个客户端的网络进行出站。" placement="top">
-                  <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
-                </el-tooltip>
+          <div class="flex items-center gap-3 w-full">
+            <el-tooltip content="本地监听端口" placement="top">
+              <div class="w-28 flex-shrink-0">
+                <el-input-number v-model="fw.listenPort" :min="1" :max="65535" class="w-full" :controls="false" size="small" placeholder="本地端口" />
               </div>
-              <el-input v-model="fw.targetClientId" placeholder="例如: client-1" />
-            </el-col>
-            <el-col :span="14">
-              <div class="text-xs text-gray-500 mb-1">目标 IP</div>
-              <el-input v-model="fw.targetHost" placeholder="127.0.0.1" />
-            </el-col>
-            <el-col :span="10">
-              <div class="text-xs text-gray-500 mb-1">目标端口</div>
-              <el-input-number v-model="fw.targetPort" :min="1" :max="65535" class="w-full" controls-position="right" />
-            </el-col>
-          </el-row>
+            </el-tooltip>
+            
+            <el-icon class="text-gray-400 flex-shrink-0"><Right /></el-icon>
+            
+            <div class="flex-1 flex gap-2 overflow-hidden">
+              <el-tooltip v-if="mode === 'server'" content="目标客户端 ID (必填)" placement="top">
+                <el-input v-model="fw.targetClientId" placeholder="客户端ID (必填)" size="small" class="w-32 flex-shrink-0" />
+              </el-tooltip>
+              
+              <el-tooltip content="目标 IP 或域名" placement="top">
+                <el-input v-model="fw.targetHost" placeholder="目标 IP (如: 127.0.0.1)" size="small" class="flex-1 min-w-[100px]" />
+              </el-tooltip>
+              
+              <el-tooltip content="目标端口" placement="top">
+                <div class="w-28 flex-shrink-0">
+                  <el-input-number v-model="fw.targetPort" :min="1" :max="65535" class="w-full" :controls="false" size="small" placeholder="目标端口" />
+                </div>
+              </el-tooltip>
+            </div>
+          </div>
         </div>
       </div>
     </el-card>
@@ -174,8 +176,8 @@
       <el-empty v-if="!sectionConfig.proxies || sectionConfig.proxies.length === 0" description="暂无代理服务" :image-size="40" />
 
       <div v-else class="space-y-4">
-        <el-card v-for="(px, index) in sectionConfig.proxies" :key="index" shadow="never" class="bg-blue-50/20 mb-4">
-          <div class="flex justify-between items-center mb-2 pb-2" style="border-bottom: 1px solid #dbeafe;">
+        <el-card v-for="(px, index) in sectionConfig.proxies" :key="index" shadow="never" class="mb-4 bt-card" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
+          <div class="flex justify-between items-center mb-2 pb-2" style="border-bottom: 1px solid var(--bt-border);">
             <span class="text-sm font-bold text-gray-600">混合代理 #{{ index + 1 }}</span>
             <div class="flex items-center gap-2">
               <el-tooltip content="将此代理设为 Windows 系统的全局代理。开启后，本机的所有网络请求都会经过此代理。" placement="top">
@@ -306,21 +308,53 @@
                   
                   <draggable v-model="px.proxyRules" item-key="pattern" handle=".drag-handle" animation="300" ghost-class="ghost">
                     <template #item="{ element: rule, index: rIdx }">
-                      <div class="flex items-center gap-3 p-3 mb-2 bg-gray-50 rounded-md relative group" style="border: 1px solid #e4e7ed;">
+                      <div class="flex items-center gap-3 p-3 mb-2 rounded-md relative group" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
                         <el-icon class="drag-handle cursor-move text-gray-400 hover:text-blue-500 transition-colors" :size="20"><Sort /></el-icon>
                         
                         <div class="flex-1 grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
                           <!-- Match Pattern -->
                           <div class="flex items-center rounded overflow-hidden" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
-                            <span class="text-xs text-gray-500 bg-gray-100 px-3 py-1.5 select-none whitespace-nowrap" style="border-right: 1px solid #e4e7ed;">匹配域名/IP</span>
-                            <el-input v-model="rule.pattern" placeholder="例如: *.google.com 或 192.168.1.*" class="rule-input flex-1" style="border: none;" />
+                            <span class="text-xs text-gray-500 px-3 py-1.5 select-none whitespace-nowrap" style="background: var(--bt-surface); border-right: 1px solid var(--bt-border);">匹配规则</span>
+                            <el-select 
+                              v-model="rule.pattern" 
+                              allow-create 
+                              filterable 
+                              default-first-option
+                              placeholder="例如: geoip:cn 或 *.google.com" 
+                              class="rule-input flex-1" 
+                              style="width: 100%;"
+                              size="small"
+                              popper-class="compact-dropdown"
+                            >
+                              <el-option-group label="基于 GeoIP 分流 (国内外路由)">
+                                <el-option label="匹配国内 IP (geoip:cn)" value="geoip:cn" />
+                                <el-option label="匹配非国内/海外 IP (geoip:!cn)" value="geoip:!cn" />
+                              </el-option-group>
+                              <el-option-group label="内网与私有地址">
+                                <el-option label="10.x.x.x (10.*.*.*)" value="10.*.*.*" />
+                                <el-option label="172.16-31.x.x (172.*.*.*)" value="172.*.*.*" />
+                                <el-option label="192.168.x.x (192.168.*.*)" value="192.168.*.*" />
+                                <el-option label="Localhost (127.*.*.* | localhost)" value="127.*.*.*" />
+                              </el-option-group>
+                              <el-option-group label="常用域名分流">
+                                <el-option label="匹配所有 (兜底规则) (*)" value="*" />
+                                <el-option label="谷歌服务 (*.google.com)" value="*.google.com" />
+                                <el-option label="YouTube (*.youtube.com)" value="*.youtube.com" />
+                                <el-option label="OpenAI (*.openai.com)" value="*.openai.com" />
+                                <el-option label="GitHub (*.github.com)" value="*.github.com" />
+                                <el-option label="HuggingFace (*.huggingface.co)" value="*.huggingface.co" />
+                                <el-option label="Docker (*.docker.com)" value="*.docker.com" />
+                                <el-option label="Telegram (*.telegram.org)" value="*.telegram.org" />
+                                <el-option label="微软服务 (*.microsoft.com)" value="*.microsoft.com" />
+                              </el-option-group>
+                            </el-select>
                           </div>
 
                           <el-icon class="text-gray-400"><Right /></el-icon>
 
                           <!-- Route Action -->
                           <div class="flex items-center rounded overflow-hidden" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
-                            <span class="text-xs text-gray-500 bg-gray-100 px-3 py-1.5 select-none whitespace-nowrap" style="border-right: 1px solid #e4e7ed;">转发至</span>
+                            <span class="text-xs text-gray-500 px-3 py-1.5 select-none whitespace-nowrap" style="background: var(--bt-surface); border-right: 1px solid var(--bt-border);">转发至</span>
                             <el-select v-model="rule.action" class="rule-select flex-1" style="width: 100%;">
                               <el-option-group label="内置动作">
                                 <el-option label="直连 (本地网络)" value="direct_local" />
@@ -344,7 +378,7 @@
 
                   <el-empty v-if="!px.proxyRules || px.proxyRules.length === 0" description="暂无规则，将执行下方默认动作" :image-size="40" />
 
-                  <div class="mt-4 flex items-center justify-end gap-2 bg-blue-50 p-2 rounded" style="border: 1px solid #dbeafe;">
+                  <div class="mt-4 flex items-center justify-end gap-2 p-2 rounded" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
                     <el-tooltip content="当以上所有规则都没有命中时，流量将执行此动作。" placement="top">
                       <el-icon class="text-gray-400"><InfoFilled /></el-icon>
                     </el-tooltip>
@@ -497,6 +531,19 @@ const toggleSystemProxy = async (px) => {
 
 
 </script>
+
+<style>
+.compact-dropdown .el-select-group__title {
+  font-size: 11px;
+  padding: 2px 12px;
+  line-height: 20px;
+}
+.compact-dropdown .el-select-dropdown__item {
+  font-size: 12px;
+  height: 28px;
+  line-height: 28px;
+}
+</style>
 
 <style scoped>
 .ghost {
