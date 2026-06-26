@@ -1,12 +1,12 @@
 <template>
   <div class="space-y-6">
-    <div class="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm">
+    <div class="flex justify-between items-center bt-section-status">
       <div class="flex flex-col">
         <div class="flex items-center gap-2">
-          <el-icon class="text-blue-500"><Odometer /></el-icon>
-          <span class="font-bold text-lg">代理测试台</span>
+          <el-icon style="color: var(--bt-primary)"><Odometer /></el-icon>
+          <span class="font-bold text-lg bt-text">代理测试台</span>
         </div>
-        <span class="text-xs text-gray-500 mt-1">您可以在这里保存多组代理配置进行交叉测试。配置将自动保存在您的浏览器中。</span>
+        <span class="text-xs bt-text-muted mt-1">您可以在这里保存多组代理配置进行交叉测试。配置将自动保存在您的浏览器中。</span>
       </div>
       <el-button type="primary" :icon="Plus" @click="addProfile" shadow>
         添加测试配置

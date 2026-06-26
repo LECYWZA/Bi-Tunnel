@@ -1,9 +1,9 @@
 <template>
   <div class="space-y-6">
-    <div class="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm">
+    <div class="flex justify-between items-center bt-section-status">
       <div class="flex items-center gap-3">
-        <el-icon :size="24" color="#409EFC"><Monitor /></el-icon>
-        <span class="font-bold text-lg">代理节点池 (Global Proxy Nodes)</span>
+        <el-icon :size="24" style="color: var(--bt-primary)"><Monitor /></el-icon>
+        <span class="font-bold text-lg bt-text">代理节点池 (Global Proxy Nodes)</span>
       </div>
       <el-button type="primary" :icon="Plus" @click="openImportDialog">添加/导入节点</el-button>
     </div>
@@ -11,7 +11,7 @@
     <el-empty v-if="!config.proxyNodes || config.proxyNodes.length === 0" description="暂无代理节点，请点击右上角添加" :image-size="80" />
 
     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" v-else>
-      <el-card v-for="(node, idx) in config.proxyNodes" :key="node.id" shadow="hover" body-class="flex flex-col h-full" class="h-full">
+      <el-card v-for="(node, idx) in config.proxyNodes" :key="node.id" shadow="hover" body-class="flex flex-col h-full" class="bt-card h-full">
         
         <!-- Header Section -->
         <div class="flex justify-between items-center mb-4">

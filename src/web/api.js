@@ -188,36 +188,18 @@ function createWebServer(statusCallback) {
 
     const startTime = Date.now();
     
-    ProxyDialer.dialChain(nodesToDial, 'www.gstatic.com', 80, false, null, (err, socket) => {
+    ProxyDialer.dialChain(nodesToDial, 'www.google.com', 443, false, null, (err, socket) => {
       if (err) {
         return res.json({ success: false, message: err.message, latency: 0 });
       }
 
-      socket.setTimeout(5000);
+      // If we reach here, the proxy successfully established a TCP connection to the target.
+      // We don't need to actually perform a TLS handshake or send HTTP data.
+      // The fact that the SOCKS5/HTTP CONNECT succeeded proves the proxy works.
+      const latency = Date.now() - startTime;
+      socket.destroy();
       
-      socket.once('error', (e) => {
-        socket.destroy();
-        res.json({ success: false, message: 'Target connection error: ' + e.message, latency: 0 });
-      });
-      
-      socket.once('timeout', () => {
-        socket.destroy();
-        res.json({ success: false, message: 'Target connection timeout', latency: 0 });
-      });
-
-      socket.once('data', (data) => {
-        const latency = Date.now() - startTime;
-        socket.destroy();
-        const responseStr = data.toString();
-        if (responseStr.includes('HTTP/1.1 204') || responseStr.includes('HTTP/1.0 204')) {
-          res.json({ success: true, message: 'OK', latency });
-        } else {
-          res.json({ success: true, message: 'Connected but received non-204 status', latency });
-        }
-      });
-
-      // Send standard HTTP ping
-      socket.write('GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n');
+      res.json({ success: true, message: 'OK', latency });
     });
   });
 

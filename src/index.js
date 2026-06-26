@@ -82,6 +82,7 @@ function init() {
   };
 
   const stopTunnel = (mode) => {
+    const { stopXray } = require('./core/xrayManager');
     if (mode === 'server') {
       if (tunnelServer.stop) tunnelServer.stop();
       tunnelServer.removeAllListeners('session');
@@ -95,6 +96,8 @@ function init() {
       clientForwarder.clearSessions();
       clientProxy.clearSessions();
     }
+    stopXray();
+    getLogger().info('[Xray] Core stopped along with tunnel.');
   };
 
   // Bind to the web server app for API to call

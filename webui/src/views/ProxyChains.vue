@@ -1,9 +1,9 @@
 <template>
   <div class="space-y-6">
-    <div class="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm">
+    <div class="flex justify-between items-center bt-section-status">
       <div class="flex items-center gap-3">
-        <el-icon :size="24" color="#409EFC"><Link /></el-icon>
-        <span class="font-bold text-lg">代理链管理 (Proxy Chains)</span>
+        <el-icon :size="24" style="color: var(--bt-primary)"><Link /></el-icon>
+        <span class="font-bold text-lg bt-text">代理链管理 (Proxy Chains)</span>
       </div>
       <el-button type="primary" :icon="Plus" @click="addChain">创建新代理链</el-button>
     </div>

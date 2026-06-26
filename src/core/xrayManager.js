@@ -31,8 +31,15 @@ function parseVmess(rawUrl) {
 
   if (vmess.tls === 'tls') {
     streamSettings.tlsSettings = {
-      serverName: vmess.sni || vmess.host || vmess.add
+      serverName: vmess.sni || vmess.host || vmess.add,
+      allowInsecure: vmess.allowInsecure === true || vmess.allowInsecure === 'true' || vmess.allowInsecure === '1',
     };
+    if (vmess.alpn) {
+      streamSettings.tlsSettings.alpn = vmess.alpn.split(',');
+    }
+    if (vmess.fp) {
+      streamSettings.tlsSettings.fingerprint = vmess.fp;
+    }
   }
 
   if (vmess.net === 'ws') {

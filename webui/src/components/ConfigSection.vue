@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <div class="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm">
+    <div class="flex justify-between items-center bt-section-status">
       <div class="flex items-center gap-3">
         <el-tag :type="isRunning ? 'success' : 'info'" effect="dark" round size="large">
           {{ title }}: {{ isRunning ? '运行中' : '已停止' }}
@@ -20,21 +20,21 @@
       </el-button>
     </div>
 
-    <el-card shadow="hover">
+    <el-card shadow="hover" class="bt-card">
       <template #header>
         <div class="flex items-center gap-2">
-          <el-icon class="text-blue-500"><Tools /></el-icon>
-          <span class="font-bold text-base">基础设置</span>
+          <el-icon style="color: var(--bt-primary)"><Tools /></el-icon>
+          <span class="font-bold text-base bt-text">基础设置</span>
         </div>
       </template>
       
       <el-form label-position="top">
-        <div class="bg-blue-50 p-4 rounded mb-6 flex justify-between items-center">
+        <div class="bt-info-banner mb-6 flex justify-between items-center">
           <div>
-            <div class="font-bold text-blue-800 text-sm mb-1">
+            <div class="font-bold text-sm mb-1" style="color: var(--bt-primary)">
               自动开启此模式
             </div>
-            <div class="text-xs text-blue-600">
+            <div class="text-xs bt-text-secondary">
               软件启动后，自动在后台运行
             </div>
           </div>
@@ -257,7 +257,7 @@
               </el-col>
             </el-row>
 
-            <div class="bg-white p-3 rounded my-3">
+            <div class="p-3 rounded my-3" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
               <div class="flex justify-between items-center mb-2">
                 <div class="flex items-center gap-1">
                   <span class="font-bold text-gray-700 text-sm">密码认证</span>
@@ -284,7 +284,7 @@
             <el-collapse class="mt-4" style="border-top: none;">
               <el-collapse-item name="1" title="高级路由与代理链配置" class="bg-transparent">
                 <!-- Routing Rules -->
-                <div class="mb-5 bg-white p-4 rounded-md shadow-sm" style="border: 1px solid #f3f4f6;">
+                <div class="mb-5 p-4 rounded-md" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
                   <div class="flex justify-between items-center mb-3">
                     <div class="flex items-center gap-1">
                       <span class="font-bold text-sm text-gray-800">分流规则表</span>
@@ -311,7 +311,7 @@
                         
                         <div class="flex-1 grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
                           <!-- Match Pattern -->
-                          <div class="flex items-center bg-white rounded overflow-hidden" style="border: 1px solid #e4e7ed;">
+                          <div class="flex items-center rounded overflow-hidden" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
                             <span class="text-xs text-gray-500 bg-gray-100 px-3 py-1.5 select-none whitespace-nowrap" style="border-right: 1px solid #e4e7ed;">匹配域名/IP</span>
                             <el-input v-model="rule.pattern" placeholder="例如: *.google.com 或 192.168.1.*" class="rule-input flex-1" style="border: none;" />
                           </div>
@@ -319,7 +319,7 @@
                           <el-icon class="text-gray-400"><Right /></el-icon>
 
                           <!-- Route Action -->
-                          <div class="flex items-center bg-white rounded overflow-hidden" style="border: 1px solid #e4e7ed;">
+                          <div class="flex items-center rounded overflow-hidden" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
                             <span class="text-xs text-gray-500 bg-gray-100 px-3 py-1.5 select-none whitespace-nowrap" style="border-right: 1px solid #e4e7ed;">转发至</span>
                             <el-select v-model="rule.action" class="rule-select flex-1" style="width: 100%;">
                               <el-option-group label="内置动作">
@@ -501,10 +501,9 @@ const toggleSystemProxy = async (px) => {
 <style scoped>
 .ghost {
   opacity: 0.5;
-  background: #f0fdf4;
+  background: var(--bt-primary-light);
 }
 
-/* Custom styling to remove borders from inputs and selects within our custom flex containers */
 :deep(.rule-input .el-input__wrapper) {
   box-shadow: none !important;
   background: transparent !important;

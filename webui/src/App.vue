@@ -1,40 +1,49 @@
 <template>
-  <el-container class="min-h-screen bg-gray-50">
-    <el-header height="80px" class="bg-white flex items-center justify-between px-8">
-      <div class="flex items-center gap-6">
-        <div class="flex items-center gap-4">
-          <el-icon :size="28" color="#409EFC"><Connection /></el-icon>
-          <h1 class="text-2xl font-bold text-gray-800 m-0">Bi-Tunnel 控制台</h1>
+  <div class="min-h-screen" :style="{ background: 'var(--bt-bg)' }">
+    <!-- Header -->
+    <header class="bt-header px-6 py-0 flex items-center justify-between" style="height: 60px;">
+      <div class="flex items-center gap-5">
+        <!-- Logo -->
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: var(--bt-gradient);">
+            <el-icon :size="18" color="#fff"><Connection /></el-icon>
+          </div>
+          <span class="bt-logo">Bi-Tunnel</span>
         </div>
 
-        <!-- Xray Status Badge -->
-        <el-tooltip  :content="xrayStatus.running ? 'Xray 内核正在处理代理流量' : 'Xray 内核处于休眠状态，当产生相关代理连接时按需启动'" placement="bottom">
-          <div style="margin-left: 50px" class="flex items-center gap-2 px-3 py-1 rounded-full border transition-colors duration-300 cursor-default"
-               :class="xrayStatus.running ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500'">
-            <span class="relative flex h-2.5 w-2.5">
-              <span v-if="xrayStatus.running" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2.5 w-2.5" :class="xrayStatus.running ? 'bg-green-500' : 'bg-gray-400'"></span>
-            </span>
-            <span class="text-xs font-bold tracking-wide"><el-tag>XRAY CORE</el-tag></span>
-            <span v-if="xrayStatus.running" class="text-[10px] ml-1 opacity-80 border-l border-green-200 pl-2">
-              <el-tag>PID: {{xrayStatus.pid}} | PORT: {{xrayStatus.port}}</el-tag>
-            </span>
+        <!-- Xray Status -->
+        <el-tooltip :content="xrayStatus.running ? `Xray 内核运行中 | PID: ${xrayStatus.pid} | PORT: ${xrayStatus.port}` : 'Xray 内核处于休眠状态'" placement="bottom">
+          <div class="bt-xray-chip" :class="xrayStatus.running ? 'bt-xray-online' : 'bt-xray-offline'">
+            <span class="bt-dot" :class="xrayStatus.running ? 'bt-dot-active' : 'bt-dot-inactive'"></span>
+            <span>XRAY</span>
+            <span v-if="xrayStatus.running" style="opacity: 0.7;">:{{ xrayStatus.port }}</span>
           </div>
         </el-tooltip>
-
-
       </div>
 
-      <div class="flex items-center gap-4">
-        <span class="text-sm text-gray-500 mr-2" v-if="hasUnsavedChanges"><el-icon class="mr-1"><InfoFilled /></el-icon>有未保存的修改</span>
-        <el-button type="success" size="large" :icon="Check" @click="saveConfig(false)" class="font-bold shadow-md px-8">
+      <div class="flex items-center gap-3">
+        <!-- Unsaved indicator -->
+        <div v-if="hasUnsavedChanges" class="bt-unsaved">
+          <el-icon><InfoFilled /></el-icon>
+          <span>未保存</span>
+        </div>
+
+        <!-- Theme Toggle -->
+        <div class="bt-theme-toggle" @click="toggleTheme" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
+          {{ isDark ? '☀️' : '🌙' }}
+        </div>
+
+        <!-- Save button -->
+        <el-button class="bt-btn-primary" size="default" :icon="Check" @click="saveConfig(false)">
           保存配置
         </el-button>
       </div>
-    </el-header>
+    </header>
 
-    <el-main class="mx-auto w-full p-6" style="max-width: 1400px;">
-      <el-menu :default-active="$route.path" router mode="horizontal" class="mb-6 rounded-lg bg-white shadow-sm" style="border-bottom: none;">
+    <!-- Main content -->
+    <main class="mx-auto w-full px-6 py-5" style="max-width: 1440px;">
+      <!-- Navigation -->
+      <el-menu :default-active="$route.path" router mode="horizontal" class="bt-nav mb-5">
         <el-menu-item index="/config">
           <el-icon><Setting /></el-icon> 代理与映射配置
         </el-menu-item>
@@ -52,20 +61,21 @@
         </el-menu-item>
       </el-menu>
 
+      <!-- Router View -->
       <router-view v-slot="{ Component }">
-        <transition name="el-fade-in-linear" mode="out-in">
-          <component 
-            :is="Component" 
-            :config="config" 
-            :status="status" 
-            :availableIps="availableIps" 
-            @start="startTunnel" 
-            @stop="stopTunnel" 
+        <transition name="fade" mode="out-in">
+          <component
+            :is="Component"
+            :config="config"
+            :status="status"
+            :availableIps="availableIps"
+            @start="startTunnel"
+            @stop="stopTunnel"
           />
         </transition>
       </router-view>
-    </el-main>
-  </el-container>
+    </main>
+  </div>
 </template>
 
 <script setup>
@@ -74,7 +84,22 @@ import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
 import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor } from '@element-plus/icons-vue';
 
+const isDark = ref(false);
 const hasUnsavedChanges = ref(false);
+
+const toggleTheme = () => {
+  isDark.value = !isDark.value;
+  document.documentElement.classList.toggle('dark', isDark.value);
+  localStorage.setItem('bt-theme', isDark.value ? 'dark' : 'light');
+};
+
+const initTheme = () => {
+  const saved = localStorage.getItem('bt-theme');
+  if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    isDark.value = true;
+    document.documentElement.classList.add('dark');
+  }
+};
 
 const config = reactive({
   mode: 'server',
@@ -297,6 +322,7 @@ const saveConfig = async (silent = false) => {
 };
 
 onMounted(() => {
+  initTheme();
   fetchNetworkInterfaces();
   fetchConfig();
   fetchStatus();
