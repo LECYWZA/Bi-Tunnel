@@ -440,23 +440,38 @@ class ProxyServer {
     }
 
     let targetSession = null;
+    let resolvedClientId = '';
     if (this.mode === 'server') {
       const clientId = proxyConfig.targetClientId || 'client-1';
       targetSession = this.sessions.get(clientId);
-      if (!targetSession && this.sessions.size === 1) {
+      if (targetSession) {
+        resolvedClientId = clientId;
+      } else if (this.sessions.size === 1) {
+        resolvedClientId = this.sessions.keys().next().value;
         targetSession = this.sessions.values().next().value;
       }
     } else {
       const serverConnId = proxyConfig.targetClientId || 'default';
       targetSession = this.sessions.get(serverConnId);
-      if (!targetSession && this.sessions.size === 1) {
+      if (targetSession) {
+        resolvedClientId = serverConnId;
+      } else if (this.sessions.size === 1) {
+        resolvedClientId = this.sessions.keys().next().value;
         targetSession = this.sessions.values().next().value;
       }
     }
 
     const tryAction = (action) => {
       return new Promise((resolve, reject) => {
-        if (action.startsWith('chain:')) {
+        if (action === 'proxy_chain') {
+          const globalConfig = configManager.getConfig();
+          const resolvedNodes = (proxyConfig.chainNodes || []).map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
+          if (resolvedNodes.length === 0) return reject(new Error('Proxy chain is empty or has no valid resolved nodes'));
+          ProxyDialer.dialChain(resolvedNodes, host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
+            if (err) return reject(err);
+            resolve(finalSocket);
+          });
+        } else if (action.startsWith('chain:')) {
           const chainId = action.substring(6);
           const globalConfig = configManager.getConfig();
           const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
@@ -502,8 +517,64 @@ class ProxyServer {
       });
     };
 
+    const buildRoutePath = (action, target) => {
+      const path = ['本机'];
+      const globalConfig = configManager.getConfig();
+      
+      if (action.startsWith('chain:')) {
+        const chainId = action.substring(6);
+        const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
+        if (chain && chain.nodes) {
+          for (const ref of chain.nodes) {
+            const node = globalConfig.proxyNodes?.find(n => n.id === ref);
+            path.push(node ? (node.displayName || node.name || node.host) : ref);
+          }
+        } else {
+          path.push(`链:${chainId}`);
+        }
+      } else if (action.startsWith('node:')) {
+        const nodeId = action.substring(5);
+        const node = globalConfig.proxyNodes?.find(n => n.id === nodeId);
+        path.push(node ? (node.displayName || node.name || node.host) : nodeId);
+      } else if (action === 'proxy_chain') {
+        const resolvedNodes = (proxyConfig.chainNodes || []).map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
+        if (resolvedNodes.length > 0) {
+          for (const node of resolvedNodes) {
+            path.push(node.displayName || node.name || node.host);
+          }
+        } else {
+          path.push('代理链');
+        }
+      } else if (action === 'direct_remote') {
+        path.push('隧道');
+      } else if (action === 'direct' || action === 'direct_local') {
+        path.push('直连');
+      } else if (action === 'block') {
+        return ['本机', '拦截', target];
+      } else {
+        path.push(action);
+      }
+      
+      path.push(target);
+      return path;
+    };
+
+    const getModuleName = (listenPort) => {
+      const config = configManager.getConfig();
+      if (listenPort === config.activeProxyPort) {
+        if (config.tunModeEnabled) {
+          return `虚拟网卡代理 (${this.mode === 'server' ? '服务端' : '客户端'})`;
+        }
+        if (config.globalProxyEnabled) {
+          return `系统代理 (${this.mode === 'server' ? '服务端' : '客户端'})`;
+        }
+      }
+      return `混合代理 (${this.mode === 'server' ? '服务端' : '客户端'})`;
+    };
+
     let successfulAction = null;
     let finalSocket = null;
+    const startTime = Date.now();
 
     for (const action of actions) {
       if (action === 'block') continue;
@@ -519,25 +590,49 @@ class ProxyServer {
     if (!finalSocket) {
       getLogger().error(`[Proxy] All actions failed for ${host}:${port}`);
       socket.destroy();
+      
+      // Log connection failure
+      trafficLogger.addLog({
+        module: getModuleName(proxyConfig.listenPort),
+        sourceIp: socket.remoteAddress,
+        target: `${host}:${port}`,
+        action: actions.join(', '),
+        rulePattern: rulePattern,
+        bytesTransferred: socket.bytesRead + socket.bytesWritten,
+        durationMs: Date.now() - startTime,
+        status: 'failed',
+        error: '所有转发动作均失败',
+        clientId: resolvedClientId,
+        routePath: ['本机', '失败', `${host}:${port}`]
+      });
       return;
     }
 
-    const startTime = Date.now();
     getLogger().info(`[Proxy] Routing ${host}:${port} via ${successfulAction} (Rule: ${rulePattern})`);
+    
+    // Add early log entry
+    const logEntry = trafficLogger.addLog({
+      module: getModuleName(proxyConfig.listenPort),
+      sourceIp: socket.remoteAddress,
+      target: `${host}:${port}`,
+      action: successfulAction,
+      rulePattern: rulePattern,
+      bytesTransferred: 0,
+      durationMs: 0,
+      status: 'active',
+      clientId: resolvedClientId,
+      routePath: buildRoutePath(successfulAction, `${host}:${port}`)
+    });
     
     socket.on('close', () => {
       const bytes = socket.bytesRead + socket.bytesWritten;
       logTraffic('Proxy', `to ${host}:${port} (${successfulAction})`, bytes);
-      trafficLogger.addLog({
-        module: `Proxy (${this.mode})`,
-        sourceIp: socket.remoteAddress,
-        target: `${host}:${port}`,
-        action: successfulAction,
-        rulePattern: rulePattern,
-        bytesTransferred: bytes,
-        durationMs: Date.now() - startTime,
-        status: 'success'
-      });
+      if (logEntry) {
+        logEntry.bytesTransferred = bytes;
+        logEntry.durationMs = Date.now() - startTime;
+        logEntry.status = 'success';
+        trafficLogger.updateLog(logEntry);
+      }
     });
 
     finalSocket.on('error', () => socket.destroy());

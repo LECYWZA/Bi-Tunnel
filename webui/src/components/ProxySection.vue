@@ -184,12 +184,12 @@
   </div>
 
   <!-- Advanced Routing Dialog -->
-  <el-dialog v-model="routingDialogVisible" title="分流规则表配置" width="80%" destroy-on-close>
+  <el-dialog v-model="routingDialogVisible" title="分流规则表配置" width="60%" destroy-on-close>
     <div v-if="currentProxy">
       <div class="mb-5 p-4 rounded-md" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
         <div class="flex justify-between items-center mb-3">
           <div class="flex items-center gap-1">
-            <span class="font-bold text-sm text-gray-800">分流规则表</span>
+            <span class="font-bold text-sm bt-text">分流规则表</span>
             <el-tooltip effect="dark" placement="top" style="max-width: 300px;">
               <template #content>
                 规则按<b>从上到下</b>的顺序匹配，命中即生效。<br/>
@@ -202,56 +202,91 @@
           <el-button type="primary" plain size="small" :icon="Plus" @click="addRule(currentProxy)">添加规则</el-button>
         </div>
         
-        <div class="text-xs text-gray-400 mb-2 flex items-center gap-1">
+        <div class="text-xs bt-text-secondary mb-2 flex items-center gap-1">
           <el-icon><InfoFilled /></el-icon> 支持拖拽调整规则优先级。按从上到下的顺序依次匹配。
         </div>
         
         <draggable v-model="currentProxy.proxyRules" item-key="id" handle=".drag-handle" animation="300" ghost-class="ghost">
           <template #item="{ element: rule, index: rIdx }">
-            <div class="flex items-center gap-3 p-3 mb-2 rounded-md relative group" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
-              <el-icon class="drag-handle cursor-move text-gray-400 hover:text-blue-500 transition-colors" :size="20"><Sort /></el-icon>
+            <div class="flex items-center gap-3 p-3 mb-3 rounded-md relative group" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
+              <el-icon class="drag-handle cursor-move bt-text-secondary hover:text-blue-500 transition-colors" :size="20"><Sort /></el-icon>
               
-              <div class="flex-1 grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
-                <!-- Match Pattern -->
-                <div class="flex items-center rounded overflow-hidden" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
-                  <span class="text-xs text-gray-500 px-3 py-1.5 select-none whitespace-nowrap" style="background: var(--bt-surface); border-right: 1px solid var(--bt-border);">规则卡片</span>
-                  <el-select 
-                    v-model="rule.ruleCardIds" 
-                    multiple
-                    filterable 
-                    collapse-tags
-                    collapse-tags-tooltip
-                    placeholder="选择分流规则卡片 (可多选)" 
-                    class="rule-input flex-1" 
-                    style="width: 100%;"
-                  >
-                    <el-option 
-                      v-for="card in config.ruleCards || []" 
-                      :key="card.id" 
-                      :label="card.name" 
-                      :value="card.id" 
-                    />
-                  </el-select>
+              <div class="flex-1 grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
+                <!-- Rule Cards Selector and List -->
+                <div class="flex flex-col gap-2 p-2 rounded" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
+                  <div class="flex flex-col gap-1.5 mb-1">
+                    <span class="text-xs font-bold bt-text-secondary whitespace-nowrap">分流规则卡片 (拖拽排序/优先生效)</span>
+                    <el-select
+                      :model-value="''"
+                      placeholder="添加规则卡片"
+                      class="w-full"
+                      filterable
+                      @change="(val) => addRuleCardToRule(rule, val)"
+                    >
+                      <el-option
+                        v-for="card in getAvailableRuleCards(rule)"
+                        :key="card.id"
+                        :label="card.name"
+                        :value="card.id"
+                      />
+                    </el-select>
+                  </div>
+                  <draggable v-model="rule.ruleCardIds" item-key="this" handle=".rule-card-drag" animation="200" ghost-class="ghost">
+                    <template #item="{ element: cardId, index: cIdx }">
+                      <div class="flex items-center justify-between p-1.5 mb-1 rounded text-xs" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
+                        <div class="flex items-center gap-1.5 truncate">
+                          <el-icon class="rule-card-drag cursor-move bt-text-secondary" :size="14"><Sort /></el-icon>
+                          <span class="font-bold bt-text truncate">{{ getRuleCardName(cardId) }}</span>
+                        </div>
+                        <el-button type="danger" link :icon="Delete" size="small" @click="rule.ruleCardIds.splice(cIdx, 1)" />
+                      </div>
+                    </template>
+                  </draggable>
+                  <div v-if="!rule.ruleCardIds || rule.ruleCardIds.length === 0" class="text-center text-xs bt-text-muted py-2">
+                    暂无规则卡片，请选择添加
+                  </div>
                 </div>
 
-                <el-icon class="text-gray-400"><Right /></el-icon>
+                <el-icon class="text-gray-400 mt-3"><Right /></el-icon>
 
-                <!-- Route Action -->
-                <div class="flex items-center rounded overflow-hidden" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
-                  <span class="text-xs text-gray-500 px-3 py-1.5 select-none whitespace-nowrap" style="background: var(--bt-surface); border-right: 1px solid var(--bt-border);">转发至</span>
-                  <el-select v-model="rule.action" class="rule-select flex-1" style="width: 100%;" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择目标 (支持多选)">
-                    <el-option-group label="内置动作">
-                      <el-option label="直连 (本地网络)" value="direct_local" />
-                      <el-option label="直连 (远端隧道)" value="direct_remote" />
-                      <el-option label="拒绝连接" value="block" />
-                    </el-option-group>
-                    <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
-                      <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" />
-                    </el-option-group>
-                    <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
-                      <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" />
-                    </el-option-group>
-                  </el-select>
+                <!-- Route Action Selector and List -->
+                <div class="flex flex-col gap-2 p-2 rounded" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
+                  <div class="flex flex-col gap-1.5 mb-1">
+                    <span class="text-xs font-bold bt-text-secondary whitespace-nowrap">转发至目标 (拖拽排序/故障切换)</span>
+                    <el-select
+                      :model-value="''"
+                      placeholder="添加转发目标"
+                      class="w-full"
+                      filterable
+                      @change="(val) => addActionToRule(rule, val)"
+                    >
+                      <el-option-group label="内置动作">
+                        <el-option label="直连 (本地网络)" value="direct_local" :disabled="rule.action?.includes('direct_local')" />
+                        <el-option label="直连 (远端隧道)" value="direct_remote" :disabled="rule.action?.includes('direct_remote')" />
+                        <el-option label="拒绝连接" value="block" :disabled="rule.action?.includes('block')" />
+                      </el-option-group>
+                      <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
+                        <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" :disabled="rule.action?.includes(`chain:${chain.id}`)" />
+                      </el-option-group>
+                      <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
+                        <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" :disabled="rule.action?.includes(`node:${node.id}`)" />
+                      </el-option-group>
+                    </el-select>
+                  </div>
+                  <draggable v-model="rule.action" item-key="this" handle=".action-drag" animation="200" ghost-class="ghost">
+                    <template #item="{ element: act, index: aIdx }">
+                      <div class="flex items-center justify-between p-1.5 mb-1 rounded text-xs" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
+                        <div class="flex items-center gap-1.5 truncate">
+                          <el-icon class="action-drag cursor-move bt-text-secondary" :size="14"><Sort /></el-icon>
+                          <el-tag size="small" :type="getActionTagType(act)" effect="dark" class="mr-1 truncate">{{ getActionName(act) }}</el-tag>
+                        </div>
+                        <el-button type="danger" link :icon="Delete" size="small" @click="rule.action.splice(aIdx, 1)" />
+                      </div>
+                    </template>
+                  </draggable>
+                  <div v-if="!rule.action || rule.action.length === 0" class="text-center text-xs bt-text-muted py-2">
+                    暂无转发目标，请选择添加
+                  </div>
                 </div>
               </div>
 
@@ -262,24 +297,48 @@
 
         <el-empty v-if="!currentProxy.proxyRules || currentProxy.proxyRules.length === 0" description="暂无规则，将执行下方默认动作" :image-size="40" />
 
-        <div class="mt-4 flex items-center justify-end gap-2 p-2 rounded" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
-          <el-tooltip content="当以上所有规则都没有命中时，流量将执行此动作。" placement="top">
-            <el-icon class="text-gray-400"><InfoFilled /></el-icon>
-          </el-tooltip>
-          <span class="text-xs font-bold text-gray-700">默认兜底动作:</span>
-          <el-select v-model="currentProxy.defaultRuleAction" size="small" style="width: 220px;" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择兜底动作 (支持多选)">
-            <el-option-group label="内置动作">
-              <el-option label="直连 (本地网络)" value="direct_local" />
-              <el-option label="直连 (远端隧道)" value="direct_remote" />
-              <el-option label="拒绝连接" value="block" />
-            </el-option-group>
-            <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
-              <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" />
-            </el-option-group>
-            <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
-              <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" />
-            </el-option-group>
-          </el-select>
+        <!-- Default Fallback Actions List -->
+        <div class="mt-4 p-3 rounded flex flex-col gap-3" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
+          <div class="flex justify-between items-center gap-4">
+            <div class="flex items-center gap-1.5 shrink-0">
+              <el-tooltip content="当以上所有分流规则均未命中时，流量将执行此动作。支持设置多个动作，前面的不通时将按顺序尝试下一个。" placement="top">
+                <el-icon class="text-gray-400"><InfoFilled /></el-icon>
+              </el-tooltip>
+              <span class="text-xs font-bold bt-text whitespace-nowrap">默认兜底动作 (拖拽排序/故障切换):</span>
+            </div>
+            <el-select
+              :model-value="''"
+              placeholder="添加兜底动作"
+              class="w-64"
+              filterable
+              @change="(val) => addDefaultAction(currentProxy, val)"
+            >
+              <el-option-group label="内置动作">
+                <el-option label="直连 (本地网络)" value="direct_local" :disabled="currentProxy.defaultRuleAction?.includes('direct_local')" />
+                <el-option label="直连 (远端隧道)" value="direct_remote" :disabled="currentProxy.defaultRuleAction?.includes('direct_remote')" />
+                <el-option label="拒绝连接" value="block" :disabled="currentProxy.defaultRuleAction?.includes('block')" />
+              </el-option-group>
+              <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
+                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}`)" />
+              </el-option-group>
+              <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
+                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}`)" />
+              </el-option-group>
+            </el-select>
+          </div>
+          
+          <draggable v-model="currentProxy.defaultRuleAction" item-key="this" handle=".default-action-drag" animation="200" ghost-class="ghost" class="flex flex-wrap gap-2">
+            <template #item="{ element: act, index: dIdx }">
+              <div class="flex items-center gap-1.5 p-1.5 rounded text-xs" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
+                <el-icon class="default-action-drag cursor-move bt-text-secondary" :size="14"><Sort /></el-icon>
+                <el-tag size="small" :type="getActionTagType(act)" effect="dark">{{ getActionName(act) }}</el-tag>
+                <el-button type="danger" link :icon="Delete" size="small" @click="currentProxy.defaultRuleAction.splice(dIdx, 1)" />
+              </div>
+            </template>
+          </draggable>
+          <div v-if="!currentProxy.defaultRuleAction || currentProxy.defaultRuleAction.length === 0" class="text-center text-xs bt-text-muted py-1">
+            暂无兜底动作，请选择添加 (至少需要一个兜底动作)
+          </div>
         </div>
       </div>
     </div>
@@ -415,6 +474,69 @@ const addRule = (px) => {
   if (!px.proxyRules) px.proxyRules = [];
   const defaultCardId = props.config.ruleCards[0].id;
   px.proxyRules.push({ id: Math.random().toString(36).substr(2, 9), ruleCardIds: [defaultCardId], action: ['direct_local'] });
+};
+
+const getAvailableRuleCards = (rule) => {
+  const ids = rule.ruleCardIds || [];
+  return (props.config.ruleCards || []).filter(c => !ids.includes(c.id));
+};
+
+const addRuleCardToRule = (rule, cardId) => {
+  if (!rule.ruleCardIds) {
+    rule.ruleCardIds = [];
+  }
+  if (!rule.ruleCardIds.includes(cardId)) {
+    rule.ruleCardIds.push(cardId);
+  }
+};
+
+const getRuleCardName = (cardId) => {
+  const card = (props.config.ruleCards || []).find(c => c.id === cardId);
+  return card ? card.name : cardId;
+};
+
+const addActionToRule = (rule, val) => {
+  if (!rule.action) {
+    rule.action = [];
+  }
+  if (!rule.action.includes(val)) {
+    rule.action.push(val);
+  }
+};
+
+const getActionName = (act) => {
+  if (act === 'direct_local') return '直连 (本地网络)';
+  if (act === 'direct_remote') return '直连 (远端隧道)';
+  if (act === 'block') return '拒绝连接';
+  if (act.startsWith('chain:')) {
+    const chainId = act.substring(6);
+    const chain = (props.config.proxyChains || []).find(c => c.id === chainId);
+    return chain ? `走代理链: ${chain.name}` : `代理链: ${chainId}`;
+  }
+  if (act.startsWith('node:')) {
+    const nodeId = act.substring(5);
+    const node = (props.config.proxyNodes || []).find(n => n.id === nodeId);
+    return node ? `走节点: ${node.displayName}` : `节点: ${nodeId}`;
+  }
+  return act;
+};
+
+const getActionTagType = (act) => {
+  if (act === 'direct_local') return 'info';
+  if (act === 'direct_remote') return 'success';
+  if (act === 'block') return 'danger';
+  if (act.startsWith('chain:')) return 'warning';
+  if (act.startsWith('node:')) return 'primary';
+  return 'info';
+};
+
+const addDefaultAction = (proxy, val) => {
+  if (!proxy.defaultRuleAction) {
+    proxy.defaultRuleAction = [];
+  }
+  if (!proxy.defaultRuleAction.includes(val)) {
+    proxy.defaultRuleAction.push(val);
+  }
 };
 </script>
 

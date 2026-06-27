@@ -151,9 +151,8 @@
         </el-button>
       </div>
     </header>
-
     <!-- Main content -->
-    <main class="mx-auto w-full px-6 py-5" style="max-width: 1440px; padding-top: 76px;">
+    <main class="mx-auto w-full px-6 py-5" :style="{ maxWidth: $route.path === '/logs' ? '80%' : '1440px', paddingTop: '76px' }">
 
       <!-- Router View -->
       <router-view v-slot="slotProps">
@@ -511,6 +510,9 @@ const fetchConfig = async () => {
         if (p.proxyRules) p.proxyRules.forEach(r => {
           if (r.action && !Array.isArray(r.action)) r.action = [r.action];
           if (r.pattern && !Array.isArray(r.pattern)) r.pattern = [r.pattern];
+          if (!r.ruleCardIds) {
+            r.ruleCardIds = r.ruleCardId ? [r.ruleCardId] : [];
+          }
           if (!r.id) r.id = Math.random().toString(36).substr(2, 9);
         });
         p._allowIps = (p.allowIps || []).join('\n');
@@ -525,6 +527,9 @@ const fetchConfig = async () => {
         if (p.proxyRules) p.proxyRules.forEach(r => {
           if (r.action && !Array.isArray(r.action)) r.action = [r.action];
           if (r.pattern && !Array.isArray(r.pattern)) r.pattern = [r.pattern];
+          if (!r.ruleCardIds) {
+            r.ruleCardIds = r.ruleCardId ? [r.ruleCardId] : [];
+          }
           if (!r.id) r.id = Math.random().toString(36).substr(2, 9);
         });
         p._allowIps = (p.allowIps || []).join('\n');

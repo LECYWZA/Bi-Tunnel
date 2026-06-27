@@ -349,8 +349,8 @@ async function startTun(proxyPort) {
         "settings": {
           "name": "tun-bi",
           "mtu": 1500,
-          "gateway": ["10.0.9.1/24"],
-          "autoSystemRoutingTable": ["0.0.0.0/0"]
+          "gateway": ["10.0.9.1/24", "fdfe:dcba:9876::1/64"],
+          "autoSystemRoutingTable": ["0.0.0.0/0", "::/0"]
         },
         "sniffing": {
           "enabled": true,

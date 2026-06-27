@@ -135,7 +135,6 @@ function createWebServer(statusCallback) {
     // Remove duplicates
     res.json(Array.from(new Set(ips)));
   });
-
   app.get('/api/traffic-logs', (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 100;
     const offset = parseInt(req.query.offset, 10) || 0;
@@ -143,7 +142,10 @@ function createWebServer(statusCallback) {
       target: req.query.target,
       module: req.query.module,
       action: req.query.action,
-      clientId: req.query.clientId
+      clientId: req.query.clientId,
+      sourceIp: req.query.sourceIp,
+      status: req.query.status,
+      rulePattern: req.query.rulePattern
     };
     res.json(trafficLogger.getLogs(limit, offset, queryParams));
   });

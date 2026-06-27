@@ -52,7 +52,11 @@ export const messages = {
       realtime: '实时',
       pause: '暂停',
       manualRefresh: '手动刷新',
+
       searchTarget: '搜索访问目标 (如 google.com)',
+      searchSourceIp: '源 IP',
+      searchRulePattern: '匹配规则',
+      statusAll: '所有状态',
       policy: '路由策略',
       module: '模块',
       targetChain: '访问目标 / 链路',
@@ -137,7 +141,11 @@ export const messages = {
       realtime: 'Live',
       pause: 'Pause',
       manualRefresh: 'Manual Refresh',
+
       searchTarget: 'Search target (e.g. google.com)',
+      searchSourceIp: 'Source IP',
+      searchRulePattern: 'Rule/Pattern',
+      statusAll: 'All Statuses',
       policy: 'Routing Policy',
       module: 'Module',
       targetChain: 'Target / Route Chain',

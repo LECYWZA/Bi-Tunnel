@@ -228,7 +228,9 @@ process.on('SIGINT', async () => {
   const { stopXray, stopTun } = require('./core/xrayManager');
   const { disableSystemProxy } = require('./utils/systemProxy');
   const routeManager = require('./utils/routeManager');
+  const trafficLogger = require('./utils/trafficLogger');
 
+  try { trafficLogger.saveSync(); } catch (e) {}
   try { await disableSystemProxy(); } catch (e) {}
   try { await routeManager.clearAllBypasses(); } catch (e) {}
   

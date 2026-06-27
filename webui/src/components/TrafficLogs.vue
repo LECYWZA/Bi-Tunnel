@@ -17,24 +17,32 @@
               <el-button type="primary" plain size="small" :icon="Refresh" @click="fetchLogs">{{ t('logs.manualRefresh') }}</el-button>
             </div>
           </div>
-          
-          <div class="flex gap-4 items-center p-2 rounded" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
-            <el-input v-model="searchQuery.target" :placeholder="t('logs.searchTarget')" size="small" class="w-64" clearable @change="fetchLogs" />
-            <el-select v-model="searchQuery.action" :placeholder="t('logs.policy')" size="small" class="w-32" clearable @change="fetchLogs">
+                    <div class="flex gap-2 items-center p-2 rounded flex-nowrap overflow-x-auto" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
+            <el-input v-model="searchQuery.target" :placeholder="t('logs.searchTarget')" size="small" style="width: 220px;" class="shrink-0" clearable @change="fetchLogs" />
+            <el-input v-model="searchQuery.sourceIp" :placeholder="t('logs.searchSourceIp')" size="small" style="width: 120px;" class="shrink-0" clearable @change="fetchLogs" />
+            <el-input v-model="searchQuery.rulePattern" :placeholder="t('logs.searchRulePattern')" size="small" style="width: 160px;" class="shrink-0" clearable @change="fetchLogs" />
+            
+            <el-select v-model="searchQuery.action" :placeholder="t('logs.policy')" size="small" style="width: 130px;" class="shrink-0" clearable @change="fetchLogs">
               <el-option :label="t('logs.direct')" value="direct_local" />
               <el-option :label="t('logs.tunnel')" value="direct_remote" />
               <el-option :label="t('nav.chains')" value="proxy_chain" />
               <el-option :label="t('logs.block')" value="block" />
             </el-select>
-            <el-select v-model="searchQuery.module" :placeholder="t('logs.module')" size="small" class="w-32" clearable @change="fetchLogs">
+            
+            <el-select v-model="searchQuery.module" :placeholder="t('logs.module')" size="small" style="width: 110px;" class="shrink-0" clearable @change="fetchLogs">
               <el-option label="Proxy" value="Proxy" />
               <el-option label="Forward" value="Forward" />
+            </el-select>
+            
+            <el-select v-model="searchQuery.status" :placeholder="t('logs.status')" size="small" style="width: 110px;" class="shrink-0" clearable @change="fetchLogs">
+              <el-option :label="t('logs.success')" value="success" />
+              <el-option :label="t('logs.failed')" value="failed" />
             </el-select>
           </div>
         </div>
       </template>
 
-      <el-table :data="logs" style="width: 100%" v-loading="loading" size="small" border stripe>
+      <el-table :data="logs" style="width: 100%" v-loading="loading" size="small" border stripe max-height="calc(100vh - 285px)">
         <el-table-column prop="id" :label="t('logs.id')" width="70" align="center" />
         <el-table-column :label="t('logs.time')" width="160">
           <template #default="{ row }">
@@ -195,7 +203,10 @@ let refreshTimer = null;
 const searchQuery = ref({
   target: '',
   action: '',
-  module: ''
+  module: '',
+  sourceIp: '',
+  status: '',
+  rulePattern: ''
 });
 
 const fetchLogs = async () => {
@@ -206,6 +217,9 @@ const fetchLogs = async () => {
     if (searchQuery.value.target) query.append('target', searchQuery.value.target);
     if (searchQuery.value.action) query.append('action', searchQuery.value.action);
     if (searchQuery.value.module) query.append('module', searchQuery.value.module);
+    if (searchQuery.value.sourceIp) query.append('sourceIp', searchQuery.value.sourceIp);
+    if (searchQuery.value.status) query.append('status', searchQuery.value.status);
+    if (searchQuery.value.rulePattern) query.append('rulePattern', searchQuery.value.rulePattern);
 
     const res = await fetch(`/api/traffic-logs?${query.toString()}`);
     const data = await res.json();
