@@ -111,45 +111,86 @@ class ProxyDialer {
   }
 
   static handshakeSocks5(socket, user, pass, targetHost, targetPort, callback) {
-    const onData = (data) => {
-      // 1. Auth reply
-      if (data.length === 2 && data[0] === 0x05) {
-        if (data[1] === 0x00) {
-          // No auth required
-          sendRequest();
-        } else if (data[1] === 0x02) {
-          // Username/Password auth required
-          if (!user && !pass) {
-             socket.removeListener('data', onData);
-             return callback(new Error('SOCKS5 requires auth but no credentials provided'));
+    let state = 'auth'; // 'auth' | 'auth_result' | 'request'
+    let buffer = Buffer.alloc(0);
+
+    const advanceState = () => {
+      while (buffer.length > 0) {
+        if (state === 'auth') {
+          if (buffer.length < 2) return;
+          if (buffer[0] !== 0x05) {
+            socket.removeListener('data', onData);
+            return callback(new Error('Invalid SOCKS5 auth reply'));
           }
-          const uBuf = Buffer.from(user || '');
-          const pBuf = Buffer.from(pass || '');
-          const authReq = Buffer.concat([Buffer.from([0x01, uBuf.length]), uBuf, Buffer.from([pBuf.length]), pBuf]);
-          socket.write(authReq);
-        } else {
+          if (buffer[1] === 0x00) {
+            buffer = buffer.slice(2);
+            sendRequest();
+            state = 'request';
+          } else if (buffer[1] === 0x02) {
+            buffer = buffer.slice(2);
+            if (!user && !pass) {
+              socket.removeListener('data', onData);
+              return callback(new Error('SOCKS5 requires auth but no credentials provided'));
+            }
+            const uBuf = Buffer.from(user || '');
+            const pBuf = Buffer.from(pass || '');
+            socket.write(Buffer.concat([Buffer.from([0x01, uBuf.length]), uBuf, Buffer.from([pBuf.length]), pBuf]));
+            state = 'auth_result';
+          } else {
+            socket.removeListener('data', onData);
+            return callback(new Error('SOCKS5 server denied accepted auth methods'));
+          }
+        } else if (state === 'auth_result') {
+          if (buffer.length < 2) return;
+          if (buffer[0] !== 0x01) {
+            socket.removeListener('data', onData);
+            return callback(new Error('Invalid SOCKS5 auth result'));
+          }
+          if (buffer[1] === 0x00) {
+            buffer = buffer.slice(2);
+            sendRequest();
+            state = 'request';
+          } else {
+            socket.removeListener('data', onData);
+            return callback(new Error('SOCKS5 auth failed'));
+          }
+        } else if (state === 'request') {
+          if (buffer.length < 10) return;
+          if (buffer[0] !== 0x05) {
+            socket.removeListener('data', onData);
+            return callback(new Error('Invalid SOCKS5 request reply'));
+          }
+          let replyLen = 10;
+          if (buffer[3] === 0x01) {
+            replyLen = 10;
+          } else if (buffer[3] === 0x03) {
+            if (buffer.length < 5) return;
+            const domainLen = buffer[4];
+            replyLen = 5 + domainLen + 2;
+          } else if (buffer[3] === 0x04) {
+            replyLen = 22;
+          } else {
+            socket.removeListener('data', onData);
+            return callback(new Error('Unknown SOCKS5 address type: ' + buffer[3]));
+          }
+          if (buffer.length < replyLen) return;
+
           socket.removeListener('data', onData);
-          callback(new Error('SOCKS5 server denied accepted auth methods'));
-        }
-      } 
-      // 2. Auth result
-      else if (data.length === 2 && data[0] === 0x01) {
-        if (data[1] === 0x00) {
-          sendRequest();
-        } else {
-          socket.removeListener('data', onData);
-          callback(new Error('SOCKS5 auth failed'));
+          if (buffer[1] === 0x00) {
+            const extra = buffer.slice(replyLen);
+            if (extra.length > 0) socket.unshift(extra);
+            callback(null);
+          } else {
+            callback(new Error(`SOCKS5 connection to target failed with code: ${buffer[1]}`));
+          }
+          return;
         }
       }
-      // 3. Request result
-      else if (data.length >= 10 && data[0] === 0x05) {
-        socket.removeListener('data', onData);
-        if (data[1] === 0x00) {
-          callback(null); // Success
-        } else {
-          callback(new Error(`SOCKS5 connection to target failed with code: ${data[1]}`));
-        }
-      }
+    };
+
+    const onData = (data) => {
+      buffer = Buffer.concat([buffer, data]);
+      advanceState();
     };
 
     const sendRequest = () => {
@@ -165,8 +206,7 @@ class ProxyDialer {
       }
       const portBuf = Buffer.alloc(2);
       portBuf.writeUInt16BE(targetPort, 0);
-      const req = Buffer.concat([Buffer.from([0x05, 0x01, 0x00, atyp]), hostBuf, portBuf]);
-      socket.write(req);
+      socket.write(Buffer.concat([Buffer.from([0x05, 0x01, 0x00, atyp]), hostBuf, portBuf]));
     };
 
     socket.on('data', onData);

@@ -1,0 +1,49 @@
+{
+  "log": { "loglevel": "info" },
+  "dns": {
+    "servers": ["tcp://1.1.1.1:53", "tcp://8.8.8.8:53"],
+    "queryStrategy": "UseIPv4"
+  },
+  "inbounds": [
+    {
+      "tag": "tun-in",
+      "protocol": "tun",
+      "port": 0,
+      "settings": {
+        "name": "tun-bi",
+        "mtu": 1500,
+        "gateway": ["10.0.9.1/24"],
+        "dns": ["1.1.1.1"],
+        "autoSystemRoutingTable": ["0.0.0.0/0"],
+        "autoOutboundsInterface": "auto"
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": false
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "socks-out",
+      "protocol": "socks",
+      "settings": {
+        "servers": [{"address": "127.0.0.1", "port": 1080}]
+      }
+    },
+    { "tag": "block", "protocol": "blackhole", "settings": {} },
+    { "tag": "direct", "protocol": "freedom", "settings": {} },
+    { "tag": "dns-out", "protocol": "dns", "settings": {} }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      { "type": "field", "inboundTag": ["tun-in"], "port": 53, "outboundTag": "dns-out" },
+      { "type": "field", "inboundTag": ["tun-in"], "port": 137, "outboundTag": "block" },
+      { "type": "field", "inboundTag": ["tun-in"], "port": 138, "outboundTag": "block" },
+      { "type": "field", "inboundTag": ["tun-in"], "port": 139, "outboundTag": "block" },
+      { "type": "field", "ip": ["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16","127.0.0.0/8","224.0.0.0/4","255.255.255.255/32","::1/128","fc00::/7","fe80::/10"], "outboundTag": "direct" }
+    ]
+  }
+}

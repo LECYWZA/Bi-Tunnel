@@ -183,11 +183,75 @@ async function tearDownLinuxTunRouting(interfaceName) {
   }
 }
 
+/**
+ * Configures TUN interface IP address and routing on Windows.
+ * xray-core creates the TUN adapter but does NOT set its IP address on Windows.
+ */
+async function setupWindowsTunRouting(interfaceName) {
+  if (!isWindows) return;
+  const tunIP = '10.0.9.1';
+  try {
+    // Wait for the adapter to appear and get its index
+    let ifIndex = null;
+    let retries = 10;
+    while (retries-- > 0) {
+      try {
+        const out = await execPromise(`netsh interface show interface name="${interfaceName}"`);
+        if (out) {
+          // Get interface index using PowerShell
+          const idxOut = await execPromise(`powershell -Command "(Get-NetAdapter -Name '${interfaceName}').ifIndex"`);
+          ifIndex = idxOut.trim();
+          break;
+        }
+      } catch(e) {}
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    if (!ifIndex) {
+      throw new Error('TUN adapter not found or no ifIndex');
+    }
+    getLogger().info(`[RouteManager] TUN adapter ${interfaceName} ifIndex=${ifIndex}`);
+
+    // Set interface metric to 1 (highest priority) so Windows prefers TUN for DNS and routing
+    await execPromise(`powershell -Command "Set-NetIPInterface -InterfaceAlias '${interfaceName}' -InterfaceMetric 1"`);
+    getLogger().info(`[RouteManager] Set ${interfaceName} metric to 1`);
+
+    // Add default routes through TUN with explicit interface index
+    // autoSystemRoutingTable may not work on all xray-core versions, so add routes manually
+    try { await execPromise(`route delete 0.0.0.0 mask 128.0.0.0`); } catch(e) {}
+    try { await execPromise(`route delete 128.0.0.0 mask 128.0.0.0`); } catch(e) {}
+    await execPromise(`route add 0.0.0.0 mask 128.0.0.0 ${tunIP} metric 1 IF ${ifIndex}`);
+    await execPromise(`route add 128.0.0.0 mask 128.0.0.0 ${tunIP} metric 1 IF ${ifIndex}`);
+    getLogger().info(`[RouteManager] Added default routes via ${interfaceName} (IF ${ifIndex})`);
+  } catch (err) {
+    getLogger().error(`[RouteManager] Windows TUN routing config failed: ${err.message}`);
+    throw err;
+  }
+}
+
+/**
+ * Removes TUN interface routing on Windows.
+ */
+async function tearDownWindowsTunRouting(interfaceName) {
+  if (!isWindows) return;
+  const tunIP = '10.0.9.1';
+  try {
+    try { await execPromise(`route delete 0.0.0.0 mask 128.0.0.0 ${tunIP}`); } catch(e) {}
+    try { await execPromise(`route delete 128.0.0.0 mask 128.0.0.0 ${tunIP}`); } catch(e) {}
+    try { await execPromise(`netsh interface ip set dns name="${interfaceName}" source=dhcp`); } catch(e) {}
+    getLogger().info(`[RouteManager] Removed Windows TUN routes and DNS for ${interfaceName}`);
+  } catch (err) {
+    getLogger().warn(`[RouteManager] Windows TUN routing teardown warning: ${err.message}`);
+  }
+}
+
 module.exports = {
   getDefaultGateway,
   addBypassRoute,
   removeBypassRoute,
   clearAllBypasses,
   setupLinuxTunRouting,
-  tearDownLinuxTunRouting
+  tearDownLinuxTunRouting,
+  setupWindowsTunRouting,
+  tearDownWindowsTunRouting
 };

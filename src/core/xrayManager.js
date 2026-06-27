@@ -336,10 +336,13 @@ async function startTun(proxyPort) {
   const config = {
     log: { loglevel: 'warning' },
     dns: {
+      // TCP DNS through proxy chain to bypass GFW DNS pollution
       servers: [
         "tcp://1.1.1.1:53",
         "tcp://8.8.8.8:53"
-      ]
+      ],
+      // Force IPv4-only DNS results (TUN has no IPv6 route configured)
+      queryStrategy: "UseIPv4"
     },
     inbounds: [
       {
@@ -349,8 +352,10 @@ async function startTun(proxyPort) {
         "settings": {
           "name": "tun-bi",
           "mtu": 1500,
-          "gateway": ["10.0.9.1/24", "fdfe:dcba:9876::1/64"],
-          "autoSystemRoutingTable": ["0.0.0.0/0", "::/0"]
+          "gateway": ["10.0.9.1/24"],
+          "dns": ["1.1.1.1"],
+          "autoSystemRoutingTable": ["0.0.0.0/0"],
+          "autoOutboundsInterface": "auto"
         },
         "sniffing": {
           "enabled": true,
@@ -373,17 +378,63 @@ async function startTun(proxyPort) {
         }
       },
       {
+        "tag": "block",
+        "protocol": "blackhole",
+        "settings": {}
+      },
+      {
+        "tag": "direct",
+        "protocol": "freedom",
+        "settings": {}
+      },
+      {
         "tag": "dns-out",
         "protocol": "dns",
         "settings": {}
       }
     ],
     "routing": {
+      "domainStrategy": "AsIs",
       "rules": [
         {
           "type": "field",
+          "inboundTag": ["tun-in"],
           "port": 53,
           "outboundTag": "dns-out"
+        },
+        {
+          "type": "field",
+          "inboundTag": ["tun-in"],
+          "port": 137,
+          "outboundTag": "block"
+        },
+        {
+          "type": "field",
+          "inboundTag": ["tun-in"],
+          "port": 138,
+          "outboundTag": "block"
+        },
+        {
+          "type": "field",
+          "inboundTag": ["tun-in"],
+          "port": 139,
+          "outboundTag": "block"
+        },
+        {
+          "type": "field",
+          "ip": [
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "169.254.0.0/16",
+            "127.0.0.0/8",
+            "224.0.0.0/4",
+            "255.255.255.255/32",
+            "::1/128",
+            "fc00::/7",
+            "fe80::/10"
+          ],
+          "outboundTag": "direct"
         }
       ]
     }
@@ -474,6 +525,19 @@ async function startTun(proxyPort) {
             }
             return;
           }
+        } else if (os.platform() === 'win32') {
+          try {
+            await routeManager.setupWindowsTunRouting('tun-bi');
+          } catch (err) {
+            getLogger().error(`[Xray TUN] Windows route setup failed: ${err.message}`);
+            currentTunError = `路由配置失败: ${err.message}`;
+            try { currentTunProcess.kill(); } catch(e) {}
+            if (!isResolved) {
+              isResolved = true;
+              reject(err);
+            }
+            return;
+          }
         }
         isResolved = true;
         resolve({ success: true, port: proxyPort });
@@ -483,7 +547,7 @@ async function startTun(proxyPort) {
           reject(new Error(currentTunError || 'Failed to start TUN process'));
         }
       }
-    }, 2000);
+    }, 3000);
   });
 }
 
@@ -494,6 +558,10 @@ async function stopTun() {
     if (os.platform() === 'linux') {
       try {
         await routeManager.tearDownLinuxTunRouting('tun-bi');
+      } catch(e) {}
+    } else if (os.platform() === 'win32') {
+      try {
+        await routeManager.tearDownWindowsTunRouting('tun-bi');
       } catch(e) {}
     }
     const proc = currentTunProcess;
