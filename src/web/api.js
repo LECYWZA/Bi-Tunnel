@@ -515,6 +515,67 @@ function createWebServer(statusCallback) {
 
 
 
+  app.post('/api/service/stop', (req, res) => {
+    getLogger().info('[Service] Stop requested via Web API, shutting down...');
+    res.json({ success: true, message: '服务正在停止...' });
+    setTimeout(() => {
+      const { stopXray } = require('../core/xrayManager');
+      stopXray();
+      if (app.locals.server) {
+        app.locals.server.close(() => process.exit(0));
+      } else {
+        process.exit(0);
+      }
+    }, 500);
+  });
+
+  app.post('/api/service/restart', (req, res) => {
+    getLogger().info('[Service] Restart requested via Web API, restarting...');
+    res.json({ success: true, message: '服务正在重启...' });
+    setTimeout(() => {
+      // 停止所有隧道和转发（释放所有端口）
+      if (app.locals.stopTunnel) {
+        try { app.locals.stopTunnel('server'); } catch (e) {}
+        try { app.locals.stopTunnel('client'); } catch (e) {}
+      }
+      // 强制关闭 WebSocket 连接
+      if (app.locals.wss) {
+        app.locals.wss.clients.forEach(ws => {
+          try { ws.terminate(); } catch (e) {}
+        });
+        try { app.locals.wss.close(); } catch (e) {}
+      }
+      // 关闭 HTTP 服务器，强制断开所有连接
+      if (app.locals.server) {
+        if (app.locals.server.closeAllConnections) {
+          app.locals.server.closeAllConnections();
+        }
+        app.locals.server.close();
+      }
+      // 写一个外部批处理脚本：等旧进程退出后重新启动
+      const { writeFileSync } = require('fs');
+      const { join } = require('path');
+      const os = require('os');
+      const cwd = process.cwd();
+      let restartScript, runCmd;
+      if (os.platform() === 'win32') {
+        restartScript = join(os.tmpdir(), 'bi-tunnel-restart.bat');
+        writeFileSync(restartScript, `@echo off\r\ntimeout /t 3 /nobreak > nul\r\ncd /d "${cwd}"\r\nnpm start\r\n`);
+        // 用 cmd /c start 在新窗口启动，完全脱离当前进程
+        runCmd = `cmd /c start "" "${restartScript}"`;
+      } else {
+        restartScript = join(os.tmpdir(), 'bi-tunnel-restart.sh');
+        writeFileSync(restartScript, `#!/bin/bash\nsleep 3\ncd "${cwd}"\nnpm start\n`);
+        require('fs').chmodSync(restartScript, '755');
+        runCmd = `bash "${restartScript}"`;
+      }
+      const { exec } = require('child_process');
+      exec(runCmd, { detached: true, cwd });
+      getLogger().info('[Service] Restart script executed, exiting current process...');
+      process.exit(0);
+    }, 500);
+  });
+
   app.post('/api/test-speed', (req, res) => {
     const { id, targetHost, targetPort } = req.body;
     const config = configManager.getConfig();
@@ -555,6 +616,8 @@ function createWebServer(statusCallback) {
   server.listen(port, '0.0.0.0', () => {
     getLogger().info(`Web Control Panel running securely on https://127.0.0.1:${port}`);
   });
+
+  app.locals.server = server;
 
   const WebSocket = require('ws');
   const wss = new WebSocket.Server({ server });

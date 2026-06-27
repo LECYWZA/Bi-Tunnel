@@ -323,6 +323,38 @@ html.dark {
   box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4) !important;
 }
 
+/* Danger button (stop service) */
+.bt-btn-danger {
+  background: var(--bt-danger) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3) !important;
+}
+
+.bt-btn-danger:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4) !important;
+  background: #dc2626 !important;
+}
+
+/* Warning button (restart service) */
+.bt-btn-warning {
+  background: var(--bt-warning) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3) !important;
+}
+
+.bt-btn-warning:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.4) !important;
+  background: #d97706 !important;
+}
+
 /* Theme toggle */
 .bt-theme-toggle {
   width: 38px;

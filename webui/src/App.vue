@@ -60,6 +60,16 @@
           {{ isDark ? '☀️' : '🌙' }}
         </div>
 
+        <!-- Stop Service -->
+        <el-tooltip content="停止服务" placement="bottom">
+          <el-button class="bt-btn-danger" size="default" :icon="SwitchButton" circle @click="stopService" />
+        </el-tooltip>
+
+        <!-- Restart Service -->
+        <el-tooltip content="重启服务" placement="bottom">
+          <el-button class="bt-btn-warning" size="default" :icon="RefreshRight" circle @click="restartService" />
+        </el-tooltip>
+
         <!-- Save button -->
         <el-button class="bt-btn-primary" size="default" :icon="Check" @click="saveConfig(false)">
           立即应用配置
@@ -92,7 +102,7 @@
 import { ref, reactive, onMounted, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
-import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor } from '@element-plus/icons-vue';
+import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight } from '@element-plus/icons-vue';
 import Login from './components/Login.vue';
 
 const isLoggedIn = ref(false);
@@ -419,6 +429,66 @@ const connectWebSocket = () => {
       if (isLoggedIn.value) connectWebSocket();
     }, 5000);
   };
+};
+
+const stopService = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要停止整个 Bi-Tunnel 服务吗？停止后所有隧道和代理将立即断开。',
+      '停止服务确认',
+      {
+        confirmButtonText: '确定停止',
+        cancelButtonText: '取消',
+        type: 'error',
+        confirmButtonClass: 'el-button--danger'
+      }
+    );
+    await fetch('/api/service/stop', { method: 'POST' });
+    ElMessage.success('服务正在停止...');
+    // 页面将在服务停止后断开
+    setTimeout(() => {
+      ElMessage.warning('服务已停止，请手动关闭页面');
+    }, 1000);
+  } catch (e) {
+    // 用户取消
+  }
+};
+
+const restartService = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要重启 Bi-Tunnel 服务吗？重启过程中所有连接将暂时中断。',
+      '重启服务确认',
+      {
+        confirmButtonText: '确定重启',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--warning'
+      }
+    );
+    await fetch('/api/service/restart', { method: 'POST' });
+    ElMessage.success('服务正在重启，即将自动刷新页面...');
+    // 等待服务重启后刷新页面
+    let retries = 0;
+    const checkAndReload = async () => {
+      try {
+        const res = await fetch('/api/status');
+        if (res.ok) {
+          window.location.reload();
+          return;
+        }
+      } catch (e) {}
+      retries++;
+      if (retries < 30) {
+        setTimeout(checkAndReload, 1000);
+      } else {
+        ElMessage.error('服务重启超时，请手动刷新页面');
+      }
+    };
+    setTimeout(checkAndReload, 2000);
+  } catch (e) {
+    // 用户取消
+  }
 };
 
 onUnmounted(() => {
