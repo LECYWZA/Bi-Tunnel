@@ -42,12 +42,8 @@ function init() {
     serverForwarder.setSession(session, clientId);
     serverProxy.setSession(session, clientId);
     
-    if (webApp.locals.wss) {
-      const clients = JSON.parse(JSON.stringify(configManager.getConfig().server?.knownClients || []));
-      clients.forEach(c => {
-        c.online = tunnelServer.sessions ? tunnelServer.sessions.has(c.id) : false;
-      });
-      webApp.locals.wss.clients.forEach(c => { if (c.readyState === 1) c.send(JSON.stringify({ type: 'clients_update', data: clients })); });
+    if (webApp.locals.broadcastClientsUpdate) {
+      webApp.locals.broadcastClientsUpdate();
     }
   });
 
@@ -56,12 +52,8 @@ function init() {
     serverForwarder.removeSession(clientId);
     serverProxy.removeSession(clientId);
     
-    if (webApp.locals.wss) {
-      const clients = JSON.parse(JSON.stringify(configManager.getConfig().server?.knownClients || []));
-      clients.forEach(c => {
-        c.online = tunnelServer.sessions ? tunnelServer.sessions.has(c.id) : false;
-      });
-      webApp.locals.wss.clients.forEach(c => { if (c.readyState === 1) c.send(JSON.stringify({ type: 'clients_update', data: clients })); });
+    if (webApp.locals.broadcastClientsUpdate) {
+      webApp.locals.broadcastClientsUpdate();
     }
   });
 
@@ -101,14 +93,8 @@ function init() {
       serverProxy.clearSessions();
       
       // Immediately notify the UI that all clients are offline now
-      if (webApp.locals.wss) {
-        const clients = JSON.parse(JSON.stringify(configManager.getConfig().server?.knownClients || []));
-        clients.forEach(c => { c.online = false; });
-        webApp.locals.wss.clients.forEach(c => {
-          if (c.readyState === 1) {
-            c.send(JSON.stringify({ type: 'clients_update', data: clients }));
-          }
-        });
+      if (webApp.locals.broadcastClientsUpdate) {
+        webApp.locals.broadcastClientsUpdate();
       }
     } else if (mode === 'client') {
       if (tunnelClient.stop) tunnelClient.stop();
@@ -143,7 +129,7 @@ function init() {
     serverForwarder.applyConfig().catch(err => getLogger().error('[Forward-server] applyConfig error: ' + JSON.stringify(err)));
     serverProxy.applyConfig().catch(err => getLogger().error('[Proxy-server] applyConfig error: ' + JSON.stringify(err)));
 
-    if (tunnelClient.shouldRetry && typeof tunnelClient.applyConfig === 'function') {
+    if (tunnelClient && typeof tunnelClient.applyConfig === 'function') {
       tunnelClient.applyConfig();
     }
     clientForwarder.applyConfig().catch(err => getLogger().error('[Forward-client] applyConfig error: ' + JSON.stringify(err)));

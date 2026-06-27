@@ -154,9 +154,21 @@ class TunnelClientManager extends EventEmitter {
   }
 
   applyConfig() {
-    if (!this.shouldRetry) return; // Only apply if client mode is globally running
     const config = configManager.getConfig();
     const connections = config.client?.connections || [];
+    const hasEnabled = connections.some(c => c.enabled);
+
+    // 自动启停客户端模式：有启用的连接就启动，没有就停止
+    if (hasEnabled && !this.shouldRetry) {
+      getLogger().info('[TLS] Enabling client mode due to enabled connections');
+      this.start();
+    } else if (!hasEnabled && this.shouldRetry) {
+      getLogger().info('[TLS] Disabling client mode due to no enabled connections');
+      this.stop();
+      return;
+    }
+
+    if (!this.shouldRetry) return;
     
     // Stop removed, disabled, or configuration-changed connections
     for (const [id, client] of this.clients.entries()) {

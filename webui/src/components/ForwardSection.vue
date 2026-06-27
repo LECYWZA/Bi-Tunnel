@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <div v-if="mode === 'server'" class="flex justify-between items-center bt-section-status h-[56px]">
+    <div v-if="mode === 'server'" class="flex justify-between items-center bt-section-status h-[56px] sticky top-[60px] z-10 bg-white dark:bg-gray-900 -mx-6 px-6 pt-4 -mt-4 pb-4">
       <div class="flex items-center gap-3">
         <el-tag :type="isRunning ? 'success' : 'info'" effect="dark" round size="large">
           {{ title }}: {{ isRunning ? '运行中' : '已停止' }}
@@ -13,7 +13,7 @@
         停止{{ title }}
       </el-button>
     </div>
-    <el-card v-if="mode === 'server'" shadow="hover" class="bt-card mb-6 h-[92px]" body-class="h-full flex items-center">
+    <el-card v-if="mode === 'server'" shadow="hover" class="bt-card mb-6">
       <div class="flex items-center gap-3 w-full">
         <el-icon :size="22" style="color: var(--bt-primary)"><Guide /></el-icon>
         <div>
@@ -94,12 +94,12 @@
 
     <!-- CLIENT MODE: HEADER BANNER -->
     <template v-else>
-      <div class="bt-section-status flex items-center gap-3 h-[56px]">
+      <div class="bt-section-status flex items-center gap-3 h-[56px] sticky top-[60px] z-10 bg-white dark:bg-gray-900 -mx-6 px-6 pt-4 -mt-4 pb-4">
         <el-tag type="primary" effect="dark" round size="large">
           {{ title }}
         </el-tag>
       </div>
-      <el-card shadow="hover" class="bt-card mb-6 h-[92px]" body-class="h-full flex items-center">
+      <el-card shadow="hover" class="bt-card mb-6">
         <div class="flex items-center gap-3 w-full">
           <el-icon :size="22" style="color: var(--bt-primary)"><Guide /></el-icon>
           <div>
@@ -170,7 +170,7 @@
                 </div>
               </template>
               
-              <div class="flex-1 min-w-[100px]">
+              <div class="flex-1 max-w-[130px]">
                 <el-input v-model="fw.targetHost" placeholder="目标 IP (如: 127.0.0.1)" size="small" />
               </div>
               
@@ -245,7 +245,7 @@
             <div class="flex justify-between items-center mb-4">
               <div class="flex items-center gap-3">
                 <el-input v-model="conn.alias" placeholder="连接别名" size="small" class="w-32 font-bold" @change="$emit('save')" />
-                <el-switch v-model="conn.enabled" inline-prompt active-text="已启用" inactive-text="已停用" @change="$emit('save')" />
+                <el-switch v-model="conn.enabled" inline-prompt active-text="已启用" inactive-text="已停用" @change="toggleConnection(conn.id, conn.enabled)" />
                 <el-tag v-if="conn.enabled" :type="getConnectionStatus(conn.id).type" size="small" effect="plain" round>
                   {{ getConnectionStatus(conn.id).text }}
                 </el-tag>
@@ -299,7 +299,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, inject } from 'vue';
 import { ElMessage } from 'element-plus';
 import draggable from 'vuedraggable';
 import { Delete, Plus, User, Lock, Switch, HelpFilled, InfoFilled, Sort, Right, Setting, Guide, VideoPlay, VideoPause, Tools } from '@element-plus/icons-vue';
@@ -316,6 +316,11 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['start', 'stop', 'save']);
+
+const sendWsMessage = inject('sendWsMessage', (msg) => {
+  console.warn('sendWsMessage not provided, falling back to direct save');
+  emit('save');
+});
 
 const getConnectionStatus = (id) => {
   if (!props.status || !props.status.clientConnections) return { type: 'info', text: '未知' };
@@ -344,8 +349,7 @@ const addForward = () => {
 };
 
 const addClientConnection = () => {
-  if (!sectionConfig.value.connections) sectionConfig.value.connections = [];
-  sectionConfig.value.connections.push({
+  const newConn = {
     id: Math.random().toString(36).substr(2, 9),
     alias: '',
     tunnelHost: '127.0.0.1',
@@ -353,26 +357,29 @@ const addClientConnection = () => {
     clientId: '',
     password: 'admin',
     enabled: false
-  });
-  emit('save');
+  };
+  sendWsMessage({ type: 'client_connection_add', connection: newConn });
+};
+
+const toggleConnection = (connId, enabled) => {
+  sendWsMessage({ type: 'client_connection_toggle', id: connId, enabled });
 };
 
 const deleteClientConnection = (index) => {
-  sectionConfig.value.connections.splice(index, 1);
-  emit('save');
-};
-
-const clearOfflineClients = () => {
-  if (sectionConfig.value.knownClients) {
-    sectionConfig.value.knownClients = sectionConfig.value.knownClients.filter(c => c.online);
-    emit('save');
+  const conn = sectionConfig.value.connections?.[index];
+  if (conn) {
+    sendWsMessage({ type: 'client_connection_delete', id: conn.id });
   }
 };
 
+const clearOfflineClients = () => {
+  sendWsMessage({ type: 'client_clear_offline' });
+};
+
 const deleteClient = (index) => {
-  if (sectionConfig.value.knownClients) {
-    sectionConfig.value.knownClients.splice(index, 1);
-    emit('save');
+  const client = sectionConfig.value.knownClients?.[index];
+  if (client) {
+    sendWsMessage({ type: 'client_delete', clientId: client.id });
   }
 };
 

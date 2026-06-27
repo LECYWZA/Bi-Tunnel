@@ -4,7 +4,7 @@
   </div>
   <div v-else class="min-h-screen" :style="{ background: 'var(--bt-bg)' }">
     <!-- Header -->
-    <header class="bt-header px-6 py-0 flex items-center justify-between" style="height: 60px;">
+    <header class="bt-header px-6 py-0 flex items-center justify-between fixed top-0 left-0 right-0 z-50" style="height: 60px;">
       <div class="flex items-center gap-5 flex-1">
         <!-- Logo -->
         <div class="flex items-center gap-3">
@@ -60,6 +60,13 @@
           {{ isDark ? '☀️' : '🌙' }}
         </div>
 
+        <!-- HTTP/HTTPS Toggle -->
+        <el-tooltip :content="isHttps ? '切换到 HTTP 访问' : '切换到 HTTPS 访问'" placement="bottom">
+          <el-button class="bt-btn-protocol" size="default" circle @click="toggleProtocol" :loading="switchingProtocol">
+            <span style="font-size: 12px; font-weight: bold;">{{ isHttps ? 'HTTPS' : 'HTTP' }}</span>
+          </el-button>
+        </el-tooltip>
+
         <!-- Stop Service -->
         <el-tooltip content="停止服务" placement="bottom">
           <el-button class="bt-btn-danger" size="default" :icon="SwitchButton" circle @click="stopService" />
@@ -78,28 +85,27 @@
     </header>
 
     <!-- Main content -->
-    <main class="mx-auto w-full px-6 py-5" style="max-width: 1440px;">
+    <main class="mx-auto w-full px-6 py-5" style="max-width: 1440px; padding-top: 76px;">
 
       <!-- Router View -->
-      <router-view v-slot="{ Component }">
-        <transition name="fade" mode="out-in">
-          <component
-            :is="Component"
-            :config="config"
-            :status="status"
-            :availableIps="availableIps"
-            @start="startTunnel"
-            @stop="stopTunnel"
-            @save="saveConfig(true)"
-          />
-        </transition>
+      <router-view v-slot="slotProps">
+        <component
+          :is="slotProps.Component"
+          :key="slotProps.route.fullPath"
+          :config="config"
+          :status="status"
+          :availableIps="availableIps"
+          @start="startTunnel"
+          @stop="stopTunnel"
+          @save="saveConfig(true)"
+        />
       </router-view>
     </main>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, watch, onUnmounted } from 'vue';
+import { ref, reactive, onMounted, computed, watch, onUnmounted, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
 import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight } from '@element-plus/icons-vue';
@@ -118,12 +124,38 @@ const onLoginSuccess = () => {
 };
 
 const isDark = ref(false);
+const isHttps = ref(location.protocol === 'https:');
 const hasUnsavedChanges = ref(false);
 
 const toggleTheme = () => {
   isDark.value = !isDark.value;
   document.documentElement.classList.toggle('dark', isDark.value);
   localStorage.setItem('bt-theme', isDark.value ? 'dark' : 'light');
+};
+
+const switchingProtocol = ref(false);
+
+const toggleProtocol = async () => {
+  if (switchingProtocol.value) return;
+  const newProtocol = isHttps.value ? 'http' : 'https';
+  switchingProtocol.value = true;
+  try {
+    const res = await fetch('/api/switch-protocol', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ protocol: newProtocol })
+    });
+    const data = await res.json();
+    if (data.success) {
+      ElMessage.success(data.message);
+      // Wait for server to restart, then redirect to same port with new protocol
+      setTimeout(() => {
+        window.location.href = `${newProtocol}://${location.hostname}:${location.port}`;
+      }, 3000);
+    }
+  } catch (e) {
+    switchingProtocol.value = false;
+  }
 };
 
 const initTheme = () => {
@@ -226,6 +258,7 @@ const fetchConfig = async () => {
     }
     const data = await res.json();
     isLoggedIn.value = true;
+    connectWebSocket();
     
     // Format arrays for textareas
     if (data.server && data.server.proxies) {
@@ -403,6 +436,7 @@ onMounted(() => {
 });
 
 const connectWebSocket = () => {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   console.log(`Connecting WebSocket to: ${protocol}//${location.host}`);
   ws = new WebSocket(`${protocol}//${location.host}`);
@@ -415,6 +449,9 @@ const connectWebSocket = () => {
       console.log("WebSocket received message:", msg);
       if (msg.type === 'clients_update' && config.server) {
         config.server.knownClients = msg.data;
+      }
+      if (msg.type === 'connections_update' && config.client) {
+        config.client.connections = msg.data;
       }
     } catch (e) {
       console.error("WS message parse error:", e);
@@ -430,6 +467,16 @@ const connectWebSocket = () => {
     }, 5000);
   };
 };
+
+const sendWsMessage = (msg) => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  } else {
+    console.warn('WebSocket not connected, cannot send message');
+  }
+};
+
+provide('sendWsMessage', sendWsMessage);
 
 const stopService = async () => {
   try {

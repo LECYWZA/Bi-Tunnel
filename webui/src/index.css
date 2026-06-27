@@ -355,6 +355,23 @@ html.dark {
   background: #d97706 !important;
 }
 
+/* Protocol toggle button */
+.bt-btn-protocol {
+  background: var(--bt-primary) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 2px 8px rgba(96, 165, 250, 0.3) !important;
+  width: 60px !important;
+  height: 36px !important;
+}
+
+.bt-btn-protocol:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 16px rgba(96, 165, 250, 0.4) !important;
+}
+
 /* Theme toggle */
 .bt-theme-toggle {
   width: 38px;

@@ -1,36 +1,33 @@
 <template>
   <div>
     <div class="space-y-6">
-    <el-card shadow="hover" class="bt-card">
-      <template #header>
-        <div class="flex justify-between items-center">
-          <div class="flex items-center gap-2">
-            <el-icon class="text-purple-500"><HelpFilled /></el-icon>
-            <span class="font-bold text-base">混合代理配置</span>
-          </div>
-          <el-dropdown @command="handleAddProxy">
-            <el-button type="primary" plain size="small" :icon="Plus">
-              添加代理<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="server">添加服务端代理 (Server Proxy)</el-dropdown-item>
-                <el-dropdown-item command="client">添加客户端代理 (Client Proxy)</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-      </template>
+    <div class="flex justify-between items-center bt-section-status sticky top-[60px] z-10 bg-white dark:bg-gray-900 -mx-6 px-6 pt-4 -mt-4 pb-4">
+      <div class="flex items-center gap-3">
+        <el-icon :size="24" class="text-purple-500"><HelpFilled /></el-icon>
+        <span class="font-bold text-lg bt-text">混合代理配置</span>
+      </div>
+      <el-dropdown @command="handleAddProxy">
+        <el-button type="primary" plain size="small" :icon="Plus">
+          添加代理<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="server">添加服务端代理 (Server Proxy)</el-dropdown-item>
+            <el-dropdown-item command="client">添加客户端代理 (Client Proxy)</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </div>
 
-      <el-empty v-if="allProxies.length === 0" description="暂无代理服务" :image-size="40" />
+    <el-empty v-if="allProxies.length === 0" description="暂无代理服务" :image-size="80" />
 
-      <div v-else class="space-y-4">
-        <el-card v-for="(item, index) in allProxies" :key="index" shadow="never" class="mb-4 bt-card" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6" v-else>
+      <el-card v-for="(item, index) in allProxies" :key="index" shadow="hover" class="bt-card h-full transition-transform hover:-translate-y-1" body-class="flex flex-col h-full">
           <div class="flex justify-between items-center mb-2 pb-2" style="border-bottom: 1px solid var(--bt-border);">
             <div class="flex items-center gap-2">
               <el-radio-group :model-value="item._mode" size="small" @change="(newMode) => switchProxyMode(item._mode, newMode, item._ref)">
-                <el-radio-button label="server">服务端代理</el-radio-button>
-                <el-radio-button label="client">客户端代理</el-radio-button>
+                <el-radio-button value="server">服务端代理</el-radio-button>
+                <el-radio-button value="client">客户端代理</el-radio-button>
               </el-radio-group>
               <span class="text-sm font-bold text-gray-600">代理监听端口: {{ item._ref.listenPort }}</span>
             </div>
@@ -181,7 +178,7 @@
           </el-form>
         </el-card>
       </div>
-    </el-card>
+    </div>
   </div>
 
   <!-- Advanced Routing Dialog -->
@@ -335,7 +332,6 @@
       <el-input v-model="currentProxy._targetDenyIps" type="textarea" :rows="3" placeholder="目标黑名单 (建议使用上方的分流规则表)" />
     </div>
     </el-dialog>
-  </div>
 </template>
 
 <script setup>

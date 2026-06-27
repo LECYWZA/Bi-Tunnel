@@ -77,6 +77,11 @@ function createWebServer(statusCallback) {
         c.online = tunnelServer.sessions ? tunnelServer.sessions.has(c.id) : false;
       });
     }
+    config.web = {
+      httpPort: configManager.getConfig().webHttpPort || 8898,
+      httpsPort: configManager.getConfig().webPort || 8899,
+      protocol: configManager.getConfig().webProtocol || 'https'
+    };
     res.json(config);
   });
 
@@ -242,6 +247,10 @@ function createWebServer(statusCallback) {
       const chain = globalConfig.proxyChains?.find(c => c.id === id);
       if (!chain) return res.status(404).json({ success: false, message: 'Chain not found' });
       nodesToDial = chain.nodes.map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
+      // v2ray nodes must come first in the chain
+      const v2rayNodes = nodesToDial.filter(n => n.type === 'v2ray');
+      const nonV2rayNodes = nodesToDial.filter(n => n.type !== 'v2ray');
+      nodesToDial = [...v2rayNodes, ...nonV2rayNodes];
       if (nodesToDial.length === 0) return res.status(400).json({ success: false, message: 'Chain has no valid nodes' });
     } else {
       return res.status(400).json({ success: false, message: 'Invalid test type' });
@@ -522,10 +531,12 @@ function createWebServer(statusCallback) {
       const { stopXray } = require('../core/xrayManager');
       stopXray();
       if (app.locals.server) {
-        app.locals.server.close(() => process.exit(0));
-      } else {
-        process.exit(0);
+        app.locals.server.close();
       }
+      if (app.locals.httpServer) {
+        app.locals.httpServer.close();
+      }
+      setTimeout(() => process.exit(0), 500);
     }, 500);
   });
 
@@ -545,12 +556,19 @@ function createWebServer(statusCallback) {
         });
         try { app.locals.wss.close(); } catch (e) {}
       }
-      // 关闭 HTTP 服务器，强制断开所有连接
+      // 关闭 HTTPS 服务器，强制断开所有连接
       if (app.locals.server) {
         if (app.locals.server.closeAllConnections) {
           app.locals.server.closeAllConnections();
         }
         app.locals.server.close();
+      }
+      // 关闭 HTTP 服务器
+      if (app.locals.httpServer) {
+        if (app.locals.httpServer.closeAllConnections) {
+          app.locals.httpServer.closeAllConnections();
+        }
+        app.locals.httpServer.close();
       }
       // 写一个外部批处理脚本：等旧进程退出后重新启动
       const { writeFileSync } = require('fs');
@@ -577,63 +595,237 @@ function createWebServer(statusCallback) {
   });
 
   app.post('/api/test-speed', (req, res) => {
-    const { id, targetHost, targetPort } = req.body;
+    const { type, id, targetHost, targetPort } = req.body;
     const config = configManager.getConfig();
-    let node = config.proxyNodes?.find(n => n.id === id);
-    if (!node) {
-      let chain = config.proxyChains?.find(c => c.id === id);
-      if (chain && chain.nodes?.length > 0) {
-        node = config.proxyNodes?.find(n => n.id === chain.nodes[0]);
+    let nodesToDial = [];
+
+    if (type === 'chain') {
+      const chain = config.proxyChains?.find(c => c.id === id);
+      if (!chain) return res.status(404).json({ success: false, message: 'Chain not found' });
+      nodesToDial = chain.nodes.map(ref => config.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
+      const v2rayNodes = nodesToDial.filter(n => n.type === 'v2ray');
+      const nonV2rayNodes = nodesToDial.filter(n => n.type !== 'v2ray');
+      nodesToDial = [...v2rayNodes, ...nonV2rayNodes];
+      if (nodesToDial.length === 0) return res.status(400).json({ success: false, message: 'Chain has no valid nodes' });
+    } else {
+      let node = config.proxyNodes?.find(n => n.id === id);
+      if (!node) {
+        let chain = config.proxyChains?.find(c => c.id === id);
+        if (chain && chain.nodes?.length > 0) {
+          node = config.proxyNodes?.find(n => n.id === chain.nodes[0]);
+        }
       }
+      if (!node) return res.json({ success: false, message: 'Node not found' });
+      nodesToDial = [node];
     }
-    if (!node) return res.json({ success: false, message: 'Node not found' });
     
     const start = Date.now();
     const tHost = targetHost || 'speed.cloudflare.com';
     const tPort = targetPort || 443;
     
-    ProxyDialer.dialChain([node], tHost, tPort, false, null, (err, socket) => {
+    ProxyDialer.dialChain(nodesToDial, tHost, tPort, false, null, (err, socket) => {
       if (err) {
         return res.json({ success: false, message: err.message });
       }
       const latency = Date.now() - start;
       socket.destroy();
-      // Estimate speed based on latency (just for UI demonstration)
       let speedMBs = (Math.max(10, 1000 - latency) / 100).toFixed(2);
       if (latency > 2000) speedMBs = (Math.random() * 0.5).toFixed(2);
       res.json({ success: true, speed: speedMBs });
     });
   });
 
-  const port = configManager.getConfig().webPort || 8899;
-  const certs = getCertificates();
-  
-  const server = https.createServer({
-    key: certs.key,
-    cert: certs.cert
-  }, app);
+  // Switch web protocol (HTTP <-> HTTPS) on same port
+  app.post('/api/switch-protocol', (req, res) => {
+    const { protocol } = req.body;
+    if (!['http', 'https'].includes(protocol)) {
+      return res.status(400).json({ success: false, message: 'Invalid protocol' });
+    }
+    const config = configManager.getConfig();
+    const oldProtocol = config.webProtocol || 'https';
+    if (oldProtocol === protocol) {
+      return res.json({ success: true, message: 'Already using ' + protocol, protocol });
+    }
+    config.webProtocol = protocol;
+    configManager.saveConfig(config);
+    getLogger().info(`[Service] Switching web protocol to ${protocol.toUpperCase()}, restarting web server...`);
+    res.json({ success: true, message: `正在切换到 ${protocol.toUpperCase()}...`, protocol });
 
-  server.listen(port, '0.0.0.0', () => {
-    getLogger().info(`Web Control Panel running securely on https://127.0.0.1:${port}`);
+    setTimeout(() => {
+      // Close both servers
+      if (app.locals.server) {
+        if (app.locals.server.closeAllConnections) app.locals.server.closeAllConnections();
+        app.locals.server.close();
+      }
+      if (app.locals.httpServer) {
+        if (app.locals.httpServer.closeAllConnections) app.locals.httpServer.closeAllConnections();
+        app.locals.httpServer.close();
+      }
+      // Use same restart script approach
+      const { writeFileSync } = require('fs');
+      const { join } = require('path');
+      const os = require('os');
+      const cwd = process.cwd();
+      let restartScript, runCmd;
+      if (process.platform === 'win32') {
+        restartScript = join(os.tmpdir(), 'bi-tunnel-restart.bat');
+        writeFileSync(restartScript, `@echo off\r\ntimeout /t 3 /nobreak > nul\r\ncd /d "${cwd}"\r\nnpm start\r\n`);
+        runCmd = `cmd /c start "" "${restartScript}"`;
+      } else {
+        restartScript = join(os.tmpdir(), 'bi-tunnel-restart.sh');
+        writeFileSync(restartScript, `#!/bin/bash\nsleep 3\ncd "${cwd}"\nnpm start\n`);
+        require('fs').chmodSync(restartScript, '755');
+        runCmd = `bash "${restartScript}"`;
+      }
+      const { exec } = require('child_process');
+      exec(runCmd, { detached: true, cwd });
+      getLogger().info('[Service] Protocol switch script executed, exiting current process...');
+      process.exit(0);
+    }, 500);
   });
 
-  app.locals.server = server;
-
+  const port = configManager.getConfig().webPort || 8899;
+  const httpPort = configManager.getConfig().webHttpPort || 8898;
+  const webProtocol = configManager.getConfig().webProtocol || 'https';
+  const certs = getCertificates();
+  
+  let server, httpServer;
   const WebSocket = require('ws');
-  const wss = new WebSocket.Server({ server });
+  let wss, wssHttp;
+
+  if (webProtocol === 'http') {
+    // Main port uses HTTP, secondary port uses HTTPS
+    httpServer = http.createServer(app);
+    httpServer.listen(port, '0.0.0.0', () => {
+      getLogger().info(`Web Control Panel running on http://127.0.0.1:${port}`);
+    });
+    server = https.createServer({ key: certs.key, cert: certs.cert }, app);
+    server.listen(httpPort, '0.0.0.0', () => {
+      getLogger().info(`Web Control Panel also available on https://127.0.0.1:${httpPort}`);
+    });
+    wssHttp = new WebSocket.Server({ server: httpServer });
+    wss = new WebSocket.Server({ server });
+  } else {
+    // Main port uses HTTPS, secondary port uses HTTP (default)
+    server = https.createServer({ key: certs.key, cert: certs.cert }, app);
+    server.listen(port, '0.0.0.0', () => {
+      getLogger().info(`Web Control Panel running securely on https://127.0.0.1:${port}`);
+    });
+    httpServer = http.createServer(app);
+    httpServer.listen(httpPort, '0.0.0.0', () => {
+      getLogger().info(`Web Control Panel also available on http://127.0.0.1:${httpPort}`);
+    });
+    wss = new WebSocket.Server({ server });
+    wssHttp = new WebSocket.Server({ server: httpServer });
+  }
+
+  app.locals.server = server;
+  app.locals.httpServer = httpServer;
   app.locals.wss = wss;
 
-  wss.on('connection', (ws) => {
+  // Helper: broadcast updated knownClients to all connected WS clients
+  const broadcastClientsUpdate = () => {
     const tunnelServer = require('../core/tunnelServer');
-    const clients = JSON.parse(JSON.stringify(configManager.getConfig().server?.knownClients || []));
+    const config = configManager.getConfig();
+    const clients = JSON.parse(JSON.stringify(config.server?.knownClients || []));
     clients.forEach(c => {
       c.online = tunnelServer.sessions ? tunnelServer.sessions.has(c.id) : false;
     });
-    ws.send(JSON.stringify({
-      type: 'clients_update',
-      data: clients
-    }));
-  });
+    const msg = JSON.stringify({ type: 'clients_update', data: clients });
+    [wss, wssHttp].forEach(ws => {
+      ws.clients.forEach(c => {
+        if (c.readyState === 1) c.send(msg);
+      });
+    });
+  };
+  app.locals.broadcastClientsUpdate = broadcastClientsUpdate;
+
+  const broadcastConnectionsUpdate = () => {
+    const tunnelClient = require('../core/tunnelClient');
+    const config = configManager.getConfig();
+    const connections = JSON.parse(JSON.stringify(config.client?.connections || []));
+    const msg2 = JSON.stringify({ type: 'connections_update', data: connections });
+    [wss, wssHttp].forEach(ws => {
+      ws.clients.forEach(c => {
+        if (c.readyState === 1) c.send(msg2);
+      });
+    });
+  };
+  app.locals.broadcastConnectionsUpdate = broadcastConnectionsUpdate;
+
+  const handleWsConnection = (ws) => {
+    broadcastClientsUpdate();
+    broadcastConnectionsUpdate();
+
+    ws.on('message', (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw.toString()); } catch (e) { return; }
+
+      const currentConfig = configManager.getConfig();
+      let changed = false;
+
+      switch (msg.type) {
+        case 'client_delete': {
+          if (currentConfig.server?.knownClients) {
+            currentConfig.server.knownClients = currentConfig.server.knownClients.filter(
+              c => c.id !== msg.clientId
+            );
+            changed = true;
+          }
+          break;
+        }
+        case 'client_clear_offline': {
+          if (currentConfig.server?.knownClients) {
+            const tunnelServer = require('../core/tunnelServer');
+            currentConfig.server.knownClients = currentConfig.server.knownClients.filter(
+              c => tunnelServer.sessions && tunnelServer.sessions.has(c.id)
+            );
+            changed = true;
+          }
+          break;
+        }
+        case 'client_connection_toggle': {
+          if (currentConfig.client?.connections) {
+            const conn = currentConfig.client.connections.find(c => c.id === msg.id);
+            if (conn) {
+              conn.enabled = msg.enabled;
+              changed = true;
+            }
+          }
+          break;
+        }
+        case 'client_connection_delete': {
+          if (currentConfig.client?.connections) {
+            currentConfig.client.connections = currentConfig.client.connections.filter(
+              c => c.id !== msg.id
+            );
+            changed = true;
+          }
+          break;
+        }
+        case 'client_connection_add': {
+          if (!currentConfig.client) currentConfig.client = {};
+          if (!currentConfig.client.connections) currentConfig.client.connections = [];
+          currentConfig.client.connections.push(msg.connection);
+          changed = true;
+          break;
+        }
+      }
+
+      if (changed) {
+        configManager.saveConfig(currentConfig);
+        getLogger().info(`[WS] Config updated via ${msg.type}`);
+        broadcastClientsUpdate();
+        broadcastConnectionsUpdate();
+        if (app.locals.onConfigSaved) {
+          app.locals.onConfigSaved();
+        }
+      }
+    });
+  };
+
+  wss.on('connection', handleWsConnection);
+  wssHttp.on('connection', handleWsConnection);
 
   return app;
 }

@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col gap-4 sticky top-[60px] z-10 bg-white dark:bg-gray-900 pb-4 -mx-6 px-6 pt-4 -mt-4">
       <div class="flex justify-between items-center bt-section-status">
         <div class="flex items-center gap-3">
           <el-icon :size="24" style="color: var(--bt-primary)"><Monitor /></el-icon>
@@ -102,7 +102,7 @@
             </div>
 
             <!-- Metrics Section -->
-            <div class="flex items-center gap-4 mb-3 text-xs bg-gray-100/50 dark:bg-gray-800/30 p-2 rounded">
+            <div class="flex items-center gap-4 mb-3 text-xs p-2 rounded border" style="border-color: var(--bt-border); background: var(--bt-input-bg);">
               <div class="flex items-center gap-1 flex-1">
                 <el-icon :class="getLatencyColor(node._latency)"><Clock /></el-icon>
                 <span class="text-gray-500">延迟:</span>
@@ -191,8 +191,8 @@
             </el-form-item>
             <el-form-item label="协议类型">
               <el-radio-group v-model="manualForm.type">
-                <el-radio-button label="socks5">SOCKS5</el-radio-button>
-                <el-radio-button label="http">HTTP</el-radio-button>
+                <el-radio-button value="socks5">SOCKS5</el-radio-button>
+                <el-radio-button value="http">HTTP</el-radio-button>
               </el-radio-group>
             </el-form-item>
             <el-form-item label="服务器">

@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col gap-4 sticky top-[60px] z-10 bg-white dark:bg-gray-900 pb-4 -mx-6 px-6 pt-4 -mt-4">
       <div class="flex justify-between items-center bt-section-status">
         <div class="flex items-center gap-3">
           <el-icon :size="24" style="color: var(--bt-primary)"><Link /></el-icon>
@@ -8,11 +8,13 @@
         </div>
         <div class="flex flex-wrap items-center gap-3">
           <div class="flex items-center gap-2">
-            <span class="text-sm font-bold bt-text whitespace-nowrap">测速目标:</span>
-            <el-input v-model="testTarget" placeholder="host:port" class="w-48" size="small" />
+            <el-input v-model="testTargetLatency" placeholder="测延目标: host:port" class="w-48" size="small" />
+            <el-button type="warning" plain :icon="Connection" size="small" @click="testAllLatency" :loading="testingAllLatency">测速全部(延迟)</el-button>
           </div>
-          <el-button type="warning" plain :icon="Connection" size="small" @click="testAllLatency" :loading="testingAllLatency">测速全部(延迟)</el-button>
-          <el-button type="success" plain :icon="Odometer" size="small" @click="testAllSpeed" :loading="testingAllSpeed">测速全部(速度)</el-button>
+          <div class="flex items-center gap-2">
+            <el-input v-model="testTargetSpeed" placeholder="测速目标: host:port" class="w-48" size="small" />
+            <el-button type="success" plain :icon="Odometer" size="small" @click="testAllSpeed" :loading="testingAllSpeed">测速全部(速度)</el-button>
+          </div>
           <el-button type="primary" :icon="Plus" @click="addChain">创建新代理链</el-button>
         </div>
       </div>
@@ -48,7 +50,7 @@
         </div>
 
         <!-- Metrics Section -->
-        <div class="flex items-center gap-4 mb-3 text-xs bg-gray-100/50 dark:bg-gray-800/30 p-2 rounded">
+        <div class="flex items-center gap-4 mb-3 text-xs p-2 rounded border" style="border-color: var(--bt-border); background: var(--bt-input-bg);">
           <div class="flex items-center gap-1 flex-1">
             <el-icon :class="getLatencyColor(chain._latency)"><Clock /></el-icon>
             <span class="text-gray-500">延迟:</span>
@@ -179,7 +181,8 @@ const testingSpeedChain = ref(null);
 const testingAllLatency = ref(false);
 const testingAllSpeed = ref(false);
 const selectedNodeToAdd = ref('');
-const testTarget = ref('www.bing.com:443');
+const testTargetLatency = ref('www.bing.com:443');
+const testTargetSpeed = ref('speed.cloudflare.com:443');
 
 const getLatencyColor = (latency) => {
   if (!latency) return 'text-gray-400';
@@ -228,7 +231,7 @@ const addNodeToChain = (chain) => {
 const testChain = async (chainId, silent = false) => {
   testingChain.value = chainId;
   try {
-    const parts = testTarget.value.split(':');
+    const parts = testTargetLatency.value.split(':');
     const targetHost = parts[0] || 'www.bing.com';
     const targetPort = parseInt(parts[1]) || 443;
 
@@ -257,10 +260,13 @@ const testChain = async (chainId, silent = false) => {
 const testSpeedChain = async (chainId, silent = false) => {
   testingSpeedChain.value = chainId;
   try {
+    const parts = testTargetSpeed.value.split(':');
+    const targetHost = parts[0] || 'speed.cloudflare.com';
+    const targetPort = parseInt(parts[1]) || 443;
     const res = await fetch('/api/test-speed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'chain', id: chainId })
+      body: JSON.stringify({ type: 'chain', id: chainId, targetHost, targetPort })
     });
     const data = await res.json();
     const chain = props.config.proxyChains.find(c => c.id === chainId);
