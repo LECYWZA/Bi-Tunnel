@@ -158,16 +158,28 @@ class TunnelClientManager extends EventEmitter {
     const config = configManager.getConfig();
     const connections = config.client?.connections || [];
     
-    // Stop removed or disabled connections
+    // Stop removed, disabled, or configuration-changed connections
     for (const [id, client] of this.clients.entries()) {
       const conn = connections.find(c => c.id === id);
       if (!conn || !conn.enabled) {
+         getLogger().info(`[TLS] Stopping connection client: ${client.config.alias || id}`);
          client.stop();
          this.clients.delete(id);
+      } else {
+         // Check if configuration details changed
+         const hasChanged = client.config.tunnelHost !== conn.tunnelHost ||
+                            client.config.tunnelPort !== conn.tunnelPort ||
+                            client.config.clientId !== conn.clientId ||
+                            client.config.password !== conn.password;
+         if (hasChanged) {
+            getLogger().info(`[TLS] Connection config changed for ${conn.alias}, restarting connection...`);
+            client.stop();
+            this.clients.delete(id);
+         }
       }
     }
     
-    // Start new and enabled connections
+    // Start new or restarted enabled connections
     for (const conn of connections) {
       if (conn.enabled && !this.clients.has(conn.id)) {
         this.startConnection(conn);

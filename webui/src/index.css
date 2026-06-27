@@ -428,23 +428,128 @@ html.dark .el-table {
 .el-button {
   font-weight: 600;
 }
-html.dark .el-button--plain {
-  --el-button-bg-color: rgba(255, 255, 255, 0.05) !important;
-  --el-button-border-color: rgba(255, 255, 255, 0.1) !important;
-  --el-button-text-color: #f1f5f9 !important;
-  --el-button-hover-bg-color: rgba(255, 255, 255, 0.1) !important;
-  --el-button-hover-text-color: #ffffff !important;
+
+/* ---- Dark mode plain buttons ---- */
+html.dark .el-button--default.is-plain {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #e2e8f0 !important;
 }
-html:not(.dark) .el-button--plain {
-  --el-button-bg-color: #ffffff !important;
-  --el-button-text-color: #1e293b !important;
-  --el-button-hover-bg-color: #f8fafc !important;
+html.dark .el-button--default.is-plain:hover,
+html.dark .el-button--default.is-plain:focus {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
 }
-html:not(.dark) .el-button--primary.is-plain {
-  --el-button-text-color: #4f46e5 !important;
-}
+
 html.dark .el-button--primary.is-plain {
-  --el-button-text-color: #a5b4fc !important;
+  background-color: rgba(129, 140, 248, 0.12) !important;
+  border-color: rgba(129, 140, 248, 0.25) !important;
+  color: #a5b4fc !important;
+}
+html.dark .el-button--primary.is-plain:hover,
+html.dark .el-button--primary.is-plain:focus {
+  background-color: rgba(129, 140, 248, 0.2) !important;
+  color: #c7d2fe !important;
+}
+
+html.dark .el-button--success.is-plain {
+  background-color: rgba(74, 222, 128, 0.12) !important;
+  border-color: rgba(74, 222, 128, 0.25) !important;
+  color: #86efac !important;
+}
+html.dark .el-button--success.is-plain:hover,
+html.dark .el-button--success.is-plain:focus {
+  background-color: rgba(74, 222, 128, 0.2) !important;
+  color: #bbf7d0 !important;
+}
+
+html.dark .el-button--warning.is-plain {
+  background-color: rgba(251, 191, 36, 0.12) !important;
+  border-color: rgba(251, 191, 36, 0.25) !important;
+  color: #fcd34d !important;
+}
+html.dark .el-button--warning.is-plain:hover,
+html.dark .el-button--warning.is-plain:focus {
+  background-color: rgba(251, 191, 36, 0.2) !important;
+  color: #fde68a !important;
+}
+
+html.dark .el-button--danger.is-plain {
+  background-color: rgba(248, 113, 113, 0.12) !important;
+  border-color: rgba(248, 113, 113, 0.25) !important;
+  color: #fca5a5 !important;
+}
+html.dark .el-button--danger.is-plain:hover,
+html.dark .el-button--danger.is-plain:focus {
+  background-color: rgba(248, 113, 113, 0.2) !important;
+  color: #fecaca !important;
+}
+
+html.dark .el-button--info.is-plain {
+  background-color: rgba(148, 163, 184, 0.12) !important;
+  border-color: rgba(148, 163, 184, 0.25) !important;
+  color: #cbd5e1 !important;
+}
+html.dark .el-button--info.is-plain:hover,
+html.dark .el-button--info.is-plain:focus {
+  background-color: rgba(148, 163, 184, 0.2) !important;
+  color: #e2e8f0 !important;
+}
+
+/* ---- Light mode plain buttons ---- */
+html:not(.dark) .el-button--primary.is-plain {
+  background-color: rgba(99, 102, 241, 0.08) !important;
+  border-color: rgba(99, 102, 241, 0.25) !important;
+  color: #4338ca !important;
+}
+html:not(.dark) .el-button--primary.is-plain:hover,
+html:not(.dark) .el-button--primary.is-plain:focus {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+  color: #3730a3 !important;
+}
+
+html:not(.dark) .el-button--success.is-plain {
+  background-color: rgba(34, 197, 94, 0.08) !important;
+  border-color: rgba(34, 197, 94, 0.25) !important;
+  color: #15803d !important;
+}
+html:not(.dark) .el-button--success.is-plain:hover,
+html:not(.dark) .el-button--success.is-plain:focus {
+  background-color: rgba(34, 197, 94, 0.15) !important;
+  color: #166534 !important;
+}
+
+html:not(.dark) .el-button--warning.is-plain {
+  background-color: rgba(245, 158, 11, 0.08) !important;
+  border-color: rgba(245, 158, 11, 0.25) !important;
+  color: #a16207 !important;
+}
+html:not(.dark) .el-button--warning.is-plain:hover,
+html:not(.dark) .el-button--warning.is-plain:focus {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  color: #854d0e !important;
+}
+
+html:not(.dark) .el-button--danger.is-plain {
+  background-color: rgba(239, 68, 68, 0.08) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+  color: #b91c1c !important;
+}
+html:not(.dark) .el-button--danger.is-plain:hover,
+html:not(.dark) .el-button--danger.is-plain:focus {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  color: #991b1b !important;
+}
+
+html:not(.dark) .el-button--info.is-plain {
+  background-color: rgba(100, 116, 139, 0.08) !important;
+  border-color: rgba(100, 116, 139, 0.2) !important;
+  color: #475569 !important;
+}
+html:not(.dark) .el-button--info.is-plain:hover,
+html:not(.dark) .el-button--info.is-plain:focus {
+  background-color: rgba(100, 116, 139, 0.15) !important;
+  color: #334155 !important;
 }
 
 /* Global Messages Positioning */

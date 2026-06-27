@@ -141,7 +141,8 @@ const config = reactive({
     tunnelPort: 33891,
     password: 'admin',
     forwards: [],
-    proxies: []
+    proxies: [],
+    connections: []
   },
   webPort: 8899,
   logConfig: {
@@ -256,6 +257,7 @@ const fetchConfig = async () => {
     if (!config.server.proxies) config.server.proxies = [];
     if (!config.client.forwards) config.client.forwards = [];
     if (!config.client.proxies) config.client.proxies = [];
+    if (!config.client.connections) config.client.connections = [];
     if (!config.proxyChains) config.proxyChains = [];
     if (!config.proxyGroups) config.proxyGroups = [];
     
@@ -392,16 +394,27 @@ onMounted(() => {
 
 const connectWebSocket = () => {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  console.log(`Connecting WebSocket to: ${protocol}//${location.host}`);
   ws = new WebSocket(`${protocol}//${location.host}`);
+  ws.onopen = () => {
+    console.log("WebSocket connected successfully!");
+  };
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
+      console.log("WebSocket received message:", msg);
       if (msg.type === 'clients_update' && config.server) {
         config.server.knownClients = msg.data;
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("WS message parse error:", e);
+    }
+  };
+  ws.onerror = (err) => {
+    console.error("WebSocket error:", err);
   };
   ws.onclose = () => {
+    console.log("WebSocket closed, retrying in 5 seconds...");
     setTimeout(() => {
       if (isLoggedIn.value) connectWebSocket();
     }, 5000);

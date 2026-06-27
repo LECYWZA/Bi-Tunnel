@@ -36,48 +36,56 @@ function init() {
     })) : []
   }));
 
+  // Bind tunnelServer events once globally
+  tunnelServer.on('session', (session, clientId) => {
+    getLogger().info(`=== Server Tunnel Session Established [${clientId}] ===`);
+    serverForwarder.setSession(session, clientId);
+    serverProxy.setSession(session, clientId);
+    
+    if (webApp.locals.wss) {
+      const clients = JSON.parse(JSON.stringify(configManager.getConfig().server?.knownClients || []));
+      clients.forEach(c => {
+        c.online = tunnelServer.sessions ? tunnelServer.sessions.has(c.id) : false;
+      });
+      webApp.locals.wss.clients.forEach(c => { if (c.readyState === 1) c.send(JSON.stringify({ type: 'clients_update', data: clients })); });
+    }
+  });
+
+  tunnelServer.on('session_closed', (clientId) => {
+    getLogger().info(`=== Server Tunnel Session Closed [${clientId}] ===`);
+    serverForwarder.removeSession(clientId);
+    serverProxy.removeSession(clientId);
+    
+    if (webApp.locals.wss) {
+      const clients = JSON.parse(JSON.stringify(configManager.getConfig().server?.knownClients || []));
+      clients.forEach(c => {
+        c.online = tunnelServer.sessions ? tunnelServer.sessions.has(c.id) : false;
+      });
+      webApp.locals.wss.clients.forEach(c => { if (c.readyState === 1) c.send(JSON.stringify({ type: 'clients_update', data: clients })); });
+    }
+  });
+
+  // Bind tunnelClient events once globally
+  tunnelClient.on('session', (session, connId) => {
+    getLogger().info(`=== Client Tunnel Session Established [${connId}] ===`);
+    clientForwarder.setSession(session, connId);
+    clientProxy.setSession(session, connId);
+  });
+
+  tunnelClient.on('session_closed', (connId) => {
+    getLogger().info(`=== Client Tunnel Session Closed [${connId}] ===`);
+    clientForwarder.removeSession(connId);
+    clientProxy.removeSession(connId);
+  });
+
   const startTunnel = async (mode) => {
     try {
       if (mode === 'server') {
         if (tunnelServer.server) return; // already running
         await tunnelServer.start();
-        
-          tunnelServer.on('session', (session, clientId) => {
-          getLogger().info(`=== Server Tunnel Session Established [${clientId}] ===`);
-          serverForwarder.setSession(session, clientId);
-          serverProxy.setSession(session, clientId);
-          
-          if (webApp.locals.wss) {
-            const clients = configManager.getConfig().server?.knownClients || [];
-            webApp.locals.wss.clients.forEach(c => c.send(JSON.stringify({ type: 'clients_update', data: clients })));
-          }
-        });
-
-        tunnelServer.on('session_closed', (clientId) => {
-          getLogger().info(`=== Server Tunnel Session Closed [${clientId}] ===`);
-          serverForwarder.removeSession(clientId);
-          serverProxy.removeSession(clientId);
-          
-          if (webApp.locals.wss) {
-            const clients = configManager.getConfig().server?.knownClients || [];
-            webApp.locals.wss.clients.forEach(c => c.send(JSON.stringify({ type: 'clients_update', data: clients })));
-          }
-        });
       } else if (mode === 'client') {
         if (tunnelClient.shouldRetry) return; // already running
         tunnelClient.start();
-        
-        tunnelClient.on('session', (session, connId) => {
-          getLogger().info(`=== Client Tunnel Session Established [${connId}] ===`);
-          clientForwarder.setSession(session, connId);
-          clientProxy.setSession(session, connId);
-        });
-
-        tunnelClient.on('session_closed', (connId) => {
-          getLogger().info(`=== Client Tunnel Session Closed [${connId}] ===`);
-          clientForwarder.removeSession(connId);
-          clientProxy.removeSession(connId);
-        });
       }
     } catch (e) {
       stopTunnel(mode);
@@ -89,14 +97,21 @@ function init() {
     const { stopXray } = require('./core/xrayManager');
     if (mode === 'server') {
       if (tunnelServer.stop) tunnelServer.stop();
-      tunnelServer.removeAllListeners('session');
-      tunnelServer.removeAllListeners('session_closed');
       serverForwarder.clearSessions();
       serverProxy.clearSessions();
+      
+      // Immediately notify the UI that all clients are offline now
+      if (webApp.locals.wss) {
+        const clients = JSON.parse(JSON.stringify(configManager.getConfig().server?.knownClients || []));
+        clients.forEach(c => { c.online = false; });
+        webApp.locals.wss.clients.forEach(c => {
+          if (c.readyState === 1) {
+            c.send(JSON.stringify({ type: 'clients_update', data: clients }));
+          }
+        });
+      }
     } else if (mode === 'client') {
       if (tunnelClient.stop) tunnelClient.stop();
-      tunnelClient.removeAllListeners('session');
-      tunnelClient.removeAllListeners('session_closed');
       clientForwarder.clearSessions();
       clientProxy.clearSessions();
     }
@@ -125,14 +140,14 @@ function init() {
       stopTunnel('server');
       startTunnel('server');
     }
-    serverForwarder.applyConfig();
-    serverProxy.applyConfig();
+    serverForwarder.applyConfig().catch(err => getLogger().error('[Forward-server] applyConfig error: ' + JSON.stringify(err)));
+    serverProxy.applyConfig().catch(err => getLogger().error('[Proxy-server] applyConfig error: ' + JSON.stringify(err)));
 
     if (tunnelClient.shouldRetry && typeof tunnelClient.applyConfig === 'function') {
       tunnelClient.applyConfig();
     }
-    clientForwarder.applyConfig();
-    clientProxy.applyConfig();
+    clientForwarder.applyConfig().catch(err => getLogger().error('[Forward-client] applyConfig error: ' + JSON.stringify(err)));
+    clientProxy.applyConfig().catch(err => getLogger().error('[Proxy-client] applyConfig error: ' + JSON.stringify(err)));
     
     lastConfigStr = newConfigStr;
   };
@@ -152,10 +167,10 @@ function init() {
   });
 
   // Always apply port forwards and proxies regardless of tunnel status
-  serverForwarder.applyConfig();
-  serverProxy.applyConfig();
-  clientForwarder.applyConfig();
-  clientProxy.applyConfig();
+  serverForwarder.applyConfig().catch(err => getLogger().error('[Forward-server] applyConfig error: ' + JSON.stringify(err)));
+  serverProxy.applyConfig().catch(err => getLogger().error('[Proxy-server] applyConfig error: ' + JSON.stringify(err)));
+  clientForwarder.applyConfig().catch(err => getLogger().error('[Forward-client] applyConfig error: ' + JSON.stringify(err)));
+  clientProxy.applyConfig().catch(err => getLogger().error('[Proxy-client] applyConfig error: ' + JSON.stringify(err)));
 }
 
 // Global unhandled rejections to prevent crash

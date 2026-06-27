@@ -70,10 +70,37 @@ function createWebServer(statusCallback) {
   });
 
   app.get('/api/config', (req, res) => {
-    res.json(configManager.getConfig());
+    const config = configManager.getConfig();
+    const tunnelServer = require('../core/tunnelServer');
+    if (config.server && config.server.knownClients) {
+      config.server.knownClients.forEach(c => {
+        c.online = tunnelServer.sessions ? tunnelServer.sessions.has(c.id) : false;
+      });
+    }
+    res.json(config);
   });
 
   app.post('/api/config', (req, res) => {
+    const tunnelServer = require('../core/tunnelServer');
+    const currentConfig = configManager.getConfig();
+    
+    if (req.body.server && req.body.server.knownClients) {
+      req.body.server.knownClients.forEach(incoming => {
+        // Calculate live online status
+        incoming.online = tunnelServer.sessions ? tunnelServer.sessions.has(incoming.id) : false;
+        
+        // Merge and preserve server-managed runtime statistics
+        if (currentConfig.server && currentConfig.server.knownClients) {
+          const live = currentConfig.server.knownClients.find(c => c.id === incoming.id);
+          if (live) {
+            incoming.firstSeen = live.firstSeen;
+            incoming.lastConnected = live.lastConnected;
+            incoming.totalDuration = live.totalDuration;
+          }
+        }
+      });
+    }
+    
     configManager.saveConfig(req.body);
     getLogger().info('Configuration updated via Web API');
     if (app.locals.onConfigSaved) {
@@ -534,9 +561,14 @@ function createWebServer(statusCallback) {
   app.locals.wss = wss;
 
   wss.on('connection', (ws) => {
+    const tunnelServer = require('../core/tunnelServer');
+    const clients = JSON.parse(JSON.stringify(configManager.getConfig().server?.knownClients || []));
+    clients.forEach(c => {
+      c.online = tunnelServer.sessions ? tunnelServer.sessions.has(c.id) : false;
+    });
     ws.send(JSON.stringify({
       type: 'clients_update',
-      data: configManager.getConfig().server?.knownClients || []
+      data: clients
     }));
   });
 

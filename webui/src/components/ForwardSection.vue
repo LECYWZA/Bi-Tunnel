@@ -1,20 +1,20 @@
 <template>
   <div class="space-y-6">
-    <div v-if="mode === 'server'" class="flex justify-between items-center bt-section-status">
+    <div v-if="mode === 'server'" class="flex justify-between items-center bt-section-status h-[56px]">
       <div class="flex items-center gap-3">
         <el-tag :type="isRunning ? 'success' : 'info'" effect="dark" round size="large">
           {{ title }}: {{ isRunning ? '运行中' : '已停止' }}
         </el-tag>
       </div>
-      <el-button v-if="!isRunning" type="primary" :icon="VideoPlay" @click="$emit('start')" shadow>
+      <el-button v-if="!isRunning" type="primary" :icon="VideoPlay" @click="$emit('start')" shadow size="small">
         启动{{ title }}
       </el-button>
-      <el-button v-else type="danger" :icon="VideoPause" @click="$emit('stop')" shadow>
+      <el-button v-else type="danger" :icon="VideoPause" @click="$emit('stop')" shadow size="small">
         停止{{ title }}
       </el-button>
     </div>
-    <el-card v-if="mode === 'server'" shadow="hover" class="bt-card mb-2">
-      <div class="flex items-center gap-3">
+    <el-card v-if="mode === 'server'" shadow="hover" class="bt-card mb-6 h-[92px]" body-class="h-full flex items-center">
+      <div class="flex items-center gap-3 w-full">
         <el-icon :size="22" style="color: var(--bt-primary)"><Guide /></el-icon>
         <div>
           <div class="font-bold text-sm bt-text">服务端模式说明</div>
@@ -94,13 +94,13 @@
 
     <!-- CLIENT MODE: HEADER BANNER -->
     <template v-else>
-      <div class="bt-section-status flex items-center gap-3 mb-2">
+      <div class="bt-section-status flex items-center gap-3 h-[56px]">
         <el-tag type="primary" effect="dark" round size="large">
           {{ title }}
         </el-tag>
       </div>
-      <el-card shadow="hover" class="bt-card mb-6">
-        <div class="flex items-center gap-3">
+      <el-card shadow="hover" class="bt-card mb-6 h-[92px]" body-class="h-full flex items-center">
+        <div class="flex items-center gap-3 w-full">
           <el-icon :size="22" style="color: var(--bt-primary)"><Guide /></el-icon>
           <div>
             <div class="font-bold text-sm bt-text">客户端模式说明</div>
@@ -114,7 +114,7 @@
     </template>
 
     <!-- PORT FORWARDING RULES (Above client list / connections) -->
-    <el-card shadow="hover" class="mb-6">
+    <el-card shadow="hover" class="bt-card mb-6">
       <template #header>
         <div class="flex justify-between items-center">
           <div class="flex items-center gap-2">
@@ -244,31 +244,31 @@
           <div v-for="(conn, index) in sectionConfig.connections" :key="conn.id" class="p-4 rounded-lg border" style="border-color: var(--bt-border); background: var(--bt-surface)">
             <div class="flex justify-between items-center mb-4">
               <div class="flex items-center gap-3">
-                <el-input v-model="conn.alias" placeholder="连接别名" size="small" class="w-32 font-bold" />
+                <el-input v-model="conn.alias" placeholder="连接别名" size="small" class="w-32 font-bold" @change="$emit('save')" />
                 <el-switch v-model="conn.enabled" inline-prompt active-text="已启用" inactive-text="已停用" @change="$emit('save')" />
                 <el-tag v-if="conn.enabled" :type="getConnectionStatus(conn.id).type" size="small" effect="plain" round>
                   {{ getConnectionStatus(conn.id).text }}
                 </el-tag>
               </div>
-              <el-button type="danger" circle plain :icon="Delete" size="small" @click="sectionConfig.connections.splice(index, 1)" />
+              <el-button type="danger" circle plain :icon="Delete" size="small" @click="deleteClientConnection(index)" />
             </div>
             
             <el-row :gutter="16">
               <el-col :span="12" class="mb-3">
                 <div class="text-xs text-gray-500 mb-1">服务端 IP</div>
-                <el-input v-model="conn.tunnelHost" placeholder="127.0.0.1" size="small" />
+                <el-input v-model="conn.tunnelHost" placeholder="127.0.0.1" size="small" @change="$emit('save')" />
               </el-col>
               <el-col :span="12" class="mb-3">
                 <div class="text-xs text-gray-500 mb-1">隧道端口</div>
-                <el-input-number v-model="conn.tunnelPort" :min="1" :max="65535" size="small" class="w-full" :controls="false" />
+                <el-input-number v-model="conn.tunnelPort" :min="1" :max="65535" size="small" class="w-full" :controls="false" @change="$emit('save')" />
               </el-col>
               <el-col :span="12" class="mb-3">
                 <div class="text-xs text-gray-500 mb-1">客户端 ID</div>
-                <el-input v-model="conn.clientId" placeholder="唯一标识此设备" size="small" />
+                <el-input v-model="conn.clientId" placeholder="唯一标识此设备" size="small" @change="$emit('save')" />
               </el-col>
               <el-col :span="12" class="mb-3">
                 <div class="text-xs text-gray-500 mb-1">连接密码</div>
-                <el-input v-model="conn.password" show-password size="small" placeholder="认证密码" />
+                <el-input v-model="conn.password" show-password size="small" placeholder="认证密码" @change="$emit('save')" />
               </el-col>
             </el-row>
           </div>
@@ -347,24 +347,32 @@ const addClientConnection = () => {
   if (!sectionConfig.value.connections) sectionConfig.value.connections = [];
   sectionConfig.value.connections.push({
     id: Math.random().toString(36).substr(2, 9),
-    alias: '新服务端',
+    alias: '',
     tunnelHost: '127.0.0.1',
     tunnelPort: 33891,
-    clientId: 'client-1',
+    clientId: '',
     password: 'admin',
-    enabled: true
+    enabled: false
   });
+  emit('save');
+};
+
+const deleteClientConnection = (index) => {
+  sectionConfig.value.connections.splice(index, 1);
+  emit('save');
 };
 
 const clearOfflineClients = () => {
   if (sectionConfig.value.knownClients) {
     sectionConfig.value.knownClients = sectionConfig.value.knownClients.filter(c => c.online);
+    emit('save');
   }
 };
 
 const deleteClient = (index) => {
   if (sectionConfig.value.knownClients) {
     sectionConfig.value.knownClients.splice(index, 1);
+    emit('save');
   }
 };
 

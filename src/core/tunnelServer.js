@@ -32,23 +32,26 @@ class TunnelServer extends EventEmitter {
         const password = typeof authData === 'object' ? authData.password : authData;
         const clientId = typeof authData === 'object' ? authData.clientId : 'legacy-client';
 
-        if (password === serverConfig.password) {
+        const currentConfig = configManager.getConfig();
+        const currentServerConfig = currentConfig.server || {};
+
+        if (password === currentServerConfig.password) {
           // If a session with this ID already exists, close it
           if (this.sessions.has(clientId)) {
             getLogger().info(`[TLS] Session for ${clientId} already exists, closing old one`);
             this.sessions.get(clientId).close();
           }
 
-          if (!serverConfig.knownClients) serverConfig.knownClients = [];
-          let clientEntry = serverConfig.knownClients.find(c => c.id === clientId);
+          if (!currentServerConfig.knownClients) currentServerConfig.knownClients = [];
+          let clientEntry = currentServerConfig.knownClients.find(c => c.id === clientId);
           if (!clientEntry) {
             clientEntry = { id: clientId, firstSeen: Date.now() };
-            serverConfig.knownClients.push(clientEntry);
+            currentServerConfig.knownClients.push(clientEntry);
           }
           clientEntry.lastConnected = Date.now();
           clientEntry.online = true;
           this.clientStats.set(clientId, { connectTime: Date.now() });
-          configManager.saveConfig(config);
+          configManager.saveConfig(currentConfig);
 
           session.sendAuthRes(true);
           getLogger().info(`[TLS] Client '${clientId}' authenticated successfully`);
@@ -65,9 +68,9 @@ class TunnelServer extends EventEmitter {
       session.on('close', () => {
         getLogger().info(`[TLS] Client ${sessionClientId || socket.remoteAddress} disconnected`);
         if (sessionClientId && this.sessions.get(sessionClientId) === session) {
-          const config = configManager.getConfig();
-          if (config.server && config.server.knownClients) {
-            const clientEntry = config.server.knownClients.find(c => c.id === sessionClientId);
+          const currentConfig = configManager.getConfig();
+          if (currentConfig.server && currentConfig.server.knownClients) {
+            const clientEntry = currentConfig.server.knownClients.find(c => c.id === sessionClientId);
             if (clientEntry) {
               clientEntry.online = false;
               if (this.clientStats.has(sessionClientId)) {
@@ -75,7 +78,7 @@ class TunnelServer extends EventEmitter {
                 clientEntry.totalDuration = (clientEntry.totalDuration || 0) + (Date.now() - stats.connectTime);
                 this.clientStats.delete(sessionClientId);
               }
-              configManager.saveConfig(config);
+              configManager.saveConfig(currentConfig);
             }
           }
           this.sessions.delete(sessionClientId);
@@ -115,6 +118,28 @@ class TunnelServer extends EventEmitter {
       this.server.close();
       this.server = null;
     }
+    
+    // Mark all active sessions as offline
+    const config = configManager.getConfig();
+    let configChanged = false;
+    if (config.server && config.server.knownClients) {
+      for (const clientId of this.sessions.keys()) {
+        const clientEntry = config.server.knownClients.find(c => c.id === clientId);
+        if (clientEntry && clientEntry.online) {
+          clientEntry.online = false;
+          configChanged = true;
+          if (this.clientStats.has(clientId)) {
+            const stats = this.clientStats.get(clientId);
+            clientEntry.totalDuration = (clientEntry.totalDuration || 0) + (Date.now() - stats.connectTime);
+            this.clientStats.delete(clientId);
+          }
+        }
+      }
+    }
+    if (configChanged) {
+      configManager.saveConfig(config);
+    }
+
     for (const session of this.sessions.values()) {
       session.close();
     }

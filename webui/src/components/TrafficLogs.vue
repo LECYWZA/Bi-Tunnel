@@ -1,6 +1,6 @@
 <template>
   <div class="traffic-logs-container">
-    <el-card shadow="hover">
+    <el-card shadow="hover" class="bt-card">
       <template #header>
         <div class="flex flex-col gap-3">
           <div class="flex justify-between items-center">

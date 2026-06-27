@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="space-y-6">
-    <el-card shadow="hover">
+    <el-card shadow="hover" class="bt-card">
       <template #header>
         <div class="flex justify-between items-center">
           <div class="flex items-center gap-2">
