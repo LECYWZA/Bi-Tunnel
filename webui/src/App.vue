@@ -29,7 +29,7 @@
 
         <!-- Select Active Proxy -->
         <el-select
-          v-model="config.activeProxyPort"
+          v-model="config.activeProxyId"
           :placeholder="t('header.activeProxy')"
           size="default"
           style="width: 200px; margin-left: 10px;"
@@ -38,9 +38,9 @@
         >
           <el-option
             v-for="item in allProxies"
-            :key="`${item.type}-${item.port}`"
+            :key="item.id"
             :label="item.label"
-            :value="item.port"
+            :value="item.id"
           />
         </el-select>
 
@@ -48,7 +48,7 @@
         <div class="flex flex-col items-start justify-center leading-none" style="margin-left: 5px; height: 38px;">
           <el-switch
             v-model="config.globalProxyEnabled"
-            :disabled="!config.activeProxyPort"
+            :disabled="!config.activeProxyId"
             inline-prompt
             :active-text="t('header.systemProxy')"
             :inactive-text="t('header.systemProxy')"
@@ -66,7 +66,7 @@
           <div class="flex items-center gap-1">
             <el-switch
               v-model="config.tunModeEnabled"
-              :disabled="!config.activeProxyPort"
+              :disabled="!config.activeProxyId"
               inline-prompt
               :active-text="t('header.tunMode')"
               :inactive-text="t('header.tunMode')"
@@ -292,6 +292,7 @@ const allProxies = computed(() => {
   if (config.server && Array.isArray(config.server.proxies)) {
     config.server.proxies.forEach(p => {
       list.push({
+        id: p.id,
         port: p.listenPort,
         label: `${p.name || '未命名'} (端口: ${p.listenPort})`,
         type: 'server'
@@ -301,6 +302,7 @@ const allProxies = computed(() => {
   if (config.client && Array.isArray(config.client.proxies)) {
     config.client.proxies.forEach(p => {
       list.push({
+        id: p.id,
         port: p.listenPort,
         label: `${p.name || '未命名'} (端口: ${p.listenPort})`,
         type: 'client'
@@ -310,12 +312,21 @@ const allProxies = computed(() => {
   return list;
 });
 
+// 根据代理 ID 查找其监听端口
+const getPortByProxyId = (id) => {
+  if (!id) return '';
+  const found = allProxies.value.find(p => p.id === id);
+  return found ? found.port : '';
+};
+
 const tunStatus = computed(() => status.tun || { running: false, pid: null, port: 0, error: null });
 
 const systemProxyLoading = ref(false);
 const tunLoading = ref(false);
 
 const handleActiveProxyChange = (val) => {
+  // 同步 activeProxyPort（部分后端 API 仍依赖端口）
+  config.activeProxyPort = getPortByProxyId(val);
   if (config.globalProxyEnabled) {
     handleGlobalProxyToggle(true);
   }
@@ -326,24 +337,19 @@ const handleActiveProxyChange = (val) => {
 };
 
 const ensureActiveProxyEnabled = () => {
-  if (!config.activeProxyPort) return;
+  if (!config.activeProxyId) return;
   let found = false;
-  if (config.server && Array.isArray(config.server.proxies)) {
-    config.server.proxies.forEach(p => {
-      if (p.listenPort === config.activeProxyPort && !p.enabled) {
+  const ensure = (arr) => {
+    if (!Array.isArray(arr)) return;
+    arr.forEach(p => {
+      if (p.id === config.activeProxyId && !p.enabled) {
         p.enabled = true;
         found = true;
       }
     });
-  }
-  if (config.client && Array.isArray(config.client.proxies)) {
-    config.client.proxies.forEach(p => {
-      if (p.listenPort === config.activeProxyPort && !p.enabled) {
-        p.enabled = true;
-        found = true;
-      }
-    });
-  }
+  };
+  ensure(config.server && config.server.proxies);
+  ensure(config.client && config.client.proxies);
   if (found) {
     saveConfig(true);
   }
@@ -517,6 +523,8 @@ const fetchConfig = async () => {
           }
           if (!r.id) r.id = Math.random().toString(36).substr(2, 9);
         });
+        // 为旧数据补全唯一代理 ID
+        if (!p.id) p.id = `proxy_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
         p._allowIps = (p.allowIps || []).join('\n');
         p._denyIps = (p.denyIps || []).join('\n');
         p._targetAllowIps = (p.targetAllowIps || []).join('\n');
@@ -534,22 +542,30 @@ const fetchConfig = async () => {
           }
           if (!r.id) r.id = Math.random().toString(36).substr(2, 9);
         });
+        // 为旧数据补全唯一代理 ID
+        if (!p.id) p.id = `proxy_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
         p._allowIps = (p.allowIps || []).join('\n');
         p._denyIps = (p.denyIps || []).join('\n');
         p._targetAllowIps = (p.targetAllowIps || []).join('\n');
         p._targetDenyIps = (p.targetDenyIps || []).join('\n');
       });
     }
-    
+
     Object.assign(config, data);
-    
-    if (config.activeProxyPort === undefined || config.activeProxyPort === '') {
-      if (allProxies.value.length > 0) {
-        config.activeProxyPort = allProxies.value[0].port;
+
+    // 迁移：以 activeProxyId 为唯一标识，兼容旧的 activeProxyPort
+    if (!config.activeProxyId) {
+      if (config.activeProxyPort) {
+        const matched = allProxies.value.find(p => p.port === config.activeProxyPort);
+        config.activeProxyId = matched ? matched.id : (allProxies.value[0]?.id || '');
+      } else if (allProxies.value.length > 0) {
+        config.activeProxyId = allProxies.value[0].id;
       } else {
-        config.activeProxyPort = '';
+        config.activeProxyId = '';
       }
     }
+    // 保持 activeProxyPort 与 activeProxyId 同步（后端部分 API 仍依赖端口）
+    config.activeProxyPort = getPortByProxyId(config.activeProxyId);
     
     if (!config.server) config.server = {};
     if (!config.client) config.client = {};

@@ -221,6 +221,26 @@ function createWebServer(statusCallback) {
     });
   });
 
+  // 检查端口是否可绑定（用于启用代理前的实时校验）
+  app.get('/api/check-port/:port', (req, res) => {
+    const port = parseInt(req.params.port);
+    if (!port) return res.status(400).json({ success: false, message: 'Port is required' });
+    const tester = net.createServer();
+    tester.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        res.json({ success: true, available: false, message: `端口 ${port} 已被占用` });
+      } else {
+        res.json({ success: true, available: false, message: `端口 ${port} 检查失败: ${err.message}` });
+      }
+    });
+    tester.once('listening', () => {
+      tester.close(() => {
+        res.json({ success: true, available: true, message: `端口 ${port} 可用` });
+      });
+    });
+    tester.listen(port, '0.0.0.0');
+  });
+
   app.get('/api/xray-status', (req, res) => {
     const xrayManager = require('../core/xrayManager');
     res.json(xrayManager.getStatus());
@@ -376,21 +396,45 @@ function createWebServer(statusCallback) {
     }
 
     const startTime = Date.now();
-    const targetHost = req.body.targetHost || 'www.bing.com';
+    // 使用 Google DNS 作为目标：纯 IP 无 DNS 解析干扰，国外节点延迟更真实
+    const targetHost = req.body.targetHost || '8.8.8.8';
     const targetPort = parseInt(req.body.targetPort) || 443;
-    
+
     ProxyDialer.dialChain(nodesToDial, targetHost, targetPort, false, null, (err, socket) => {
       if (err) {
         return res.json({ success: false, message: err.message, latency: 0 });
       }
 
-      // If we reach here, the proxy successfully established a TCP connection to the target.
-      // We don't need to actually perform a TLS handshake or send HTTP data.
-      // The fact that the SOCKS5/HTTP CONNECT succeeded proves the proxy works.
-      const latency = Date.now() - startTime;
-      socket.destroy();
-      
-      res.json({ success: true, message: 'OK', latency });
+      // dialChain 完成 = 代理已建立到目标的 TCP 连接。
+      // 为避免 v2ray 本地握手过快导致 1ms 这种异常值，
+      // 额外做一次 TLS 握手确认目标可达，让延迟更真实。
+      const tls = require('tls');
+      const tlsSocket = tls.connect({
+        socket: socket,
+        servername: targetHost,
+        rejectUnauthorized: false
+      });
+
+      let responded = false;
+      const finish = (ok, errMsg) => {
+        if (responded) return;
+        responded = true;
+        clearTimeout(timeoutHandle);
+        tlsSocket.destroy();
+        socket.destroy();
+        const latency = Date.now() - startTime;
+        if (ok) {
+          res.json({ success: true, message: 'OK', latency });
+        } else {
+          res.json({ success: false, message: errMsg || 'TLS 握手失败', latency });
+        }
+      };
+
+      const timeoutHandle = setTimeout(() => finish(false, '延迟测试超时'), 10000);
+      tlsSocket.on('secureConnect', () => finish(true));
+      tlsSocket.on('error', (e) => finish(false, `TLS 错误: ${e.message}`));
+      socket.on('error', (e) => finish(false, `连接错误: ${e.message}`));
+      socket.on('close', () => finish(false, '连接已关闭'));
     });
   });
 
@@ -756,18 +800,62 @@ function createWebServer(statusCallback) {
     }
     
     const start = Date.now();
+    // 使用 Cloudflare 速度测试文件（固定路径，支持 HTTP range，CDN 全球分布）
     const tHost = targetHost || 'speed.cloudflare.com';
     const tPort = targetPort || 443;
-    
+    // 下载 5MB 数据用于测速（平衡准确性和响应时间）
+    const DOWNLOAD_BYTES = 5 * 1024 * 1024;
+    const SPEED_TEST_TIMEOUT_MS = 15000;
+
     ProxyDialer.dialChain(nodesToDial, tHost, tPort, false, null, (err, socket) => {
       if (err) {
         return res.json({ success: false, message: err.message });
       }
-      const latency = Date.now() - start;
-      socket.destroy();
-      let speedMBs = (Math.max(10, 1000 - latency) / 100).toFixed(2);
-      if (latency > 2000) speedMBs = (Math.random() * 0.5).toFixed(2);
-      res.json({ success: true, speed: speedMBs });
+
+      // 通过代理 socket 发送 HTTPS 请求下载文件
+      const tls = require('tls');
+      const tlsSocket = tls.connect({
+        socket: socket,
+        servername: tHost,
+        rejectUnauthorized: false
+      });
+
+      let totalBytes = 0;
+      let responded = false;
+      const finish = (errMsg) => {
+        if (responded) return;
+        responded = true;
+        clearTimeout(timeoutHandle);
+        tlsSocket.destroy();
+        socket.destroy();
+        const elapsedMs = Date.now() - start;
+        if (errMsg) {
+          res.json({ success: false, message: errMsg, latency: elapsedMs });
+        } else {
+          // 真实速度 = 下载字节数 / 实际下载耗时
+          const downloadSeconds = elapsedMs / 1000;
+          const speedMBs = downloadSeconds > 0 ? (totalBytes / 1024 / 1024 / downloadSeconds).toFixed(2) : '0';
+          res.json({ success: true, speed: speedMBs, bytes: totalBytes, latency: elapsedMs });
+        }
+      };
+
+      const timeoutHandle = setTimeout(() => finish('测速超时'), SPEED_TEST_TIMEOUT_MS);
+
+      tlsSocket.on('secureConnect', () => {
+        // 发送 HTTP GET 请求下载固定大小文件
+        const reqPath = `/__down?bytes=${DOWNLOAD_BYTES}`;
+        const req = `GET ${reqPath} HTTP/1.1\r\nHost: ${tHost}\r\nConnection: close\r\n\r\n`;
+        tlsSocket.write(req);
+      });
+
+      tlsSocket.on('data', (chunk) => {
+        totalBytes += chunk.length;
+      });
+
+      tlsSocket.on('error', (e) => finish(`TLS 错误: ${e.message}`));
+      tlsSocket.on('close', () => finish());
+      socket.on('error', (e) => finish(`连接错误: ${e.message}`));
+      socket.on('close', () => finish());
     });
   });
 

@@ -561,7 +561,16 @@ class ProxyServer {
 
     const getModuleName = (listenPort) => {
       const config = configManager.getConfig();
-      if (listenPort === config.activeProxyPort) {
+      // 以代理唯一 ID 作为区分依据，兼容旧的 activeProxyPort
+      let isActive = false;
+      if (config.activeProxyId) {
+        const modeProxies = (this.mode === 'server' ? config.server?.proxies : config.client?.proxies) || [];
+        const proxy = modeProxies.find(p => p.listenPort === listenPort);
+        isActive = proxy ? (proxy.id === config.activeProxyId) : (listenPort === config.activeProxyPort);
+      } else {
+        isActive = listenPort === config.activeProxyPort;
+      }
+      if (isActive) {
         if (config.tunModeEnabled) {
           return `虚拟网卡代理 (${this.mode === 'server' ? '服务端' : '客户端'})`;
         }

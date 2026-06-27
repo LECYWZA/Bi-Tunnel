@@ -9,11 +9,11 @@
         <div class="flex flex-wrap items-center gap-3">
           <div class="flex items-center gap-2">
             <el-input v-model="testTargetLatency" placeholder="测延目标: host:port" class="w-48" size="small" />
-            <el-button type="warning" plain :icon="Connection" size="small" @click="testAllLatency" :loading="testingAllLatency">测速全部(延迟)</el-button>
+            <el-button type="warning" plain :icon="Connection" size="small" @click="testAllLatency">{{ testingAllLatency ? '取消' : '测速全部(延迟)' }}</el-button>
           </div>
           <div class="flex items-center gap-2">
             <el-input v-model="testTargetSpeed" placeholder="测速目标: host:port" class="w-48" size="small" />
-            <el-button type="success" plain :icon="Odometer" size="small" @click="testAllSpeed" :loading="testingAllSpeed">测速全部(速度)</el-button>
+            <el-button type="success" plain :icon="Odometer" size="small" @click="testAllSpeed">{{ testingAllSpeed ? '取消' : '测速全部(速度)' }}</el-button>
           </div>
           <el-button type="primary" plain :icon="Plus" @click="createGroup" size="small">新建分组</el-button>
           <el-button type="danger" plain :icon="Delete" size="small" @click="openCleanDialog">清理失效节点</el-button>
@@ -119,25 +119,23 @@
             <div class="flex justify-between items-center pt-2 border-t" style="border-color: var(--bt-border);">
               <div class="text-xs text-gray-400 font-mono">ID: {{ node.id.split('_')[1] }}</div>
               <div class="flex gap-2">
-                <el-button 
-                  type="primary" 
+                <el-button
+                  type="primary"
                   link
-                  size="small" 
-                  :icon="Connection" 
-                  :loading="testingNode === node.id"
+                  size="small"
+                  :icon="Connection"
                   @click="testLatency(node.id)"
                 >
-                  测延迟
+                  {{ testingNode === node.id ? '取消' : '测延迟' }}
                 </el-button>
-                <el-button 
-                  type="success" 
+                <el-button
+                  type="success"
                   link
-                  size="small" 
-                  :icon="Odometer" 
-                  :loading="testingSpeedNode === node.id"
+                  size="small"
+                  :icon="Odometer"
                   @click="testSpeed(node.id)"
                 >
-                  测速度
+                  {{ testingSpeedNode === node.id ? '取消' : '测速度' }}
                 </el-button>
               </div>
             </div>
@@ -650,8 +648,22 @@ const deleteNode = (nodeId) => {
   }
 };
 
+// 用于支持"再次点击取消"的 AbortController 映射
+const abortControllers = ref({}); // key: `${type}:${nodeId}` 或 `${type}:all`
+
 const testLatency = async (nodeId, silent = false) => {
+  // 如果正在测试中，则取消
+  const key = `latency:${nodeId}`;
+  if (testingNode.value === nodeId) {
+    const ac = abortControllers.value[key];
+    if (ac) { ac.abort(); delete abortControllers.value[key]; }
+    testingNode.value = null;
+    if (!silent) ElMessage.info('已取消延迟测试');
+    return;
+  }
   testingNode.value = nodeId;
+  const controller = new AbortController();
+  abortControllers.value[key] = controller;
   try {
     const parts = testTargetLatency.value.split(':');
     const targetHost = parts[0] || 'www.bing.com';
@@ -660,7 +672,8 @@ const testLatency = async (nodeId, silent = false) => {
     const res = await fetch('/api/test-latency', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'node', id: nodeId, targetHost, targetPort })
+      body: JSON.stringify({ type: 'node', id: nodeId, targetHost, targetPort }),
+      signal: controller.signal
     });
     const data = await res.json();
     const node = props.config.proxyNodes.find(n => n.id === nodeId);
@@ -673,14 +686,30 @@ const testLatency = async (nodeId, silent = false) => {
       if (!silent) ElMessage.error(`测试失败: ${data.message}`);
     }
   } catch (err) {
-    if (!silent) ElMessage.error('请求失败');
+    if (err.name === 'AbortError') {
+      if (!silent) ElMessage.info('延迟测试已取消');
+    } else {
+      if (!silent) ElMessage.error('请求失败');
+    }
   } finally {
     if (testingNode.value === nodeId) testingNode.value = null;
+    delete abortControllers.value[key];
   }
 };
 
 const testSpeed = async (nodeId, silent = false) => {
+  // 如果正在测速中，则取消
+  const key = `speed:${nodeId}`;
+  if (testingSpeedNode.value === nodeId) {
+    const ac = abortControllers.value[key];
+    if (ac) { ac.abort(); delete abortControllers.value[key]; }
+    testingSpeedNode.value = null;
+    if (!silent) ElMessage.info('已取消测速');
+    return;
+  }
   testingSpeedNode.value = nodeId;
+  const controller = new AbortController();
+  abortControllers.value[key] = controller;
   try {
     const parts = testTargetSpeed.value.split(':');
     const targetHost = parts[0] || 'speed.cloudflare.com';
@@ -689,7 +718,8 @@ const testSpeed = async (nodeId, silent = false) => {
     const res = await fetch('/api/test-speed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'node', id: nodeId, targetHost, targetPort })
+      body: JSON.stringify({ type: 'node', id: nodeId, targetHost, targetPort }),
+      signal: controller.signal
     });
     const data = await res.json();
     const node = props.config.proxyNodes.find(n => n.id === nodeId);
@@ -702,30 +732,65 @@ const testSpeed = async (nodeId, silent = false) => {
       if (!silent) ElMessage.error(`测试失败: ${data.message}`);
     }
   } catch (err) {
-    if (!silent) ElMessage.error('请求失败');
+    if (err.name === 'AbortError') {
+      if (!silent) ElMessage.info('测速已取消');
+    } else {
+      if (!silent) ElMessage.error('请求失败');
+    }
   } finally {
     if (testingSpeedNode.value === nodeId) testingSpeedNode.value = null;
+    delete abortControllers.value[key];
   }
 };
 
 const testAllLatency = async () => {
+  // 如果正在全部测试中，则取消
+  if (testingAllLatency.value) {
+    Object.keys(abortControllers.value).forEach(k => {
+      if (k.startsWith('latency:')) {
+        abortControllers.value[k].abort();
+        delete abortControllers.value[k];
+      }
+    });
+    testingAllLatency.value = false;
+    testingNode.value = null;
+    ElMessage.info('已取消全部延迟测试');
+    return;
+  }
   if (!props.config.proxyNodes || props.config.proxyNodes.length === 0) return;
   testingAllLatency.value = true;
   ElMessage.info('开始全部节点延迟测试，请稍候...');
   const promises = props.config.proxyNodes.map(n => testLatency(n.id, true));
   await Promise.allSettled(promises);
-  testingAllLatency.value = false;
-  ElMessage.success('全部节点延迟测试完成');
+  if (testingAllLatency.value) {
+    testingAllLatency.value = false;
+    ElMessage.success('全部节点延迟测试完成');
+  }
 };
 
 const testAllSpeed = async () => {
+  // 如果正在全部测速中，则取消
+  if (testingAllSpeed.value) {
+    Object.keys(abortControllers.value).forEach(k => {
+      if (k.startsWith('speed:')) {
+        abortControllers.value[k].abort();
+        delete abortControllers.value[k];
+      }
+    });
+    testingAllSpeed.value = false;
+    testingSpeedNode.value = null;
+    ElMessage.info('已取消全部测速');
+    return;
+  }
   if (!props.config.proxyNodes || props.config.proxyNodes.length === 0) return;
   testingAllSpeed.value = true;
   ElMessage.info('开始全部节点测速，请稍候...');
   const promises = props.config.proxyNodes.map(n => testSpeed(n.id, true));
   await Promise.all(promises);
-  testingAllSpeed.value = false;
-  ElMessage.success('全部节点测速完成');
+  if (testingAllSpeed.value) {
+    testingAllSpeed.value = false;
+    ElMessage.success('全部节点测速完成');
+  }
 };
 
 const openCleanDialog = () => {

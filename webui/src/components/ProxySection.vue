@@ -32,7 +32,7 @@
             </div>
             
             <div class="flex items-center gap-2">
-              <el-switch v-model="item._ref.enabled" inline-prompt active-text="已启用" inactive-text="已停用" />
+              <el-switch v-model="item._ref.enabled" inline-prompt active-text="已启用" inactive-text="已停用" @change="toggleProxyEnabled(item._ref)" />
               <el-button type="danger" circle plain :icon="Delete" size="small" @click="removeProxy(item._mode, item._ref)" />
             </div>
           </div>
@@ -49,7 +49,7 @@
                       </el-tooltip>
                     </div>
                   </template>
-                  <el-input v-model="item._ref.name" placeholder="请输入代理名称 (例：办公代理/全球分流)" />
+                  <el-input v-model="item._ref.name" placeholder="请输入代理名称 (例：办公代理/全球分流)" @blur="handleNameBlur(item._ref)" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
@@ -407,17 +407,67 @@ const allProxies = computed(() => {
   return arr;
 });
 
+// 收集所有模式（server+client）中已占用的本地端口，用于即时冲突预检
+// onlyEnabled=true 时只收集已启用的规则端口（用于启用前严格预检）
+const getUsedPorts = (excludeObj, onlyEnabled = false) => {
+  const used = new Map(); // port -> label
+  const isOccupied = (item) => onlyEnabled ? (item.enabled !== false && item.listenPort) : item.listenPort;
+  const collect = (modeCfg, modeLabel) => {
+    if (!modeCfg) return;
+    if (modeCfg.forwards) {
+      modeCfg.forwards.forEach((f, i) => {
+        if (f !== excludeObj && isOccupied(f)) {
+          used.set(f.listenPort, `${modeLabel}映射#${i + 1}`);
+        }
+      });
+    }
+    if (modeCfg.connections) {
+      modeCfg.connections.forEach((c, i) => {
+        if (c !== excludeObj && isOccupied(c)) {
+          used.set(c.listenPort, `${modeLabel}连接#${i + 1}(${c.alias || c.id})`);
+        }
+      });
+    }
+  };
+  collect(props.config.server, '服务端');
+  collect(props.config.client, '客户端');
+  const collectProxies = (modeCfg, modeLabel) => {
+    if (modeCfg && modeCfg.proxies) {
+      modeCfg.proxies.forEach((p, i) => {
+        if (p !== excludeObj && isOccupied(p)) {
+          used.set(p.listenPort, `${modeLabel}代理#${i + 1}(${p.name || ''})`);
+        }
+      });
+    }
+  };
+  collectProxies(props.config.server, '服务端');
+  collectProxies(props.config.client, '客户端');
+  return used;
+};
+
+// 收集所有代理（server+client）的名称集合，用于名称去重
+const getAllProxyNames = (excludeObj) => {
+  const names = new Set();
+  const collect = (modeCfg) => {
+    if (modeCfg && modeCfg.proxies) {
+      modeCfg.proxies.forEach(p => {
+        if (p !== excludeObj && p.name) names.add(p.name);
+      });
+    }
+  };
+  collect(props.config.server);
+  collect(props.config.client);
+  return names;
+};
+
+// 生成唯一代理 ID
+const genProxyId = () => `proxy_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
+
 const handleAddProxy = (mode) => {
   if (!props.config[mode].proxies) props.config[mode].proxies = [];
 
-  // 收集所有已占用的端口（服务端+客户端），避免端口冲突
-  const usedPorts = new Set();
-  if (props.config.server?.proxies) {
-    props.config.server.proxies.forEach(p => usedPorts.add(p.listenPort));
-  }
-  if (props.config.client?.proxies) {
-    props.config.client.proxies.forEach(p => usedPorts.add(p.listenPort));
-  }
+  // 收集所有已占用的端口（服务端+客户端的代理/映射/连接），避免端口冲突
+  const usedPorts = getUsedPorts(null);
 
   // 从 1080 开始寻找未占用的端口
   let newPort = 1080;
@@ -426,9 +476,16 @@ const handleAddProxy = (mode) => {
   // 统计当前模式下同名代理的数量，生成默认名称
   const modeLabel = mode === 'server' ? '服务端' : '客户端';
   const sameModeCount = props.config[mode].proxies.length + 1;
-  const defaultName = `${modeLabel}代理 ${sameModeCount}`;
+  let defaultName = `${modeLabel}代理 ${sameModeCount}`;
+
+  // 名称去重：若名称已存在，则追加 "_重复"，直到唯一
+  const existingNames = getAllProxyNames(null);
+  if (existingNames.has(defaultName)) {
+    defaultName = defaultName + '_重复';
+  }
 
   props.config[mode].proxies.push({
+    id: genProxyId(),
     name: defaultName,
     enabled: false,
     listenPort: newPort,
@@ -445,6 +502,43 @@ const handleAddProxy = (mode) => {
     chainNodes: [],
     defaultRuleAction: ['direct_local']
   });
+};
+
+// 代理启用开关切换：启用前预检端口冲突（前端配置冲突 + 后端实际占用），冲突则回滚为禁用
+const toggleProxyEnabled = async (px) => {
+  if (!px.enabled) return; // 关闭无需校验
+  // 1) 前端预检：检查是否与其他已启用的代理/映射/连接端口冲突
+  const used = getUsedPorts(px, true);
+  if (used.has(px.listenPort)) {
+    ElMessage.error(`端口 ${px.listenPort} 已被 ${used.get(px.listenPort)} 占用，无法启用`);
+    px.enabled = false;
+    return;
+  }
+  // 2) 后端校验：检查端口是否被系统其他进程占用
+  try {
+    const res = await fetch(`/api/check-port/${px.listenPort}`);
+    const data = await res.json();
+    if (data.success && !data.available) {
+      ElMessage.error(data.message || `端口 ${px.listenPort} 已被占用，无法启用`);
+      px.enabled = false;
+    }
+  } catch (e) {
+    // 后端校验失败不阻断，依赖代理服务启动时的错误兜底
+    console.error('Port check failed:', e);
+  }
+};
+
+// 名称编辑失焦校验：若与其他代理重名，自动追加 "_重复"
+const handleNameBlur = (px) => {
+  const name = (px.name || '').trim();
+  if (!name) return;
+  const others = getAllProxyNames(px);
+  if (others.has(name)) {
+    let newName = name + '_重复';
+    while (others.has(newName)) newName = newName + '_重复';
+    px.name = newName;
+    ElMessage.warning(`名称已存在，已自动改为 "${newName}"`);
+  }
 };
 
 const removeProxy = (mode, refObj) => {
