@@ -667,6 +667,110 @@ html.dark .el-message {
   color: var(--bt-text) !important;
 }
 
+/* ============ DNS 配置弹窗 ============ */
+.dns-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dns-add-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.dns-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bt-surface);
+  border-radius: 6px;
+  border: 1px solid var(--bt-border);
+}
+.dns-switch-label {
+  font-size: 13px;
+  color: var(--bt-text-secondary, #64748b);
+}
+.dns-list-wrap {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--bt-border);
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--bt-bg, transparent);
+}
+.dns-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--bt-text-secondary, #94a3b8);
+  font-size: 13px;
+}
+.dns-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  margin-bottom: 4px;
+  background: var(--bt-surface);
+  transition: background 0.15s, border 0.15s;
+}
+.dns-item:hover {
+  background: var(--bt-surface-hover, rgba(100, 116, 139, 0.08));
+}
+.dns-item-dragging {
+  opacity: 0.5;
+  border-color: var(--el-color-primary, #409eff);
+}
+.dns-drag-handle {
+  cursor: move;
+  color: var(--bt-text-secondary, #94a3b8);
+  flex-shrink: 0;
+}
+.dns-item-index {
+  font-size: 12px;
+  color: var(--bt-text-secondary, #94a3b8);
+  width: 24px;
+  flex-shrink: 0;
+}
+.dns-item-address {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  color: var(--bt-text);
+  word-break: break-all;
+}
+.dns-item-msg {
+  font-size: 11px;
+  color: var(--bt-text-secondary, #94a3b8);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+.dns-item-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.dns-system-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--bt-surface);
+  border-radius: 6px;
+  border: 1px dashed var(--bt-border);
+  font-size: 12px;
+}
+.dns-system-label {
+  color: var(--bt-text-secondary, #64748b);
+  margin-right: 4px;
+}
+
 /* 消息文字颜色跟随主题 */
 .el-message__content {
   color: var(--bt-text) !important;

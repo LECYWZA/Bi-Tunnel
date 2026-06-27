@@ -4,6 +4,7 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const net = require('net');
+const dns = require('dns');
 const fs = require('fs');
 const os = require('os');
 const { URL } = require('url');
@@ -239,6 +240,202 @@ function createWebServer(statusCallback) {
       });
     });
     tester.listen(port, '0.0.0.0');
+  });
+
+  // 验证单个 DNS 服务器是否可用（支持纯IP/udp://IP/tcp://IP/https://IP/tls://IP）
+  // 规范化后的地址通过临时设置 resolver 服务器来测试，仅对纯IP/udp/tcp 有效
+  app.post('/api/dns-test', async (req, res) => {
+    const { address } = req.body || {};
+    if (!address || typeof address !== 'string') {
+      return res.json({ success: false, valid: false, message: '地址不能为空' });
+    }
+    // 检测 TUN/系统代理状态：开启时 DNS 验证会被 TUN 拦截导致不准
+    const cfg = configManager.getConfig();
+    const tunActive = cfg.tunModeEnabled === true;
+    const sysProxyActive = cfg.globalProxyEnabled === true;
+    const addr = address.trim();
+    // 解析出 IP/域名、端口与协议
+    let ip = addr;
+    let port = 53;
+    let protocol = 'udp';
+    const m1 = addr.match(/^(udp|tcp|https|tls|quic):\/\/(.+)$/i);
+    if (m1) {
+      protocol = m1[1].toLowerCase();
+      const rest = m1[2];
+      const m2 = rest.match(/^([^:/]+)(?::(\d+))?(.*)$/);
+      if (!m2) return res.json({ success: false, valid: false, message: '地址格式错误' });
+      ip = m2[1];
+      if (m2[2]) port = parseInt(m2[2]);
+      if (protocol === 'https' || protocol === 'tls' || protocol === 'quic') port = port || 443;
+    } else {
+      const m3 = addr.match(/^([^:]+)(?::(\d+))?$/);
+      if (!m3) return res.json({ success: false, valid: false, message: '地址格式错误' });
+      ip = m3[1];
+      if (m3[2]) port = parseInt(m3[2]);
+    }
+
+    const startTs = Date.now();
+    const TIMEOUT_MS = 5000;
+    const testDomain = 'www.baidu.com';
+
+    // 统一硬超时 + 响应标志，强制保证 5 秒内一定返回 JSON
+    let responded = false;
+    const finalize = (result) => {
+      if (responded) return;
+      responded = true;
+      clearTimeout(hardTimer);
+      const elapsed = Date.now() - startTs;
+      res.json({ success: true, ...result, message: `${result.message}（${elapsed}ms）`, ip, port, protocol });
+    };
+    const hardTimer = setTimeout(() => {
+      finalize({ valid: false, message: `验证超时（${TIMEOUT_MS}ms 强制终止）` });
+    }, TIMEOUT_MS + 500); // 比内部超时多 500ms 兜底
+
+    // ---- UDP DNS 验证：用 dns.Resolver ----
+    if (protocol === 'udp') {
+      // TUN/系统代理开启时，node 的 UDP 出站会被拦截走代理，验证结果不准
+      // 降级为：仅校验 IP 可达性 + 用系统默认 DNS 做参考解析
+      if (tunActive || sysProxyActive) {
+        const warn = tunActive ? 'TUN 模式开启中' : '系统代理开启中';
+        // 用系统默认 DNS 解析测试域名，证明网络可达
+        dns.resolve4(testDomain, (err, addresses) => {
+          if (err) {
+            finalize({ valid: false, message: `${warn}，验证受限且系统 DNS 解析失败: ${err.code || err.message}` });
+          } else if (addresses && addresses.length > 0) {
+            finalize({ valid: true, message: `${warn}，已跳过对该 DNS 的直连测试（流量被 TUN/代理接管），系统 DNS 参考解析成功` });
+          } else {
+            finalize({ valid: false, message: `${warn}，系统 DNS 返回空结果` });
+          }
+        });
+        return;
+      }
+      // 用独立子进程验证，避免主进程网络栈被 TUN/代理历史状态污染
+      const { execFile } = require('child_process');
+      const script = `const dns=require('dns');const r=new dns.Resolver();try{r.setServers([${JSON.stringify(ip)}]);}catch(e){process.stdout.write(JSON.stringify({valid:false,message:'设置服务器失败: '+e.message}));process.exit(0);}r.resolve4(${JSON.stringify(testDomain)},(e,a)=>{if(e)process.stdout.write(JSON.stringify({valid:false,message:'解析失败: '+(e.code||e.message)}));else if(a&&a.length)process.stdout.write(JSON.stringify({valid:true,message:'可用，解析到 '+a[0]+' 等 '+a.length+' 条',sample:a[0]}));else process.stdout.write(JSON.stringify({valid:false,message:'返回空结果'}));});`;
+      const child = execFile('node', ['-e', script], { timeout: TIMEOUT_MS + 1000, cwd: __dirname }, (err, stdout, stderr) => {
+        if (err) {
+          // 子进程超时或崩溃
+          if (err.killed || err.signal === 'SIGTERM') {
+            return finalize({ valid: false, message: '验证超时（子进程）' });
+          }
+          return finalize({ valid: false, message: `验证失败: ${err.message}` });
+        }
+        try {
+          const result = JSON.parse(stdout.trim());
+          finalize(result);
+        } catch (e) {
+          finalize({ valid: false, message: `解析子进程输出失败: ${stdout.slice(0, 100)}` });
+        }
+      });
+      return;
+    }
+
+    // ---- TCP DNS 验证：手动构造 DNS query 报文，通过 net.Socket 发送 ----
+    if (protocol === 'tcp') {
+      if (tunActive || sysProxyActive) {
+        const warn = tunActive ? 'TUN 模式开启中' : '系统代理开启中';
+        return finalize({ valid: true, message: `${warn}，已跳过 TCP 直连测试（流量被 TUN/代理接管），地址格式有效` });
+      }
+      const buildDnsQuery = () => {
+        const labels = testDomain.split('.').filter(Boolean);
+        let qname = Buffer.alloc(0);
+        labels.forEach(l => {
+          const buf = Buffer.alloc(1 + l.length);
+          buf.writeUInt8(l.length, 0);
+          buf.write(l, 1, 'ascii');
+          qname = Buffer.concat([qname, buf]);
+        });
+        qname = Buffer.concat([qname, Buffer.from([0])]); // 终止 0
+        const header = Buffer.alloc(12);
+        const id = Math.floor(Math.random() * 65535);
+        header.writeUInt16BE(id, 0);
+        header.writeUInt16BE(0x0100, 2); // RD=1
+        header.writeUInt16BE(1, 4);      // QDCOUNT=1
+        const question = Buffer.concat([qname, Buffer.from([0, 1, 0, 1])]); // QTYPE=A, QCLASS=IN
+        const body = Buffer.concat([header, question]);
+        const lenBuf = Buffer.alloc(2);
+        lenBuf.writeUInt16BE(body.length, 0);
+        return Buffer.concat([lenBuf, body]);
+      };
+
+      const socket = new net.Socket();
+      const cleanup = () => { try { socket.destroy(); } catch (e) {} };
+      socket.setTimeout(TIMEOUT_MS);
+      socket.on('timeout', () => { cleanup(); finalize({ valid: false, message: `连接超时（TCP ${ip}:${port}）` }); });
+      socket.on('error', (err) => { cleanup(); finalize({ valid: false, message: `连接失败: ${err.code || err.message}` }); });
+      socket.on('connect', () => { socket.write(buildDnsQuery()); });
+      let received = Buffer.alloc(0);
+      socket.on('data', (data) => {
+        received = Buffer.concat([received, data]);
+        if (received.length >= 14) {
+          const expectedLen = received.readUInt16BE(0);
+          if (received.length >= 2 + expectedLen) {
+            const dnsHeader = received.slice(2, 14);
+            const ancount = dnsHeader.readUInt16BE(6);
+            cleanup();
+            if (ancount > 0) {
+              finalize({ valid: true, message: `可用，解析到 ${ancount} 条记录` });
+            } else {
+              finalize({ valid: false, message: '服务器响应无应答记录' });
+            }
+          }
+        }
+      });
+      socket.connect(port, ip);
+      return;
+    }
+
+    // ---- DoH (HTTPS) 验证：发送 application/dns-json 查询 ----
+    if (protocol === 'https') {
+      if (tunActive || sysProxyActive) {
+        const warn = tunActive ? 'TUN 模式开启中' : '系统代理开启中';
+        return finalize({ valid: true, message: `${warn}，已跳过 DoH 直连测试（流量被 TUN/代理接管），地址格式有效` });
+      }
+      let dohUrl;
+      try {
+        dohUrl = new URL(addr);
+      } catch (e) {
+        return finalize({ valid: false, message: `DoH URL 解析失败: ${e.message}` });
+      }
+      const queryUrl = `${dohUrl.origin}${dohUrl.pathname || '/dns-query'}?name=${encodeURIComponent(testDomain)}&type=A`;
+      const req = https.get(queryUrl, { headers: { 'Accept': 'application/dns-json' }, timeout: TIMEOUT_MS }, (resp) => {
+        let body = '';
+        resp.on('data', (chunk) => { body += chunk; });
+        resp.on('end', () => {
+          if (resp.statusCode !== 200) {
+            return finalize({ valid: false, message: `HTTP ${resp.statusCode}` });
+          }
+          try {
+            const json = JSON.parse(body);
+            const answers = (json.Answer || json.Answers || []);
+            if (answers.length > 0) {
+              const first = answers[0].data || '';
+              finalize({ valid: true, message: `可用，解析到 ${first} 等 ${answers.length} 条`, sample: first });
+            } else {
+              finalize({ valid: false, message: '无应答记录' });
+            }
+          } catch (e) {
+            finalize({ valid: true, message: '可达（HTTP 200，非 JSON 响应）' });
+          }
+        });
+      });
+      req.on('error', (err) => finalize({ valid: false, message: `请求失败: ${err.code || err.message}` }));
+      req.on('timeout', () => { try { req.destroy(); } catch (e) {} finalize({ valid: false, message: '请求超时' }); });
+      return;
+    }
+
+    // ---- DoT (TLS) / QUIC：暂只做格式校验 ----
+    return finalize({ valid: true, message: `格式有效（${protocol.toUpperCase()} 协议，将在 TUN 启用时实际生效）` });
+  });
+
+  // 返回当前系统 DNS 服务器列表
+  app.get('/api/system-dns', (req, res) => {
+    try {
+      const list = dns.getServers();
+      res.json({ success: true, servers: list });
+    } catch (e) {
+      res.json({ success: false, servers: [], message: e.message });
+    }
   });
 
   app.get('/api/xray-status', (req, res) => {

@@ -145,12 +145,101 @@
           <el-button class="bt-btn-warning" size="default" :icon="RefreshRight" circle @click="restartService" />
         </el-tooltip>
 
+        <!-- DNS Config button -->
+        <el-tooltip content="DNS 配置" placement="bottom">
+          <el-button class="bt-btn-default" size="default" :icon="Connection" circle @click="dnsDialogVisible = true" />
+        </el-tooltip>
+
         <!-- Save button -->
         <el-button class="bt-btn-primary" size="default" :icon="Check" :disabled="!hasUnsavedChanges" @click="saveConfig(false)">
           {{ t('header.applyConfig') }}
         </el-button>
       </div>
     </header>
+
+    <!-- DNS 配置弹窗 -->
+    <el-dialog
+      v-model="dnsDialogVisible"
+      title="DNS 配置"
+      width="640px"
+      :close-on-click-modal="false"
+      append-to-body
+    >
+      <div class="dns-dialog-body">
+        <!-- 顶部：从常用 DNS 下拉添加 -->
+        <div class="dns-add-row">
+          <el-select
+            v-model="dnsPresetSelected"
+            placeholder="选择常用 DNS 添加"
+            filterable
+            style="flex: 1; margin-right: 8px;"
+            @change="addPresetDns"
+          >
+            <el-option
+              v-for="item in dnsPresets"
+              :key="item.address"
+              :label="`${item.name} (${item.address})`"
+              :value="item.address"
+            />
+          </el-select>
+          <el-input
+            v-model="dnsManualInput"
+            placeholder="或手动输入，如 1.1.1.1 / tcp://8.8.8.8:53 / https://dns.alidns.com/dns-query"
+            style="flex: 2;"
+            @keyup.enter="addManualDns"
+          />
+          <el-button type="primary" :icon="Plus" @click="addManualDns" style="margin-left: 8px;">添加</el-button>
+        </div>
+
+        <!-- 包含系统 DNS 开关 -->
+        <div class="dns-switch-row">
+          <el-switch v-model="config.dnsConfig.includeSystemDns" />
+          <span class="dns-switch-label">包含系统 DNS（关闭后仅使用上方自定义列表，打开则系统 DNS 作为兜底追加在末尾）</span>
+        </div>
+
+        <!-- DNS 列表（可拖拽排序） -->
+        <div class="dns-list-wrap">
+          <div v-if="config.dnsConfig.servers.length === 0" class="dns-empty">
+            暂无自定义 DNS，点击上方添加。{{ config.dnsConfig.includeSystemDns ? '当前将使用系统 DNS。' : '当前为空，TUN 启动时会使用默认 1.1.1.1/8.8.8.8。' }}
+          </div>
+          <div
+            v-for="(item, idx) in config.dnsConfig.servers"
+            :key="item.id"
+            class="dns-item"
+            draggable="true"
+            @dragstart="onDnsDragStart($event, idx)"
+            @dragover.prevent="onDnsDragOver($event, idx)"
+            @drop="onDnsDrop($event, idx)"
+            @dragend="dnsDragIndex = -1"
+            :class="{ 'dns-item-dragging': dnsDragIndex === idx }"
+          >
+            <el-icon class="dns-drag-handle"><Rank /></el-icon>
+            <span class="dns-item-index">{{ idx + 1 }}.</span>
+            <span class="dns-item-address">{{ item.address }}</span>
+            <el-tag size="small" :type="item._valid === true ? 'success' : (item._valid === false ? 'danger' : 'info')" style="margin-left: 8px;">
+              {{ item._valid === true ? '有效' : (item._valid === false ? '无效' : '未验证') }}
+            </el-tag>
+            <span v-if="item._message" class="dns-item-msg" :title="item._message">{{ item._message }}</span>
+            <div class="dns-item-actions">
+              <el-button size="small" :loading="item._testing" @click="testDns(item)">验证</el-button>
+              <el-button size="small" type="danger" :icon="Delete" circle plain @click="removeDns(idx)" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 系统当前 DNS 预览 -->
+        <div class="dns-system-row" v-if="systemDnsList.length > 0">
+          <span class="dns-system-label">当前系统 DNS：</span>
+          <el-tag v-for="s in systemDnsList" :key="s" size="small" style="margin: 2px;">{{ s }}</el-tag>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="dnsDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="applyDnsConfig">保存并应用</el-button>
+      </template>
+    </el-dialog>
+
     <!-- Main content -->
     <main class="mx-auto w-full px-6 py-5" :style="{ maxWidth: $route.path === '/logs' ? '80%' : '1440px' }">
 
@@ -177,7 +266,7 @@
 import { ref, reactive, onMounted, computed, watch, onUnmounted, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
-import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading } from '@element-plus/icons-vue';
+import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank } from '@element-plus/icons-vue';
 import Login from './components/Login.vue';
 import { t, locale, setLocale } from './i18n';
 
@@ -269,6 +358,10 @@ const config = reactive({
   logConfig: {
     maxDays: 14,
     maxSizeMB: 20
+  },
+  dnsConfig: {
+    includeSystemDns: true,
+    servers: []
   }
 });
 
@@ -353,6 +446,143 @@ const ensureActiveProxyEnabled = () => {
   if (found) {
     saveConfig(true);
   }
+};
+
+// ============ DNS 配置弹窗 ============
+const dnsDialogVisible = ref(false);
+const dnsManualInput = ref('');
+const dnsPresetSelected = ref('');
+const dnsDragIndex = ref(-1);
+const systemDnsList = ref([]);
+
+// 常用 DNS 预设（含多种协议形态，覆盖国内外主流）
+const dnsPresets = [
+  { name: 'Cloudflare DNS (UDP)', address: '1.1.1.1' },
+  { name: 'Cloudflare DNS (TCP)', address: 'tcp://1.1.1.1:53' },
+  { name: 'Cloudflare DoH', address: 'https://1.1.1.1/dns-query' },
+  { name: 'Google DNS (UDP)', address: '8.8.8.8' },
+  { name: 'Google DNS (TCP)', address: 'tcp://8.8.8.8:53' },
+  { name: 'Google DoH', address: 'https://dns.google/dns-query' },
+  { name: '阿里公共 DNS (UDP)', address: '223.5.5.5' },
+  { name: '阿里公共 DNS (TCP)', address: 'tcp://223.5.5.5:53' },
+  { name: '阿里 DoH', address: 'https://dns.alidns.com/dns-query' },
+  { name: '腾讯 DNSPod (UDP)', address: '119.29.29.29' },
+  { name: '腾讯 DNSPod DoH', address: 'https://doh.pub/dns-query' },
+  { name: '114 DNS (UDP)', address: '114.114.114.114' },
+  { name: '百度 DNS (UDP)', address: '180.76.76.76' },
+  { name: 'Quad9 DNS (UDP)', address: '9.9.9.9' },
+  { name: 'OpenDNS (UDP)', address: '208.67.222.222' },
+  { name: 'AdGuard DNS (UDP, 去广告)', address: '94.140.14.14' }
+];
+
+const genDnsId = () => `dns_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
+
+// 加载系统 DNS 列表（打开弹窗时拉取）
+const loadSystemDns = async () => {
+  try {
+    const res = await fetch('/api/system-dns');
+    const data = await res.json();
+    if (data.success) systemDnsList.value = data.servers || [];
+  } catch (e) {
+    console.error('Load system DNS failed:', e);
+  }
+};
+
+watch(dnsDialogVisible, (v) => {
+  if (v) loadSystemDns();
+});
+
+const addDnsServer = (address) => {
+  const addr = (address || '').trim();
+  if (!addr) return false;
+  // 去重
+  if (config.dnsConfig.servers.some(s => s.address === addr)) {
+    ElMessage.warning('该 DNS 已存在');
+    return false;
+  }
+  config.dnsConfig.servers.push({
+    id: genDnsId(),
+    address: addr,
+    _valid: null,
+    _message: '',
+    _testing: false
+  });
+  return true;
+};
+
+const addPresetDns = (val) => {
+  if (addDnsServer(val)) {
+    ElMessage.success('已添加');
+  }
+  dnsPresetSelected.value = '';
+};
+
+const addManualDns = () => {
+  const val = dnsManualInput.value.trim();
+  if (!val) return;
+  if (addDnsServer(val)) {
+    dnsManualInput.value = '';
+    ElMessage.success('已添加');
+  }
+};
+
+const removeDns = (idx) => {
+  config.dnsConfig.servers.splice(idx, 1);
+};
+
+// 拖拽排序
+const onDnsDragStart = (e, idx) => {
+  dnsDragIndex.value = idx;
+  e.dataTransfer.effectAllowed = 'move';
+};
+const onDnsDragOver = (e, idx) => {
+  e.dataTransfer.dropEffect = 'move';
+};
+const onDnsDrop = (e, idx) => {
+  const from = dnsDragIndex.value;
+  if (from === -1 || from === idx) return;
+  const list = config.dnsConfig.servers;
+  const [moved] = list.splice(from, 1);
+  list.splice(idx, 0, moved);
+  dnsDragIndex.value = -1;
+};
+
+// 验证单个 DNS
+const testDns = async (item) => {
+  Object.assign(item, { _testing: true, _message: '验证中...', _valid: null });
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch('/api/dns-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: item.address }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    Object.assign(item, {
+      _valid: !!data.valid,
+      _message: data.message || (data.valid ? '可用' : '不可用'),
+      _testing: false
+    });
+  } catch (e) {
+    const msg = e.name === 'AbortError' ? '验证超时（8s）' : ('请求失败: ' + e.message);
+    Object.assign(item, { _valid: false, _message: msg, _testing: false });
+  }
+};
+
+// 保存并应用 DNS 配置
+const applyDnsConfig = async () => {
+  // 保存前清理临时字段
+  const cleanServers = config.dnsConfig.servers.map(({ id, address }) => ({ id, address }));
+  config.dnsConfig.servers = cleanServers;
+  await saveConfig(true);
+  dnsDialogVisible.value = false;
+  ElMessage.success('DNS 配置已保存，下次启动 TUN 时生效');
 };
 
 const handleGlobalProxyToggle = async (val) => {
@@ -578,6 +808,9 @@ const fetchConfig = async () => {
     if (!config.client.connections) config.client.connections = [];
     if (!config.proxyChains) config.proxyChains = [];
     if (!config.proxyGroups) config.proxyGroups = [];
+    if (!config.dnsConfig) config.dnsConfig = { includeSystemDns: true, servers: [] };
+    if (!Array.isArray(config.dnsConfig.servers)) config.dnsConfig.servers = [];
+    if (config.dnsConfig.includeSystemDns === undefined) config.dnsConfig.includeSystemDns = true;
     
     // Watch config to show "Unsaved Changes" indicator and auto-save
     let autoSaveTimer = null;

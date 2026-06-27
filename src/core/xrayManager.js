@@ -2,8 +2,10 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+const dns = require('dns');
 const { getLogger } = require('../utils/logger');
 const { XRAY_EXE, BIN_DIR } = require('../utils/xrayDownloader');
+const configManager = require('../config/config');
 
 const activeXrays = new Map(); // rawUrl -> { process, port, lastUsed }
 const startingPromises = new Map(); // rawUrl -> Promise
@@ -342,6 +344,52 @@ setInterval(() => {
   }
 }, 30000);
 
+// 根据用户配置构造 Xray DNS 服务器列表（含系统 DNS 兜底）
+// 返回 { servers: [xray格式], tunDns: [纯IP格式] }
+function buildDnsServers() {
+  const cfg = configManager.getConfig();
+  const dnsCfg = cfg.dnsConfig || {};
+  const userServers = Array.isArray(dnsCfg.servers) ? dnsCfg.servers : [];
+  const includeSystem = dnsCfg.includeSystemDns !== false; // 默认 true
+
+  const servers = [];
+  const tunDns = [];
+
+  // 用户自定义 DNS（按优先级顺序）
+  userServers.forEach(item => {
+    if (!item || !item.address) return;
+    const addr = item.address.trim();
+    if (!addr) return;
+    servers.push(addr);
+    // TUN 的 dns 字段只接受纯 IP（无 scheme 无端口），尝试提取
+    const m = addr.match(/^(?:[a-z]+:\/\/)?([0-9a-fA-F:.]+)(?::\d+)?$/);
+    if (m) tunDns.push(m[1]);
+  });
+
+  // 系统兜底 DNS
+  if (includeSystem) {
+    try {
+      const sysServers = dns.getServers();
+      sysServers.forEach(s => {
+        if (!servers.includes(s)) {
+          servers.push(s);
+          if (!tunDns.includes(s)) tunDns.push(s);
+        }
+      });
+    } catch (e) {
+      getLogger().warn(`[Xray DNS] Failed to read system DNS: ${e.message}`);
+    }
+  }
+
+  // 全空兜底，防止 xray 启动失败
+  if (servers.length === 0) {
+    servers.push('1.1.1.1', '8.8.8.8');
+    tunDns.push('1.1.1.1', '8.8.8.8');
+  }
+
+  return { servers, tunDns };
+}
+
 async function startTun(proxyPort) {
   const os = require('os');
   if (currentTunProcess) {
@@ -354,14 +402,13 @@ async function startTun(proxyPort) {
   currentTunPort = proxyPort;
   currentTunError = null;
 
+  const { servers: dnsServers, tunDns } = buildDnsServers();
+
   const config = {
     log: { loglevel: 'warning' },
     dns: {
-      // TCP DNS through proxy chain to bypass GFW DNS pollution
-      servers: [
-        "tcp://1.1.1.1:53",
-        "tcp://8.8.8.8:53"
-      ],
+      // DNS 服务器列表（用户自定义优先 + 可选系统兜底）
+      servers: dnsServers,
       // Force IPv4-only DNS results (TUN has no IPv6 route configured)
       queryStrategy: "UseIPv4"
     },
@@ -374,7 +421,7 @@ async function startTun(proxyPort) {
           "name": "tun-bi",
           "mtu": 1500,
           "gateway": ["10.0.9.1/24"],
-          "dns": ["1.1.1.1"],
+          "dns": tunDns,
           "autoSystemRoutingTable": ["0.0.0.0/0"],
           "autoOutboundsInterface": "auto"
         },
