@@ -9,7 +9,8 @@ config.json
 *.pem
 
 # Xray Core and downloaded binaries
-bin/
+bin/config*.json
+bin/tun-config.json
 
 # Test scripts
 test-*.js
