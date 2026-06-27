@@ -148,17 +148,18 @@ async function clearAllBypasses() {
 /**
  * Configures network interfaces and default route overrides on Linux.
  */
-async function setupLinuxTunRouting(interfaceName) {
+async function setupLinuxTunRouting(interfaceName, tunCIDR) {
   if (!isLinux) return;
+  const cidr = tunCIDR || '10.0.9.1/24';
   try {
     // Bring link up
     await execPromise(`ip link set dev ${interfaceName} up`);
     // Assign tunnel address
-    await execPromise(`ip addr add 10.0.9.1/24 dev ${interfaceName}`);
+    await execPromise(`ip addr add ${cidr} dev ${interfaceName}`);
     // Override default route using 0.0.0.0/1 and 128.0.0.0/1
     await execPromise(`ip route add 0.0.0.0/1 dev ${interfaceName}`);
     await execPromise(`ip route add 128.0.0.0/1 dev ${interfaceName}`);
-    getLogger().info(`[RouteManager] Configured Linux TUN routing for interface ${interfaceName}`);
+    getLogger().info(`[RouteManager] Configured Linux TUN routing for interface ${interfaceName} (${cidr})`);
   } catch (err) {
     getLogger().error(`[RouteManager] Linux TUN routing config failed: ${err.message}`);
     throw err;
@@ -187,9 +188,9 @@ async function tearDownLinuxTunRouting(interfaceName) {
  * Configures TUN interface IP address and routing on Windows.
  * xray-core creates the TUN adapter but does NOT set its IP address on Windows.
  */
-async function setupWindowsTunRouting(interfaceName) {
+async function setupWindowsTunRouting(interfaceName, tunIP) {
   if (!isWindows) return;
-  const tunIP = '10.0.9.1';
+  tunIP = tunIP || '10.0.9.1';
   try {
     // Wait for the adapter to appear and get its index
     let ifIndex = null;
@@ -232,9 +233,9 @@ async function setupWindowsTunRouting(interfaceName) {
 /**
  * Removes TUN interface routing on Windows.
  */
-async function tearDownWindowsTunRouting(interfaceName) {
+async function tearDownWindowsTunRouting(interfaceName, tunIP) {
   if (!isWindows) return;
-  const tunIP = '10.0.9.1';
+  tunIP = tunIP || '10.0.9.1';
   try {
     try { await execPromise(`route delete 0.0.0.0 mask 128.0.0.0 ${tunIP}`); } catch(e) {}
     try { await execPromise(`route delete 128.0.0.0 mask 128.0.0.0 ${tunIP}`); } catch(e) {}

@@ -63,7 +63,7 @@
 
         <!-- Virtual Network Card (TUN) Switch -->
         <div class="flex flex-col items-start justify-center leading-none" style="height: 38px;">
-          <div class="flex items-center gap-1">
+          <div class="flex items-center" style="gap: 6px; height: 20px;">
             <el-switch
               v-model="config.tunModeEnabled"
               :disabled="!config.activeProxyId"
@@ -74,8 +74,11 @@
               :loading="tunLoading"
               @change="handleTunToggle"
             />
+            <el-tooltip content="虚拟网卡参数配置" placement="bottom">
+              <el-button class="bt-tun-cfg-btn" circle plain size="default" :icon="Operation" @click="tunConfigDialogVisible = true" />
+            </el-tooltip>
             <el-tooltip :content="tunStatus.error || t('header.tunMode')" placement="bottom" :disabled="!tunStatus.error">
-              <el-icon v-if="tunStatus.error" color="var(--el-color-error)"><Warning /></el-icon>
+              <el-icon v-if="tunStatus.error" color="var(--el-color-error)" style="font-size: 16px;"><Warning /></el-icon>
             </el-tooltip>
           </div>
           <span style="font-size: 10px; color: var(--bt-text-sec); margin-top: 3px; transform: scale(0.85); transform-origin: left; white-space: nowrap;">
@@ -151,7 +154,7 @@
         </el-tooltip>
 
         <!-- Save button -->
-        <el-button class="bt-btn-primary" size="default" :icon="Check" :disabled="!hasUnsavedChanges" @click="saveConfig(false)">
+        <el-button class="bt-btn-primary" size="default" :icon="Check" :disabled="!hasUnsavedChanges" @click="saveConfig(false)" style="margin-left: 8px;">
           {{ t('header.applyConfig') }}
         </el-button>
       </div>
@@ -240,6 +243,42 @@
       </template>
     </el-dialog>
 
+    <!-- 虚拟网卡参数配置弹窗 -->
+    <el-dialog
+      v-model="tunConfigDialogVisible"
+      title="虚拟网卡参数配置"
+      width="460px"
+      :close-on-click-modal="false"
+      append-to-body
+    >
+      <el-alert
+        class="bt-tun-alert"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px;"
+        title="修改后需关闭并重新开启虚拟网卡才能生效"
+      />
+      <el-form label-width="110px" label-position="right">
+        <el-form-item label="网卡名称">
+          <el-input v-model="tunConfigTemp.interfaceName" placeholder="tun-bi" />
+          <div style="font-size: 11px; color: var(--bt-text-sec); margin-top: 4px;">TUN 虚拟网卡的接口名</div>
+        </el-form-item>
+        <el-form-item label="网关地址">
+          <el-input v-model="tunConfigTemp.gateway" placeholder="10.0.9.1/24" />
+          <div style="font-size: 11px; color: var(--bt-text-sec); margin-top: 4px;">CIDR 格式：IP/掩码，例如 10.0.9.1/24</div>
+        </el-form-item>
+        <el-form-item label="MTU">
+          <el-input-number v-model="tunConfigTemp.mtu" :min="576" :max="9000" :step="100" controls-position="right" style="width: 100%;" />
+          <div style="font-size: 11px; color: var(--bt-text-sec); margin-top: 4px;">最大传输单元，默认 1500，网络不稳定时可调小</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="tunConfigDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="applyTunConfig">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- Main content -->
     <main class="mx-auto w-full px-6 py-5" :style="{ maxWidth: $route.path === '/logs' ? '80%' : '1440px' }">
 
@@ -266,7 +305,7 @@
 import { ref, reactive, onMounted, computed, watch, onUnmounted, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
-import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank } from '@element-plus/icons-vue';
+import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank, Operation } from '@element-plus/icons-vue';
 import Login from './components/Login.vue';
 import { t, locale, setLocale } from './i18n';
 
@@ -362,6 +401,11 @@ const config = reactive({
   dnsConfig: {
     includeSystemDns: true,
     servers: []
+  },
+  tunConfig: {
+    interfaceName: 'tun-bi',
+    gateway: '10.0.9.1/24',
+    mtu: 1500
   }
 });
 
@@ -454,6 +498,39 @@ const dnsManualInput = ref('');
 const dnsPresetSelected = ref('');
 const dnsDragIndex = ref(-1);
 const systemDnsList = ref([]);
+
+// ============ 虚拟网卡参数配置弹窗 ============
+const tunConfigDialogVisible = ref(false);
+const tunConfigTemp = reactive({
+  interfaceName: 'tun-bi',
+  gateway: '10.0.9.1/24',
+  mtu: 1500
+});
+
+watch(tunConfigDialogVisible, (v) => {
+  if (v) {
+    // 打开时从 config 同步当前值
+    tunConfigTemp.interfaceName = config.tunConfig?.interfaceName || 'tun-bi';
+    tunConfigTemp.gateway = config.tunConfig?.gateway || '10.0.9.1/24';
+    tunConfigTemp.mtu = config.tunConfig?.mtu || 1500;
+  }
+});
+
+const applyTunConfig = () => {
+  // 简单校验
+  const name = (tunConfigTemp.interfaceName || '').trim();
+  const gw = (tunConfigTemp.gateway || '').trim();
+  const mtu = parseInt(tunConfigTemp.mtu);
+  if (!name) { ElMessage.error('网卡名称不能为空'); return; }
+  if (!/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/.test(gw)) { ElMessage.error('网关地址格式错误，应为 IP/掩码，例如 10.0.9.1/24'); return; }
+  if (!(mtu >= 576 && mtu <= 9000)) { ElMessage.error('MTU 应在 576-9000 之间'); return; }
+  if (!config.tunConfig) config.tunConfig = {};
+  config.tunConfig.interfaceName = name;
+  config.tunConfig.gateway = gw;
+  config.tunConfig.mtu = mtu;
+  tunConfigDialogVisible.value = false;
+  ElMessage.success('虚拟网卡参数已保存，关闭并重新开启虚拟网卡后生效');
+};
 
 // 常用 DNS 预设（含多种协议形态，覆盖国内外主流）
 const dnsPresets = [

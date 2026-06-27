@@ -404,6 +404,13 @@ async function startTun(proxyPort) {
 
   const { servers: dnsServers, tunDns } = buildDnsServers();
 
+  // 读取 TUN 网卡参数配置
+  const appCfg = configManager.getConfig();
+  const tunCfg = appCfg.tunConfig || {};
+  const tunName = tunCfg.interfaceName || 'tun-bi';
+  const tunMtu = parseInt(tunCfg.mtu) > 0 ? parseInt(tunCfg.mtu) : 1500;
+  const tunGateway = tunCfg.gateway || '10.0.9.1/24';
+
   const config = {
     log: { loglevel: 'warning' },
     dns: {
@@ -418,9 +425,9 @@ async function startTun(proxyPort) {
         "protocol": "tun",
         "port": 0,
         "settings": {
-          "name": "tun-bi",
-          "mtu": 1500,
-          "gateway": ["10.0.9.1/24"],
+          "name": tunName,
+          "mtu": tunMtu,
+          "gateway": [tunGateway],
           "dns": tunDns,
           "autoSystemRoutingTable": ["0.0.0.0/0"],
           "autoOutboundsInterface": "auto"
@@ -595,7 +602,7 @@ async function startTun(proxyPort) {
           }
         } else if (os.platform() === 'win32') {
           try {
-            await routeManager.setupWindowsTunRouting('tun-bi');
+            await routeManager.setupWindowsTunRouting(tunName, tunGateway.split('/')[0]);
           } catch (err) {
             getLogger().error(`[Xray TUN] Windows route setup failed: ${err.message}`);
             currentTunError = `路由配置失败: ${err.message}`;
@@ -623,13 +630,18 @@ async function stopTun() {
   if (currentTunProcess) {
     const routeManager = require('../utils/routeManager');
     const os = require('os');
+    const appCfg = configManager.getConfig();
+    const tunCfg = appCfg.tunConfig || {};
+    const tunName = tunCfg.interfaceName || 'tun-bi';
+    const tunGateway = tunCfg.gateway || '10.0.9.1/24';
+    const tunIP = tunGateway.split('/')[0];
     if (os.platform() === 'linux') {
       try {
-        await routeManager.tearDownLinuxTunRouting('tun-bi');
+        await routeManager.tearDownLinuxTunRouting(tunName);
       } catch(e) {}
     } else if (os.platform() === 'win32') {
       try {
-        await routeManager.tearDownWindowsTunRouting('tun-bi');
+        await routeManager.tearDownWindowsTunRouting(tunName, tunIP);
       } catch(e) {}
     }
     const proc = currentTunProcess;

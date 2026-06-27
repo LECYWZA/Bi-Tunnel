@@ -667,6 +667,38 @@ html.dark .el-message {
   color: var(--bt-text) !important;
 }
 
+/* ============ TUN 配置按钮：与开关垂直居中对齐 ============ */
+.bt-tun-cfg-btn.el-button.is-circle {
+  width: 20px !important;
+  height: 20px !important;
+  min-height: 20px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.bt-tun-cfg-btn .el-icon {
+  font-size: 12px !important;
+}
+
+/* ============ TUN 配置弹窗：Alert 跟随主题 ============ */
+.bt-tun-alert.el-alert {
+  background-color: var(--bt-surface) !important;
+  border: 1px solid var(--bt-border) !important;
+  color: var(--bt-text) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.bt-tun-alert .el-alert__title {
+  color: var(--bt-text) !important;
+}
+.bt-tun-alert .el-alert__description {
+  color: var(--bt-text-secondary) !important;
+}
+.bt-tun-alert .el-alert__icon {
+  color: var(--el-color-warning) !important;
+}
+
 /* ============ DNS 配置弹窗 ============ */
 .dns-dialog-body {
   display: flex;
