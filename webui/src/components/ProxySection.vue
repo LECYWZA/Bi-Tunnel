@@ -4,60 +4,60 @@
     <div class="flex justify-between items-center bt-section-status sticky top-[60px] z-10 bg-white dark:bg-gray-900 -mx-6 px-6 pt-4 -mt-4 pb-4">
       <div class="flex items-center gap-3">
         <el-icon :size="24" class="text-purple-500"><HelpFilled /></el-icon>
-        <span class="font-bold text-lg bt-text">混合代理配置</span>
+        <span class="font-bold text-lg bt-text">{{ t('proxies.title') }}</span>
       </div>
       <el-dropdown @command="handleAddProxy">
         <el-button type="primary" plain size="small" :icon="Plus">
-          添加代理<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          {{ t('proxies.addProxy') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon>
         </el-button>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="server">添加服务端代理 (Server Proxy)</el-dropdown-item>
-            <el-dropdown-item command="client">添加客户端代理 (Client Proxy)</el-dropdown-item>
+            <el-dropdown-item command="server">{{ t('proxies.addServerProxy') }}</el-dropdown-item>
+            <el-dropdown-item command="client">{{ t('proxies.addClientProxy') }}</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
     </div>
 
-    <el-empty v-if="allProxies.length === 0" description="暂无代理服务" :image-size="80" />
+    <el-empty v-if="allProxies.length === 0" :description="t('proxies.empty')" :image-size="80" />
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6" v-else>
       <el-card v-for="(item, index) in allProxies" :key="index" shadow="hover" class="bt-card h-full transition-transform hover:-translate-y-1" body-class="flex flex-col h-full">
           <div class="flex justify-between items-center mb-2 pb-2" style="border-bottom: 1px solid var(--bt-border);">
             <div class="flex items-center gap-2">
               <el-radio-group :model-value="item._mode" size="small" @change="(newMode) => switchProxyMode(item._mode, newMode, item._ref)">
-                <el-radio-button value="server">服务端代理</el-radio-button>
-                <el-radio-button value="client">客户端代理</el-radio-button>
+                <el-radio-button value="server">{{ t('proxies.serverProxy') }}</el-radio-button>
+                <el-radio-button value="client">{{ t('proxies.clientProxy') }}</el-radio-button>
               </el-radio-group>
             </div>
-            
+
             <div class="flex items-center gap-2">
-              <el-switch v-model="item._ref.enabled" inline-prompt active-text="已启用" inactive-text="已停用" @change="toggleProxyEnabled(item._ref)" />
+              <el-switch v-model="item._ref.enabled" inline-prompt :active-text="t('proxies.enabledSwitch')" :inactive-text="t('proxies.disabledSwitch')" @change="toggleProxyEnabled(item._ref)" />
               <el-button type="danger" circle plain :icon="Delete" size="small" @click="removeProxy(item._mode, item._ref)" />
             </div>
           </div>
-          
+
           <el-form label-position="top">
             <el-row :gutter="16">
               <el-col :span="24">
                 <el-form-item class="mb-2">
                   <template #label>
                     <div class="flex items-center gap-1">
-                      <span>代理名称</span>
-                      <el-tooltip content="为此代理指定一个友好的名称，便于在顶部导航栏区分不同的代理选项。" placement="top">
+                      <span>{{ t('proxies.name') }}</span>
+                      <el-tooltip :content="t('proxies.nameTooltip')" placement="top">
                         <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
                   </template>
-                  <el-input v-model="item._ref.name" placeholder="请输入代理名称 (例：办公代理/全球分流)" @blur="handleNameBlur(item._ref)" />
+                  <el-input v-model="item._ref.name" :placeholder="t('proxies.namePlaceholder')" @blur="handleNameBlur(item._ref)" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item class="mb-2">
                   <template #label>
                     <div class="flex items-center gap-1">
-                      <span>监听端口</span>
-                      <el-tooltip content="代理服务将在您本地电脑或服务器上开放的端口。软件或浏览器将连接到此端口。" placement="top">
+                      <span>{{ t('proxies.listenPort') }}</span>
+                      <el-tooltip :content="t('proxies.listenPortTooltip')" placement="top">
                         <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -69,8 +69,8 @@
                 <el-form-item class="mb-2">
                   <template #label>
                     <div class="flex items-center gap-1">
-                      <span>监听 IP</span>
-                      <el-tooltip content="允许哪些设备连接到此代理。0.0.0.0 允许局域网/公网所有设备连接，127.0.0.1 仅允许本机连接。" placement="top">
+                      <span>{{ t('proxies.listenIp') }}</span>
+                      <el-tooltip :content="t('proxies.listenIpTooltip')" placement="top">
                         <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -87,19 +87,19 @@
                 <el-form-item class="mb-2">
                   <template #label>
                     <div class="flex items-center gap-1">
-                      <span>出网网络</span>
+                      <span>{{ t('proxies.egressNetwork') }}</span>
                       <el-tooltip placement="top">
                         <template #content>
-                          <b>使用对端网络出网：</b> 您的请求将穿透 Bi-Tunnel 隧道，以远端服务器的身份访问目标网站。<br/>
-                          <b>使用本地网络出网：</b> 不穿透隧道，直接用您当前电脑的网络访问目标网站。
+                          <span v-html="t('proxies.egressNetworkTooltipRemote')"></span>
+                          <span v-html="t('proxies.egressNetworkTooltipLocal')"></span>
                         </template>
                         <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
                   </template>
                   <el-select v-model="item._ref.useRemoteNetwork" class="w-full">
-                    <el-option label="使用对端网络出网" :value="true" />
-                    <el-option label="使用本地网络出网" :value="false" />
+                    <el-option :label="t('proxies.useRemoteNetwork')" :value="true" />
+                    <el-option :label="t('proxies.useLocalNetwork')" :value="false" />
                   </el-select>
                 </el-form-item>
               </el-col>
@@ -107,8 +107,8 @@
                 <el-form-item class="mb-2">
                   <template #label>
                     <div class="flex items-center gap-1">
-                      <span class="text-blue-600">目标客户端 ID</span>
-                      <el-tooltip content="指定该代理出网时应通过哪个客户端的网络。" placement="top">
+                      <span class="text-blue-600">{{ t('proxies.targetClientId') }}</span>
+                      <el-tooltip :content="t('proxies.targetClientIdTooltip')" placement="top">
                         <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
@@ -116,7 +116,7 @@
                   <el-autocomplete
                     v-model="item._ref.targetClientId"
                     :fetch-suggestions="(q, cb) => cb((config.server.knownClients || []).map(c => ({ value: c.id })))"
-                    placeholder="目标客户端 ID"
+                    :placeholder="t('proxies.targetClientIdPlaceholder')"
                     class="w-full"
                   />
                 </el-form-item>
@@ -125,13 +125,13 @@
                 <el-form-item class="mb-2">
                   <template #label>
                     <div class="flex items-center gap-1">
-                      <span class="text-blue-600">承载服务端</span>
-                      <el-tooltip content="指定该代理出网时应通过哪条服务端隧道。" placement="top">
+                      <span class="text-blue-600">{{ t('proxies.carrierServer') }}</span>
+                      <el-tooltip :content="t('proxies.carrierServerTooltip')" placement="top">
                         <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
                   </template>
-                  <el-select v-model="item._ref.targetClientId" placeholder="请选择承载服务端" class="w-full">
+                  <el-select v-model="item._ref.targetClientId" :placeholder="t('proxies.carrierServerPlaceholder')" class="w-full">
                     <el-option v-for="c in (config.client.connections || [])" :key="c.id" :label="c.alias" :value="c.id" />
                     <!-- Legacy fallback -->
                     <el-option v-if="!(config.client.connections || []).some(c => c.id === item._ref.targetClientId)" :label="item._ref.targetClientId" :value="item._ref.targetClientId" />
@@ -143,8 +143,8 @@
             <div class="p-3 rounded my-3" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
               <div class="flex justify-between items-center mb-2">
                 <div class="flex items-center gap-1">
-                  <span class="font-bold text-gray-700 text-sm">密码认证</span>
-                  <el-tooltip content="开启后，使用此代理必须输入您设置的用户名和密码，防止被他人恶意蹭网。" placement="top">
+                  <span class="font-bold text-gray-700 text-sm">{{ t('proxies.auth') }}</span>
+                  <el-tooltip :content="t('proxies.authTooltip')" placement="top">
                     <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                   </el-tooltip>
                 </div>
@@ -153,15 +153,15 @@
               <el-collapse-transition>
                 <div v-show="item._ref.useAuth">
                   <div v-if="!item._ref.users || item._ref.users.length === 0" class="mb-2">
-                    <el-button size="small" plain @click="ensureUsers(item._ref)">设置账号密码</el-button>
+                    <el-button size="small" plain @click="ensureUsers(item._ref)">{{ t('proxies.setupAccount') }}</el-button>
                   </div>
                   <div v-else>
                     <div v-for="(u, idx) in item._ref.users" :key="idx" class="flex gap-2 items-center mb-2">
-                      <el-input v-model="u.user" placeholder="用户名" :prefix-icon="User" size="small" />
-                      <el-input v-model="u.pass" placeholder="密码" show-password :prefix-icon="Lock" size="small" />
+                      <el-input v-model="u.user" :placeholder="t('proxies.username')" :prefix-icon="User" size="small" />
+                      <el-input v-model="u.pass" :placeholder="t('proxies.password')" show-password :prefix-icon="Lock" size="small" />
                       <el-button type="danger" link :icon="Delete" @click="item._ref.users.splice(idx, 1)" />
                     </div>
-                    <el-button type="primary" link size="small" :icon="Plus" @click="item._ref.users.push({user:'', pass:''})">添加账号</el-button>
+                    <el-button type="primary" link size="small" :icon="Plus" @click="item._ref.users.push({user:'', pass:''})">{{ t('proxies.addAccount') }}</el-button>
                   </div>
                 </div>
               </el-collapse-transition>
@@ -170,11 +170,11 @@
             <div class="mt-4 pt-4 flex items-center justify-between" style="border-top: 1px dashed var(--bt-border);">
               <div class="flex items-center gap-2 text-sm text-gray-500">
                 <el-icon><Guide /></el-icon>
-                <span>高级策略配置</span>
+                <span>{{ t('proxies.advancedPolicy') }}</span>
               </div>
               <div class="flex gap-2">
-                <el-button type="primary" plain :icon="Setting" size="small" @click="openRoutingDialog(item._ref)">分流规则表</el-button>
-                <el-button type="warning" plain :icon="Setting" size="small" @click="openAclDialog(item._ref)">访问控制 (ACL)</el-button>
+                <el-button type="primary" plain :icon="Setting" size="small" @click="openRoutingDialog(item._ref)">{{ t('proxies.routingRules') }}</el-button>
+                <el-button type="warning" plain :icon="Setting" size="small" @click="openAclDialog(item._ref)">{{ t('proxies.acl') }}</el-button>
               </div>
             </div>
           </el-form>
@@ -184,41 +184,39 @@
   </div>
 
   <!-- Advanced Routing Dialog -->
-  <el-dialog v-model="routingDialogVisible" title="分流规则表配置" width="60%" destroy-on-close>
+  <el-dialog v-model="routingDialogVisible" :title="t('proxies.routingDialog')" width="60%" destroy-on-close>
     <div v-if="currentProxy">
       <div class="mb-5 p-4 rounded-md" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
         <div class="flex justify-between items-center mb-3">
           <div class="flex items-center gap-1">
-            <span class="font-bold text-sm bt-text">分流规则表</span>
+            <span class="font-bold text-sm bt-text">{{ t('proxies.routingTable') }}</span>
             <el-tooltip effect="dark" placement="top" style="max-width: 300px;">
               <template #content>
-                规则按<b>从上到下</b>的顺序匹配，命中即生效。<br/>
-                支持通配符，例如: <code>*.google.com</code> 或 <code>192.168.*.*</code><br/>
-                若未命中任何规则，将执行下方的“默认动作”。
+                <span v-html="t('proxies.routingTableTooltip')"></span>
               </template>
               <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
             </el-tooltip>
           </div>
-          <el-button type="primary" plain size="small" :icon="Plus" @click="addRule(currentProxy)">添加规则</el-button>
+          <el-button type="primary" plain size="small" :icon="Plus" @click="addRule(currentProxy)">{{ t('proxies.addRule') }}</el-button>
         </div>
-        
+
         <div class="text-xs bt-text-secondary mb-2 flex items-center gap-1">
-          <el-icon><InfoFilled /></el-icon> 支持拖拽调整规则优先级。按从上到下的顺序依次匹配。
+          <el-icon><InfoFilled /></el-icon> {{ t('proxies.dragHint') }}
         </div>
-        
+
         <draggable v-model="currentProxy.proxyRules" item-key="id" handle=".drag-handle" animation="300" ghost-class="ghost">
           <template #item="{ element: rule, index: rIdx }">
             <div class="flex items-center gap-3 p-3 mb-3 rounded-md relative group" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
               <el-icon class="drag-handle cursor-move bt-text-secondary hover:text-blue-500 transition-colors" :size="20"><Sort /></el-icon>
-              
+
               <div class="flex-1 grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
                 <!-- Rule Cards Selector and List -->
                 <div class="flex flex-col gap-2 p-2 rounded" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
                   <div class="flex flex-col gap-1.5 mb-1">
-                    <span class="text-xs font-bold bt-text-secondary whitespace-nowrap">分流规则卡片 (拖拽排序/优先生效)</span>
+                    <span class="text-xs font-bold bt-text-secondary whitespace-nowrap">{{ t('proxies.ruleCards') }}</span>
                     <el-select
                       :model-value="''"
-                      placeholder="添加规则卡片"
+                      :placeholder="t('proxies.addRuleCard')"
                       class="w-full"
                       filterable
                       @change="(val) => addRuleCardToRule(rule, val)"
@@ -243,7 +241,7 @@
                     </template>
                   </draggable>
                   <div v-if="!rule.ruleCardIds || rule.ruleCardIds.length === 0" class="text-center text-xs bt-text-muted py-2">
-                    暂无规则卡片，请选择添加
+                    {{ t('proxies.noRuleCards') }}
                   </div>
                 </div>
 
@@ -252,24 +250,24 @@
                 <!-- Route Action Selector and List -->
                 <div class="flex flex-col gap-2 p-2 rounded" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
                   <div class="flex flex-col gap-1.5 mb-1">
-                    <span class="text-xs font-bold bt-text-secondary whitespace-nowrap">转发至目标 (拖拽排序/故障切换)</span>
+                    <span class="text-xs font-bold bt-text-secondary whitespace-nowrap">{{ t('proxies.forwardTargets') }}</span>
                     <el-select
                       :model-value="''"
-                      placeholder="添加转发目标"
+                      :placeholder="t('proxies.addForwardTarget')"
                       class="w-full"
                       filterable
                       @change="(val) => addActionToRule(rule, val)"
                     >
-                      <el-option-group label="内置动作">
-                        <el-option label="直连 (本地网络)" value="direct_local" :disabled="rule.action?.includes('direct_local')" />
-                        <el-option label="直连 (远端隧道)" value="direct_remote" :disabled="rule.action?.includes('direct_remote')" />
-                        <el-option label="拒绝连接" value="block" :disabled="rule.action?.includes('block')" />
+                      <el-option-group :label="t('proxies.builtinActions')">
+                        <el-option :label="t('rules.actionDirectLocal')" value="direct_local" :disabled="rule.action?.includes('direct_local')" />
+                        <el-option :label="t('rules.actionDirectRemote')" value="direct_remote" :disabled="rule.action?.includes('direct_remote')" />
+                        <el-option :label="t('rules.actionBlock')" value="block" :disabled="rule.action?.includes('block')" />
                       </el-option-group>
-                      <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
-                        <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" :disabled="rule.action?.includes(`chain:${chain.id}`)" />
+                      <el-option-group :label="t('chains.title')" v-if="config.proxyChains && config.proxyChains.length">
+                        <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="t('rules.viaChain', { name: chain.name })" :value="`chain:${chain.id}`" :disabled="rule.action?.includes(`chain:${chain.id}`)" />
                       </el-option-group>
-                      <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
-                        <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" :disabled="rule.action?.includes(`node:${node.id}`)" />
+                      <el-option-group :label="t('nodes.title')" v-if="config.proxyNodes && config.proxyNodes.length">
+                        <el-option v-for="node in config.proxyNodes" :key="node.id" :label="t('rules.viaNode', { name: node.displayName })" :value="`node:${node.id}`" :disabled="rule.action?.includes(`node:${node.id}`)" />
                       </el-option-group>
                     </el-select>
                   </div>
@@ -285,7 +283,7 @@
                     </template>
                   </draggable>
                   <div v-if="!rule.action || rule.action.length === 0" class="text-center text-xs bt-text-muted py-2">
-                    暂无转发目标，请选择添加
+                    {{ t('proxies.noForwardTargets') }}
                   </div>
                 </div>
               </div>
@@ -295,38 +293,38 @@
           </template>
         </draggable>
 
-        <el-empty v-if="!currentProxy.proxyRules || currentProxy.proxyRules.length === 0" description="暂无规则，将执行下方默认动作" :image-size="40" />
+        <el-empty v-if="!currentProxy.proxyRules || currentProxy.proxyRules.length === 0" :description="t('proxies.noRules')" :image-size="40" />
 
         <!-- Default Fallback Actions List -->
         <div class="mt-4 p-3 rounded flex flex-col gap-3" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
           <div class="flex justify-between items-center gap-4">
             <div class="flex items-center gap-1.5 shrink-0">
-              <el-tooltip content="当以上所有分流规则均未命中时，流量将执行此动作。支持设置多个动作，前面的不通时将按顺序尝试下一个。" placement="top">
+              <el-tooltip :content="t('proxies.defaultActionTooltip')" placement="top">
                 <el-icon class="text-gray-400"><InfoFilled /></el-icon>
               </el-tooltip>
-              <span class="text-xs font-bold bt-text whitespace-nowrap">默认兜底动作 (拖拽排序/故障切换):</span>
+              <span class="text-xs font-bold bt-text whitespace-nowrap">{{ t('proxies.defaultFallbackAction') }}</span>
             </div>
             <el-select
               :model-value="''"
-              placeholder="添加兜底动作"
+              :placeholder="t('proxies.addFallbackAction')"
               class="w-64"
               filterable
               @change="(val) => addDefaultAction(currentProxy, val)"
             >
-              <el-option-group label="内置动作">
-                <el-option label="直连 (本地网络)" value="direct_local" :disabled="currentProxy.defaultRuleAction?.includes('direct_local')" />
-                <el-option label="直连 (远端隧道)" value="direct_remote" :disabled="currentProxy.defaultRuleAction?.includes('direct_remote')" />
-                <el-option label="拒绝连接" value="block" :disabled="currentProxy.defaultRuleAction?.includes('block')" />
+              <el-option-group :label="t('proxies.builtinActions')">
+                <el-option :label="t('rules.actionDirectLocal')" value="direct_local" :disabled="currentProxy.defaultRuleAction?.includes('direct_local')" />
+                <el-option :label="t('rules.actionDirectRemote')" value="direct_remote" :disabled="currentProxy.defaultRuleAction?.includes('direct_remote')" />
+                <el-option :label="t('rules.actionBlock')" value="block" :disabled="currentProxy.defaultRuleAction?.includes('block')" />
               </el-option-group>
-              <el-option-group label="全局代理链" v-if="config.proxyChains && config.proxyChains.length">
-                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="`走代理链: ${chain.name}`" :value="`chain:${chain.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}`)" />
+              <el-option-group :label="t('chains.title')" v-if="config.proxyChains && config.proxyChains.length">
+                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="t('rules.viaChain', { name: chain.name })" :value="`chain:${chain.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}`)" />
               </el-option-group>
-              <el-option-group label="单一代理节点" v-if="config.proxyNodes && config.proxyNodes.length">
-                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="`走节点: ${node.displayName}`" :value="`node:${node.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}`)" />
+              <el-option-group :label="t('nodes.title')" v-if="config.proxyNodes && config.proxyNodes.length">
+                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="t('rules.viaNode', { name: node.displayName })" :value="`node:${node.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}`)" />
               </el-option-group>
             </el-select>
           </div>
-          
+
           <draggable v-model="currentProxy.defaultRuleAction" item-key="this" handle=".default-action-drag" animation="200" ghost-class="ghost" class="flex flex-wrap gap-2">
             <template #item="{ element: act, index: dIdx }">
               <div class="flex items-center gap-1.5 p-1.5 rounded text-xs" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
@@ -337,7 +335,7 @@
             </template>
           </draggable>
           <div v-if="!currentProxy.defaultRuleAction || currentProxy.defaultRuleAction.length === 0" class="text-center text-xs bt-text-muted py-1">
-            暂无兜底动作，请选择添加 (至少需要一个兜底动作)
+            {{ t('proxies.noFallbackAction') }}
           </div>
         </div>
       </div>
@@ -345,35 +343,31 @@
   </el-dialog>
 
   <!-- ACL Dialog -->
-  <el-dialog v-model="aclDialogVisible" title="访问控制 (ACL)" width="800px" destroy-on-close>
+  <el-dialog v-model="aclDialogVisible" :title="t('proxies.acl')" width="800px" destroy-on-close>
     <div v-if="currentProxy">
       <div class="flex items-center gap-1 mb-1">
-        <span class="font-bold text-xs text-gray-700">来源 IP 控制</span>
+        <span class="font-bold text-xs text-gray-700">{{ t('proxies.sourceIpControl') }}</span>
         <el-tooltip effect="dark" placement="top" style="max-width: 300px;">
           <template #content>
-            控制<b>哪些设备的 IP</b>可以连接到您的这个代理端口。<br/>
-            - 白名单: 只有列表中的 IP 可以连接（一行一个）<br/>
-            - 黑名单: 列表中的 IP 会被拒绝连接<br/>
-            如果白名单为空，则默认允许所有来源。
+            <span v-html="t('proxies.sourceIpTooltip')"></span>
           </template>
           <el-icon class="text-gray-400 cursor-pointer text-xs"><InfoFilled /></el-icon>
         </el-tooltip>
       </div>
-      <el-input v-model="currentProxy._allowIps" type="textarea" :rows="3" placeholder="白名单 (每行一个 IP)" class="mb-2" />
-      <el-input v-model="currentProxy._denyIps" type="textarea" :rows="3" placeholder="黑名单 (每行一个 IP)" class="mb-4" />
+      <el-input v-model="currentProxy._allowIps" type="textarea" :rows="3" :placeholder="t('proxies.whitelistPlaceholder')" class="mb-2" />
+      <el-input v-model="currentProxy._denyIps" type="textarea" :rows="3" :placeholder="t('proxies.blacklistPlaceholder')" class="mb-4" />
 
       <div class="flex items-center gap-1 mb-1">
-        <span class="font-bold text-xs text-gray-700">目标 IP 控制</span>
+        <span class="font-bold text-xs text-gray-700">{{ t('proxies.targetIpControl') }}</span>
         <el-tooltip effect="dark" placement="top" style="max-width: 300px;">
           <template #content>
-            控制这个代理<b>能够访问哪些目标 IP</b>。<br/>
-            （注：这是旧版简单的 ACL 拦截，仅支持 IP。如果您需要更强大的按域名或通配符拦截，建议留空此项，使用上方的高级“分流规则表”。）
+            <span v-html="t('proxies.targetIpTooltip')"></span>
           </template>
           <el-icon class="text-gray-400 cursor-pointer text-xs"><InfoFilled /></el-icon>
         </el-tooltip>
       </div>
-      <el-input v-model="currentProxy._targetAllowIps" type="textarea" :rows="3" placeholder="目标白名单 (建议使用上方的分流规则表)" class="mb-2" />
-      <el-input v-model="currentProxy._targetDenyIps" type="textarea" :rows="3" placeholder="目标黑名单 (建议使用上方的分流规则表)" />
+      <el-input v-model="currentProxy._targetAllowIps" type="textarea" :rows="3" :placeholder="t('proxies.targetWhitelistPlaceholder')" class="mb-2" />
+      <el-input v-model="currentProxy._targetDenyIps" type="textarea" :rows="3" :placeholder="t('proxies.targetBlacklistPlaceholder')" />
     </div>
     </el-dialog>
 </template>
@@ -383,6 +377,7 @@ import { computed, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import draggable from 'vuedraggable';
 import { Delete, Plus, User, Lock, Switch, HelpFilled, InfoFilled, Sort, Right, Setting, Guide, ArrowDown } from '@element-plus/icons-vue';
+import { t } from '../i18n';
 
 const props = defineProps({
   config: Object,
@@ -417,31 +412,31 @@ const getUsedPorts = (excludeObj, onlyEnabled = false) => {
     if (modeCfg.forwards) {
       modeCfg.forwards.forEach((f, i) => {
         if (f !== excludeObj && isOccupied(f)) {
-          used.set(f.listenPort, `${modeLabel}映射#${i + 1}`);
+          used.set(f.listenPort, `${modeLabel}${t('forward.forwardUnit')}#${i + 1}`);
         }
       });
     }
     if (modeCfg.connections) {
       modeCfg.connections.forEach((c, i) => {
         if (c !== excludeObj && isOccupied(c)) {
-          used.set(c.listenPort, `${modeLabel}连接#${i + 1}(${c.alias || c.id})`);
+          used.set(c.listenPort, `${modeLabel}${t('forward.connUnit')}#${i + 1}(${c.alias || c.id})`);
         }
       });
     }
   };
-  collect(props.config.server, '服务端');
-  collect(props.config.client, '客户端');
+  collect(props.config.server, t('proxies.serverLabel'));
+  collect(props.config.client, t('proxies.clientLabel'));
   const collectProxies = (modeCfg, modeLabel) => {
     if (modeCfg && modeCfg.proxies) {
       modeCfg.proxies.forEach((p, i) => {
         if (p !== excludeObj && isOccupied(p)) {
-          used.set(p.listenPort, `${modeLabel}代理#${i + 1}(${p.name || ''})`);
+          used.set(p.listenPort, `${modeLabel}${t('proxies.proxyUnit')}#${i + 1}(${p.name || ''})`);
         }
       });
     }
   };
-  collectProxies(props.config.server, '服务端');
-  collectProxies(props.config.client, '客户端');
+  collectProxies(props.config.server, t('proxies.serverLabel'));
+  collectProxies(props.config.client, t('proxies.clientLabel'));
   return used;
 };
 
@@ -474,14 +469,14 @@ const handleAddProxy = (mode) => {
   while (usedPorts.has(newPort)) newPort++;
 
   // 统计当前模式下同名代理的数量，生成默认名称
-  const modeLabel = mode === 'server' ? '服务端' : '客户端';
+  const modeLabel = mode === 'server' ? t('proxies.serverLabel') : t('proxies.clientLabel');
   const sameModeCount = props.config[mode].proxies.length + 1;
-  let defaultName = `${modeLabel}代理 ${sameModeCount}`;
+  let defaultName = `${modeLabel}${t('proxies.proxyUnit')} ${sameModeCount}`;
 
   // 名称去重：若名称已存在，则追加 "_重复"，直到唯一
   const existingNames = getAllProxyNames(null);
   if (existingNames.has(defaultName)) {
-    defaultName = defaultName + '_重复';
+    defaultName = defaultName + t('common.duplicateSuffix');
   }
 
   props.config[mode].proxies.push({
@@ -510,7 +505,7 @@ const toggleProxyEnabled = async (px) => {
   // 1) 前端预检：检查是否与其他已启用的代理/映射/连接端口冲突
   const used = getUsedPorts(px, true);
   if (used.has(px.listenPort)) {
-    ElMessage.error(`端口 ${px.listenPort} 已被 ${used.get(px.listenPort)} 占用，无法启用`);
+    ElMessage.error(t('proxies.portInUse', { port: px.listenPort, name: used.get(px.listenPort) }));
     px.enabled = false;
     return;
   }
@@ -519,7 +514,7 @@ const toggleProxyEnabled = async (px) => {
     const res = await fetch(`/api/check-port/${px.listenPort}`);
     const data = await res.json();
     if (data.success && !data.available) {
-      ElMessage.error(data.message || `端口 ${px.listenPort} 已被占用，无法启用`);
+      ElMessage.error(data.message || t('proxies.portOccupied', { port: px.listenPort }));
       px.enabled = false;
     }
   } catch (e) {
@@ -534,10 +529,10 @@ const handleNameBlur = (px) => {
   if (!name) return;
   const others = getAllProxyNames(px);
   if (others.has(name)) {
-    let newName = name + '_重复';
-    while (others.has(newName)) newName = newName + '_重复';
+    let newName = name + t('common.duplicateSuffix');
+    while (others.has(newName)) newName = newName + t('common.duplicateSuffix');
     px.name = newName;
-    ElMessage.warning(`名称已存在，已自动改为 "${newName}"`);
+    ElMessage.warning(t('proxies.nameAutoChanged', { name: newName }));
   }
 };
 
@@ -555,7 +550,7 @@ const switchProxyMode = (oldMode, newMode, refObj) => {
   if (idx !== -1) {
     oldArr.splice(idx, 1);
     newArr.push(refObj);
-    ElMessage.success(`已切换为${newMode === 'server' ? '服务端代理' : '客户端代理'}`);
+    ElMessage.success(newMode === 'server' ? t('proxies.switchedToServer') : t('proxies.switchedToClient'));
   }
 };
 
@@ -581,7 +576,7 @@ const openAclDialog = (px) => {
 
 const addRule = (px) => {
   if (!props.config.ruleCards || props.config.ruleCards.length === 0) {
-    ElMessage.warning('暂无分流规则卡片，请先到“分流规则”页面创建规则卡片！');
+    ElMessage.warning(t('proxies.noRuleCardsWarning'));
     return;
   }
   if (!px.proxyRules) px.proxyRules = [];
@@ -618,18 +613,18 @@ const addActionToRule = (rule, val) => {
 };
 
 const getActionName = (act) => {
-  if (act === 'direct_local') return '直连 (本地网络)';
-  if (act === 'direct_remote') return '直连 (远端隧道)';
-  if (act === 'block') return '拒绝连接';
+  if (act === 'direct_local') return t('rules.actionDirectLocal');
+  if (act === 'direct_remote') return t('rules.actionDirectRemote');
+  if (act === 'block') return t('rules.actionBlock');
   if (act.startsWith('chain:')) {
     const chainId = act.substring(6);
     const chain = (props.config.proxyChains || []).find(c => c.id === chainId);
-    return chain ? `走代理链: ${chain.name}` : `代理链: ${chainId}`;
+    return chain ? t('rules.viaChain', { name: chain.name }) : t('rules.chainLabel', { id: chainId });
   }
   if (act.startsWith('node:')) {
     const nodeId = act.substring(5);
     const node = (props.config.proxyNodes || []).find(n => n.id === nodeId);
-    return node ? `走节点: ${node.displayName}` : `节点: ${nodeId}`;
+    return node ? t('rules.viaNode', { name: node.displayName }) : t('rules.nodeLabel', { id: nodeId });
   }
   return act;
 };

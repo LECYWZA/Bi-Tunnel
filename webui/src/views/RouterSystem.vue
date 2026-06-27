@@ -5,39 +5,53 @@
       <div class="flex items-center gap-3 mb-4">
         <el-icon :size="22" style="color: var(--bt-primary)"><Share /></el-icon>
         <div class="flex-1">
-          <div class="font-bold text-base bt-text">路由系统</div>
+          <div class="font-bold text-base bt-text">{{ t('router.title') }}</div>
           <div class="text-xs bt-text-secondary mt-1">
-            把本机变成一台软路由器，给局域网设备分配 IP 并通过指定代理出网。需要管理员/root 权限。
+            {{ t('router.subtitle') }}
+            <span style="color: var(--el-color-warning); font-weight: 600;">⚠️ {{ t('common.experimental') }}</span>
           </div>
         </div>
         <el-tag :type="running ? 'success' : 'info'" effect="dark" round size="large">
-          {{ running ? '运行中' : '已停止' }}
+          {{ running ? t('common.running') : t('common.stopped') }}
         </el-tag>
-        <el-button v-if="!running" type="primary" :icon="VideoPlay" :loading="starting" @click="startRouter">启动路由器</el-button>
-        <el-button v-else type="danger" :icon="VideoPause" :loading="stopping" @click="stopRouter">停止路由器</el-button>
+        <el-button v-if="!running" type="primary" :icon="VideoPlay" :loading="starting" @click="startRouter">{{ t('router.startRouter') }}</el-button>
+        <el-button v-else type="danger" :icon="VideoPause" :loading="stopping" @click="stopRouter">{{ t('router.stopRouter') }}</el-button>
       </div>
+
+      <el-alert
+        v-if="cfg.interface && cfg.interface !== '0.0.0.0' && !running"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mt-2 mb-2"
+      >
+        <template #title>
+          <span style="font-weight: 600;">{{ t('router.interfaceWarnTitle') }}</span>
+        </template>
+        <div class="text-xs" style="line-height: 1.6;" v-html="t('router.interfaceWarnBody', { iface: cfg.interface })"></div>
+      </el-alert>
 
       <el-form label-position="top" class="mt-2">
         <el-row :gutter="16">
           <el-col :span="6">
             <el-form-item class="mb-2">
-              <template #label>路由器名称</template>
-              <el-input v-model="cfg.name" placeholder="bi-router" />
+              <template #label>{{ t('router.routerName') }}</template>
+              <el-input v-model="cfg.name" :placeholder="t('router.routerNamePlaceholder')" />
             </el-form-item>
           </el-col>
           <el-col :span="6">
             <el-form-item class="mb-2">
               <template #label>
                 <div class="flex items-center gap-1">
-                  <span>网卡</span>
-                  <el-tooltip content="选择路由器使用的物理网卡，将作为 LAN 口" placement="top">
+                  <span>{{ t('router.interface') }}</span>
+                  <el-tooltip :content="t('router.interfaceTooltip')" placement="top">
                     <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                   </el-tooltip>
                 </div>
               </template>
-              <el-select v-model="cfg.interface" placeholder="选择网卡" filterable style="width: 100%;">
+              <el-select v-model="cfg.interface" :placeholder="t('router.interface')" filterable style="width: 100%;">
                 <el-option
-                  label="0.0.0.0 (所有网卡 / 不绑定具体网卡)"
+                  :label="t('router.interfaceWildcard')"
                   value="0.0.0.0"
                 />
                 <el-option
@@ -53,23 +67,23 @@
             <el-form-item class="mb-2">
               <template #label>
                 <div class="flex items-center gap-1">
-                  <span>网段 (CIDR)</span>
-                  <el-tooltip content="路由器在该网段的 IP/掩码，例如 192.168.88.1/24" placement="top">
+                  <span>{{ t('router.subnetCidr') }}</span>
+                  <el-tooltip :content="t('router.subnetCidrTooltip')" placement="top">
                     <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                   </el-tooltip>
                 </div>
               </template>
-              <el-input v-model="cfg.subnetCidr" placeholder="192.168.88.1/24" />
+              <el-input v-model="cfg.subnetCidr" :placeholder="t('router.subnetCidrPlaceholder')" />
             </el-form-item>
           </el-col>
           <el-col :span="6">
             <el-form-item class="mb-2">
-              <template #label>出口模式</template>
+              <template #label>{{ t('router.upstreamMode') }}</template>
               <el-select v-model="cfg.upstreamMode" style="width: 100%;">
-                <el-option label="直连 (仅 NAT)" value="direct" />
-                <el-option label="系统代理" value="systemProxy" />
-                <el-option label="虚拟网卡 (TUN)" value="tun" />
-                <el-option label="指定混合代理" value="proxy" />
+                <el-option :label="t('router.upstreamDirect')" value="direct" />
+                <el-option :label="t('router.upstreamSystemProxy')" value="systemProxy" />
+                <el-option :label="t('router.upstreamTun')" value="tun" />
+                <el-option :label="t('router.upstreamProxy')" value="proxy" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -77,13 +91,13 @@
             <el-form-item class="mb-2">
               <template #label>
                 <div class="flex items-center gap-1">
-                  <span>指定代理</span>
-                  <el-tooltip content="选择某个混合代理作为出口；Linux 通过 iptables REDIRECT 接入，Windows 不支持，将自动降级" placement="top">
+                  <span>{{ t('router.upstreamProxy') }}</span>
+                  <el-tooltip :content="t('router.upstreamProxy')" placement="top">
                     <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                   </el-tooltip>
                 </div>
               </template>
-              <el-select v-model="cfg.upstreamProxyId" placeholder="选择混合代理" style="width: 100%;">
+              <el-select v-model="cfg.upstreamProxyId" :placeholder="t('router.selectProxy')" style="width: 100%;">
                 <el-option
                   v-for="p in allProxies"
                   :key="p.id"
@@ -95,7 +109,7 @@
           </el-col>
         </el-row>
         <div class="flex justify-end">
-          <el-button type="primary" :icon="Check" @click="saveConfig">保存配置</el-button>
+          <el-button type="primary" :icon="Check" @click="saveConfig">{{ t('common.save') }}</el-button>
         </div>
       </el-form>
     </el-card>
@@ -107,34 +121,34 @@
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <el-icon style="color: var(--bt-primary)"><Connection /></el-icon>
-              <span class="font-bold text-base bt-text">DHCP 服务</span>
+              <span class="font-bold text-base bt-text">{{ t('router.dhcpSettings') }}</span>
             </div>
-            <el-switch v-model="cfg.dhcp.enabled" inline-prompt active-text="启用" inactive-text="关闭" />
+            <el-switch v-model="cfg.dhcp.enabled" inline-prompt :active-text="t('router.enableDhcp')" :inactive-text="t('router.macFilterDisabled')" />
           </div>
         </template>
         <el-form label-position="top">
           <el-row :gutter="12">
             <el-col :span="12">
               <el-form-item class="mb-3">
-                <template #label>DHCP 范围 - 起</template>
+                <template #label>{{ t('router.dhcpRangeStart') }}</template>
                 <el-input v-model="cfg.dhcp.rangeStart" placeholder="192.168.88.100" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item class="mb-3">
-                <template #label>DHCP 范围 - 止</template>
+                <template #label>{{ t('router.dhcpRangeEnd') }}</template>
                 <el-input v-model="cfg.dhcp.rangeEnd" placeholder="192.168.88.200" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item class="mb-3">
-                <template #label>租约时长 (小时)</template>
+                <template #label>{{ t('router.dhcpLeaseTime') }}</template>
                 <el-input-number v-model="cfg.dhcp.leaseTimeHours" :min="1" :max="168" style="width: 100%;" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item class="mb-3">
-                <template #label>网关</template>
+                <template #label>{{ t('router.dhcpGateway') }}</template>
                 <el-input v-model="cfg.dhcp.gateway" placeholder="192.168.88.1" />
               </el-form-item>
             </el-col>
@@ -142,17 +156,16 @@
               <el-form-item class="mb-3">
                 <template #label>
                   <div class="flex items-center gap-1">
-                    <span>DNS</span>
-                    <el-tooltip content="自动从导航栏全局 DNS 配置中读取纯 IPv4 地址下发；DoH/TCP 等格式 DHCP 不支持，会被跳过" placement="top">
+                    <span>{{ t('router.dhcpDns') }}</span>
+                    <el-tooltip :content="t('router.dhcpDnsTooltip')" placement="top">
                       <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
                     </el-tooltip>
                   </div>
                 </template>
                 <div class="text-sm bt-text-secondary">
-                  下发 DNS：
+                  {{ t('router.dhcpDns') }}：
                   <span v-if="resolvedDns.length" class="bt-text font-medium">{{ resolvedDns.join(', ') }}</span>
-                  <span v-else class="text-gray-400">未配置（将使用默认 223.5.5.5, 1.1.1.1）</span>
-                  <span class="ml-2 text-xs text-gray-400">— 在顶部导航栏 DNS 配置中维护</span>
+                  <span v-else class="text-gray-400">—</span>
                 </div>
               </el-form-item>
             </el-col>
@@ -165,29 +178,26 @@
         <template #header>
           <div class="flex items-center gap-2">
             <el-icon style="color: var(--bt-primary)"><Filter /></el-icon>
-            <span class="font-bold text-base bt-text">MAC 过滤</span>
+            <span class="font-bold text-base bt-text">{{ t('router.macFilter') }}</span>
           </div>
         </template>
         <el-form label-position="top">
           <el-form-item class="mb-3">
-            <template #label>过滤模式</template>
+            <template #label>{{ t('router.macFilterMode') }}</template>
             <el-radio-group v-model="cfg.macFilter.mode">
-              <el-radio-button value="disabled">关闭</el-radio-button>
-              <el-radio-button value="whitelist">白名单</el-radio-button>
-              <el-radio-button value="blacklist">黑名单</el-radio-button>
+              <el-radio-button value="disabled">{{ t('router.macFilterDisabled') }}</el-radio-button>
+              <el-radio-button value="whitelist">{{ t('router.macFilterWhitelist') }}</el-radio-button>
+              <el-radio-button value="blacklist">{{ t('router.macFilterBlacklist') }}</el-radio-button>
             </el-radio-group>
-            <div class="text-xs bt-text-secondary mt-1" v-if="cfg.macFilter.mode !== 'disabled'">
-              {{ cfg.macFilter.mode === 'whitelist' ? '仅允许以下 MAC 地址的设备接入' : '阻断以下 MAC 地址的设备' }}
-            </div>
           </el-form-item>
           <el-form-item v-if="cfg.macFilter.mode !== 'disabled'" class="mb-0">
-            <template #label>MAC 列表（每行一个）</template>
+            <template #label>{{ t('router.macFilterAddresses') }}</template>
             <el-input
               :model-value="cfg.macFilter.addresses.join('\n')"
               @update:model-value="v => cfg.macFilter.addresses = v.split('\n').map(s => s.trim().toUpperCase()).filter(Boolean)"
               type="textarea"
               :rows="6"
-              placeholder="AA:BB:CC:DD:EE:FF&#10;11:22:33:44:55:66"
+              :placeholder="t('router.macFilterPlaceholder')"
             />
           </el-form-item>
         </el-form>
@@ -200,17 +210,17 @@
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <el-icon style="color: var(--bt-primary)"><EditPen /></el-icon>
-            <span class="font-bold text-base bt-text">静态绑定</span>
+            <span class="font-bold text-base bt-text">{{ t('router.staticBindings') }}</span>
           </div>
-          <el-button type="primary" plain size="small" :icon="Plus" @click="addBinding">添加</el-button>
+          <el-button type="primary" plain size="small" :icon="Plus" @click="addBinding">{{ t('router.addBinding') }}</el-button>
         </div>
       </template>
-      <el-empty v-if="cfg.staticBindings.length === 0" description="暂无静态绑定" :image-size="60" />
+      <el-empty v-if="cfg.staticBindings.length === 0" :description="t('common.empty')" :image-size="60" />
       <div v-else class="space-y-2">
         <div v-for="(b, i) in cfg.staticBindings" :key="i" class="flex items-center gap-2">
           <el-select
             v-model="b.mac"
-            placeholder="选择设备或输入 MAC"
+            :placeholder="t('router.bindingDevicePlaceholder')"
             filterable
             allow-create
             default-first-option
@@ -224,8 +234,8 @@
               :value="d.mac"
             />
           </el-select>
-          <el-input v-model="b.ip" placeholder="固定 IP" style="flex: 1;" />
-          <el-input v-model="b.name" placeholder="备注名称" style="flex: 1;" />
+          <el-input v-model="b.ip" :placeholder="t('router.bindingIp')" style="flex: 1;" />
+          <el-input v-model="b.name" :placeholder="t('router.deviceHostname')" style="flex: 1;" />
           <el-button type="danger" :icon="Delete" circle plain @click="cfg.staticBindings.splice(i, 1)" />
         </div>
       </div>
@@ -237,39 +247,39 @@
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <el-icon style="color: var(--bt-primary)"><Monitor /></el-icon>
-            <span class="font-bold text-base bt-text">已连接设备</span>
+            <span class="font-bold text-base bt-text">{{ t('router.devices') }}</span>
             <el-tag size="small" type="info">{{ devices.length }}</el-tag>
           </div>
           <el-button :icon="Refresh" circle plain size="small" @click="fetchDevices" :loading="loadingDevices" />
         </div>
       </template>
       <el-table :data="devices" v-loading="loadingDevices" stripe size="default">
-        <el-table-column label="MAC 地址" prop="mac" width="180" />
-        <el-table-column label="IP 地址" prop="ip" width="140" />
-        <el-table-column label="主机名" prop="hostname" min-width="120" show-overflow-tooltip>
+        <el-table-column :label="t('router.deviceMac')" prop="mac" width="180" />
+        <el-table-column :label="t('router.deviceIp')" prop="ip" width="140" />
+        <el-table-column :label="t('router.deviceHostname')" prop="hostname" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.hostname">{{ row.hostname }}</span>
             <span v-else class="text-gray-400">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="来源" prop="source" width="90">
+        <el-table-column :label="t('common.status')" prop="source" width="90">
           <template #default="{ row }">
             <span :class="sourceClass(row.source)">{{ sourceLabel(row.source) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column :label="t('router.deviceStatus')" width="100">
           <template #default="{ row }">
             <span :class="statusClass(row)">
               {{ statusLabel(row) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="最后活跃" width="170">
+        <el-table-column :label="t('logs.time')" width="170">
           <template #default="{ row }">
             {{ row.lastSeen ? formatTime(row.lastSeen) : '—' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220">
+        <el-table-column :label="t('router.deviceActions')" width="220">
           <template #default="{ row }">
             <el-button
               size="small"
@@ -277,9 +287,9 @@
               plain
               @click="toggleDevice(row)"
             >
-              {{ row.enabled === false ? '启用' : '禁用' }}
+              {{ row.enabled === false ? t('common.enabled') : t('common.disabled') }}
             </el-button>
-            <el-button size="small" type="danger" plain @click="kickDevice(row)">踢下线</el-button>
+            <el-button size="small" type="danger" plain @click="kickDevice(row)">{{ t('router.kickDevice') }}</el-button>
             <el-button size="small" type="danger" circle plain :icon="Delete" @click="deleteDevice(row)" />
           </template>
         </el-table-column>
@@ -295,6 +305,7 @@ import {
   Share, Connection, Filter, EditPen, Plus, Delete, Monitor, Refresh,
   VideoPlay, VideoPause, Check, InfoFilled
 } from '@element-plus/icons-vue';
+import { t } from '../i18n';
 
 const props = defineProps({ config: Object });
 
@@ -329,13 +340,13 @@ const allProxies = computed(() => {
   if (c.server && Array.isArray(c.server.proxies)) {
     c.server.proxies.forEach(p => list.push({
       id: p.id,
-      label: `${p.name || '未命名'} (端口: ${p.listenPort})`
+      label: `${p.name || t('common.unnamed')} (${t('forward.localPort')}: ${p.listenPort})`
     }));
   }
   if (c.client && Array.isArray(c.client.proxies)) {
     c.client.proxies.forEach(p => list.push({
       id: p.id,
-      label: `${p.name || '未命名'} (端口: ${p.listenPort})`
+      label: `${p.name || t('common.unnamed')} (${t('forward.localPort')}: ${p.listenPort})`
     }));
   }
   return list;
@@ -370,7 +381,7 @@ async function fetchConfig() {
       running.value = !!data.running;
     }
   } catch (e) {
-    ElMessage.error('加载路由器配置失败: ' + e.message);
+    ElMessage.error(t('router.loadConfigFailed', { msg: e.message }));
   }
 }
 
@@ -401,10 +412,10 @@ async function saveConfig() {
       body: JSON.stringify(cfg)
     });
     const data = await res.json();
-    if (data.success) ElMessage.success('配置已保存');
-    else ElMessage.error(data.message || '保存失败');
+    if (data.success) ElMessage.success(t('router.configSaved'));
+    else ElMessage.error(data.message || t('router.saveFailed'));
   } catch (e) {
-    ElMessage.error('保存失败: ' + e.message);
+    ElMessage.error(t('router.saveFailed') + ': ' + e.message);
   }
 }
 
@@ -414,14 +425,14 @@ async function startRouter() {
     const res = await fetch('/api/router/start', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      ElMessage.success('路由器已启动');
+      ElMessage.success(t('router.startSuccess'));
       running.value = true;
       fetchDevices();
     } else {
-      ElMessage.error(data.message || '启动失败');
+      ElMessage.error(data.message || t('router.startFailed'));
     }
   } catch (e) {
-    ElMessage.error('启动失败: ' + e.message);
+    ElMessage.error(t('router.startFailed') + ': ' + e.message);
   } finally {
     starting.value = false;
   }
@@ -433,13 +444,13 @@ async function stopRouter() {
     const res = await fetch('/api/router/stop', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      ElMessage.success('路由器已停止');
+      ElMessage.success(t('router.stopSuccess'));
       running.value = false;
     } else {
-      ElMessage.error(data.message || '停止失败');
+      ElMessage.error(data.message || t('router.stopFailed'));
     }
   } catch (e) {
-    ElMessage.error('停止失败: ' + e.message);
+    ElMessage.error(t('router.stopFailed') + ': ' + e.message);
   } finally {
     stopping.value = false;
   }
@@ -455,39 +466,39 @@ async function toggleDevice(row) {
     });
     const data = await res.json();
     if (data.success) {
-      ElMessage.success(newEnabled ? '已启用' : '已禁用');
+      ElMessage.success(newEnabled ? t('router.enableSuccess') : t('router.disableSuccess'));
       fetchDevices();
     } else {
-      ElMessage.error(data.message || '操作失败');
+      ElMessage.error(data.message || t('router.operationFailed'));
     }
   } catch (e) {
-    ElMessage.error('操作失败: ' + e.message);
+    ElMessage.error(t('router.operationFailed') + ': ' + e.message);
   }
 }
 
 async function kickDevice(row) {
   try {
-    await ElMessageBox.confirm(`确定将设备 ${row.mac} (${row.ip}) 踢下线？`, '提示', { type: 'warning' });
+    await ElMessageBox.confirm(t('router.kickConfirm', { mac: row.mac, ip: row.ip }), t('common.warning'), { type: 'warning' });
     const res = await fetch(`/api/router/devices/${encodeURIComponent(row.mac)}/kick`, { method: 'POST' });
     const data = await res.json();
-    if (data.success) ElMessage.success('已踢下线');
-    else ElMessage.error(data.message || '操作失败');
+    if (data.success) ElMessage.success(t('router.kickDevice'));
+    else ElMessage.error(data.message || t('router.operationFailed'));
     fetchDevices();
   } catch (e) {
-    if (e !== 'cancel') ElMessage.error('操作失败');
+    if (e !== 'cancel') ElMessage.error(t('router.operationFailed'));
   }
 }
 
 async function deleteDevice(row) {
   try {
-    await ElMessageBox.confirm(`确定从列表中删除设备 ${row.mac}？`, '提示', { type: 'warning' });
+    await ElMessageBox.confirm(t('router.deleteConfirm', { mac: row.mac }), t('common.warning'), { type: 'warning' });
     const res = await fetch(`/api/router/devices/${encodeURIComponent(row.mac)}`, { method: 'DELETE' });
     const data = await res.json();
-    if (data.success) ElMessage.success('已删除');
-    else ElMessage.error(data.message || '删除失败');
+    if (data.success) ElMessage.success(t('common.success'));
+    else ElMessage.error(data.message || t('common.failed'));
     fetchDevices();
   } catch (e) {
-    if (e !== 'cancel') ElMessage.error('删除失败');
+    if (e !== 'cancel') ElMessage.error(t('common.failed'));
   }
 }
 
@@ -506,7 +517,7 @@ function onBindingMacChange(binding, val) {
   }
 }
 
-const SOURCE_LABEL = { dhcp: 'DHCP', static: '静态', arp: 'ARP' };
+const SOURCE_LABEL = { dhcp: 'DHCP', static: t('router.deviceRegistered'), arp: 'ARP' };
 const SOURCE_CLASS = {
   dhcp: 'bt-source-dhcp',
   static: 'bt-source-static',
@@ -516,8 +527,8 @@ function sourceLabel(s) { return SOURCE_LABEL[s] || (s || '—'); }
 function sourceClass(s) { return SOURCE_CLASS[s] || 'text-gray-400'; }
 
 function statusLabel(row) {
-  if (row.enabled === false) return '已禁用';
-  return row.online ? '在线' : '离线';
+  if (row.enabled === false) return t('common.disabled');
+  return row.online ? t('router.deviceOnline') : t('router.deviceOffline');
 }
 function statusClass(row) {
   if (row.enabled === false) return 'bt-status-disabled';

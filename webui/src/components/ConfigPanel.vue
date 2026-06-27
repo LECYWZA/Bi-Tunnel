@@ -2,10 +2,10 @@
   <div>
     <el-row :gutter="24">
       <el-col :span="12">
-        <ForwardSection 
-          mode="server" 
-          title="服务端配置" 
-          :config="config" 
+        <ForwardSection
+          mode="server"
+          :title="t('forward.serverConfigTitle')"
+          :config="config"
           :status="status"
           :availableIps="availableIps"
           @start="$emit('start', 'server')"
@@ -14,10 +14,10 @@
         />
       </el-col>
       <el-col :span="12">
-        <ForwardSection 
-          mode="client" 
-          title="客户端配置" 
-          :config="config" 
+        <ForwardSection
+          mode="client"
+          :title="t('forward.clientConfigTitle')"
+          :config="config"
           :status="status"
           :availableIps="availableIps"
           @start="$emit('start', 'client')"
@@ -31,6 +31,7 @@
 
 <script setup>
 import ForwardSection from './ForwardSection.vue';
+import { t } from '../i18n';
 
 const props = defineProps({
   config: Object,

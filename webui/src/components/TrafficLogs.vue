@@ -5,12 +5,12 @@
       <div class="toolbar-left">
         <el-icon class="text-blue-500"><Document /></el-icon>
         <span class="font-bold text-base">{{ t('logs.title') }}</span>
-        <el-tag v-if="autoRefresh" type="success" size="small" effect="plain" round>实时</el-tag>
-        <el-tag v-else type="info" size="small" effect="plain" round>已暂停</el-tag>
+        <el-tag v-if="autoRefresh" type="success" size="small" effect="plain" round>{{ t('logs.liveTag') }}</el-tag>
+        <el-tag v-else type="info" size="small" effect="plain" round>{{ t('logs.pausedTag') }}</el-tag>
       </div>
       <div class="toolbar-right">
         <el-switch v-model="autoRefresh" inline-prompt :active-text="t('logs.realtime')" :inactive-text="t('logs.pause')" @change="onRealtimeChange" />
-        <el-button size="small" :icon="Delete" @click="clearLogs" plain>清空</el-button>
+        <el-button size="small" :icon="Delete" @click="clearLogs" plain>{{ t('logs.clearBtn') }}</el-button>
       </div>
     </div>
 
@@ -25,8 +25,8 @@
         <el-option :label="t('logs.block')" value="block" />
       </el-select>
       <el-select v-model="searchQuery.module" :placeholder="t('logs.module')" size="small" style="width: 110px;" class="shrink-0" clearable @change="fetchLogs">
-        <el-option label="系统代理" value="Proxy" />
-        <el-option label="虚拟网卡" value="Forward" />
+        <el-option :label="t('logs.moduleProxyOption')" value="Proxy" />
+        <el-option :label="t('logs.moduleForwardOption')" value="Forward" />
       </el-select>
       <el-select v-model="searchQuery.status" :placeholder="t('logs.status')" size="small" style="width: 100px;" class="shrink-0" clearable @change="fetchLogs">
         <el-option :label="t('logs.success')" value="success" />
@@ -58,7 +58,7 @@
             <span :class="['module-text', moduleClass(row.module)]">{{ moduleLabel(row.module) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="sourceIp" label="源 IP" width="130" />
+        <el-table-column prop="sourceIp" :label="t('logs.sourceIpCol')" width="130" />
         <el-table-column prop="target" :label="t('logs.targetChain')" min-width="280">
           <template #default="{ row }">
             <div class="flex flex-col gap-1.5 py-1">
@@ -97,10 +97,10 @@
         </el-table-column>
         <el-table-column prop="action" :label="t('logs.policy')" width="110" align="center">
           <template #default="{ row }">
-            <span :class="['action-text', actionClass(row.action)]" :title="row.rulePattern ? `匹配规则: ${row.rulePattern}` : ''">{{ actionLabel(row.action) }}</span>
+            <span :class="['action-text', actionClass(row.action)]" :title="row.rulePattern ? t('logs.ruleMatchedTitle', { rule: row.rulePattern }) : ''">{{ actionLabel(row.action) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="rulePattern" label="匹配规则" width="150" show-overflow-tooltip>
+        <el-table-column prop="rulePattern" :label="t('logs.rulePatternCol')" width="150" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="text-xs text-gray-500">{{ row.rulePattern || '-' }}</span>
           </template>
@@ -135,7 +135,7 @@
         :total="total"
         @size-change="fetchLogs"
         @current-change="fetchLogs"
-        small
+        size="small"
       />
     </div>
 
@@ -151,7 +151,7 @@
             <el-input v-model="quickAddHost" readonly disabled />
           </el-form-item>
           <el-form-item :label="t('logs.quickAddSelect')" required>
-            <el-select v-model="selectedCardId" placeholder="选择规则卡片" @change="loadCardData" style="width: 100%;" filterable>
+            <el-select v-model="selectedCardId" :placeholder="t('logs.selectCardPlaceholder')" @change="loadCardData" style="width: 100%;" filterable>
               <el-option v-for="card in config.ruleCards" :key="card.id" :label="card.name" :value="card.id" />
             </el-select>
           </el-form-item>
@@ -160,7 +160,7 @@
               type="textarea"
               v-model="quickAddForm.text"
               :rows="8"
-              placeholder="卡片规则内容，一行一条"
+              :placeholder="t('logs.cardPatternPlaceholder')"
               style="font-family: monospace;"
             />
             <div class="text-xs text-blue-500 mt-1">
@@ -289,9 +289,9 @@ const onRealtimeChange = async (val) => {
 
 const clearLogs = async () => {
   try {
-    await ElMessageBox.confirm('确定清空所有审计日志吗？此操作不可恢复。', '清空确认', {
-      confirmButtonText: '确定清空',
-      cancelButtonText: '取消',
+    await ElMessageBox.confirm(t('logs.clearConfirmMsg'), t('logs.clearConfirmTitle'), {
+      confirmButtonText: t('logs.clearConfirmBtn'),
+      cancelButtonText: t('common.cancel'),
       type: 'warning'
     });
     await fetch('/api/traffic-logs', { method: 'DELETE' });
@@ -299,7 +299,7 @@ const clearLogs = async () => {
     total.value = 0;
     newestId.value = 0;
     newRowIds.value.clear();
-    ElMessage.success('日志已清空');
+    ElMessage.success(t('logs.clearSuccess'));
     // 重新确保 WS 订阅和后端录制处于开启状态，避免清空后收不到新日志
     if (autoRefresh.value) {
       subscribeWs();
@@ -354,8 +354,8 @@ const formatBytes = (bytes) => {
 };
 
 const moduleLabel = (module) => {
-  if (module && module.includes('Proxy')) return '系统代理';
-  if (module && module.includes('Forward')) return '虚拟网卡';
+  if (module && module.includes('Proxy')) return t('logs.moduleProxyOption');
+  if (module && module.includes('Forward')) return t('logs.moduleForwardOption');
   return module || '-';
 };
 

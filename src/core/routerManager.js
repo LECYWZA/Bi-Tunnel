@@ -26,6 +26,8 @@ let lastAppliedIface = null;
 let lastAppliedIp = null;
 let lastAppliedPrefix = null;
 let lastWildcard = false;
+// 保存的网卡原始状态（用于 stop 时恢复，避免破坏 DHCP 网卡）
+let savedInterfaceState = null;
 
 /**
  * 启动路由器
@@ -69,7 +71,9 @@ async function start(cfg, getConfig, saveConfig, onEvent) {
   if (prefix < 8 || prefix > 30) throw new Error(`网段前缀不合理：${prefix}`);
 
   // 1. 配置网卡 IP（若不存在则添加）
+  //    注意：Windows netsh add address 会破坏 DHCP，所以先保存原状态用于 stop 时恢复
   if (!isWildcard) {
+    await _saveInterfaceState(iface);
     await _ensureInterfaceIp(iface, routerIp, prefix);
   }
 
@@ -160,6 +164,8 @@ async function stop() {
   // 清理网卡 IP（移除路由器添加的 secondary IP）
   if (lastAppliedIface && lastAppliedIp && !lastWildcard) {
     try { await _removeInterfaceIp(lastAppliedIface, lastAppliedIp, lastAppliedPrefix); } catch (e) {}
+    // 恢复网卡原始状态（DHCP 网卡被 netsh 改成静态后必须显式恢复，否则会断网）
+    try { await _restoreInterfaceState(); } catch (e) {}
   }
 
   // 关闭 IP 转发（恢复注册表）
@@ -178,6 +184,52 @@ function isRunning() { return running; }
 function getDeviceRegistry() { return deviceRegistry; }
 
 // -------- 内部工具 --------
+
+/**
+ * 保存网卡原始状态（DHCP/静态 + IP 列表），用于 stop() 时恢复。
+ *
+ * 背景：Windows netsh interface ip add address 对 DHCP 启用的网卡会
+ * 强制切换为静态模式，stop 时仅删除 secondary IP 不够，必须显式恢复
+ * DHCP 才能避免网卡处于空静态配置状态导致断网。
+ *
+ * Linux 上 ip addr add secondary 不破坏 DHCP，无需保存。
+ */
+async function _saveInterfaceState(iface) {
+  savedInterfaceState = null;
+  if (isWindows) {
+    try {
+      const ps = `$ipif = Get-NetIPInterface -InterfaceAlias '${iface}' -AddressFamily IPv4 -ErrorAction SilentlyContinue; if ($ipif) { $isDhcp = ($ipif.Dhcp -eq 'Enabled'); $ips = @(); Get-NetIPAddress -InterfaceAlias '${iface}' -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.PrefixOrigin -eq 'Dhcp' -or $_.PrefixOrigin -eq 'Manual' } | ForEach-Object { $ips += @{ ip=$_.IPAddress; prefix=$_.PrefixLength } }; ConvertTo-Json -Compress @{ isDhcp=$isDhcp; ips=$ips } }`;
+      // 用 -EncodedCommand 避免转义问题（PowerShell 用 UTF-16LE base64）
+      const encoded = Buffer.from(ps, 'utf16le').toString('base64');
+      const out = await execPromise(`powershell -NoProfile -EncodedCommand ${encoded}`);
+      if (out && out.trim()) {
+        const parsed = JSON.parse(out.trim());
+        savedInterfaceState = { iface, isDhcp: !!parsed.isDhcp, ips: parsed.ips || [] };
+        getLogger().info(`[Router] saved ${iface} state: ${parsed.isDhcp ? 'DHCP' : 'static'}, IPs: ${(parsed.ips||[]).map(i=>i.ip+'/'+i.prefix).join(',')}`);
+      }
+    } catch (e) {
+      getLogger().warn(`[Router] save interface state failed: ${e.message}`);
+    }
+  }
+}
+
+/**
+ * 恢复网卡到保存的状态。如果是 DHCP 网卡，调用 netsh 恢复 DHCP。
+ * 静态网卡无需恢复（_removeInterfaceIp 只删除我们添加的 secondary IP，原静态配置还在）。
+ */
+async function _restoreInterfaceState() {
+  if (!savedInterfaceState) return;
+  const { iface, isDhcp } = savedInterfaceState;
+  if (isWindows && isDhcp) {
+    try {
+      await execPromise(`netsh interface ip set address "${iface}" source=dhcp`);
+      getLogger().info(`[Router] restored ${iface} to DHCP`);
+    } catch (e) {
+      getLogger().warn(`[Router] restore DHCP failed: ${e.message}`);
+    }
+  }
+  savedInterfaceState = null;
+}
 
 async function _ensureInterfaceIp(iface, ip, prefix) {
   const mask = _prefixToMask(prefix);

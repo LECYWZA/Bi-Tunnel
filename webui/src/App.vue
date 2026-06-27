@@ -77,9 +77,11 @@
             <el-tooltip content="虚拟网卡参数配置" placement="bottom">
               <el-button class="bt-tun-cfg-btn" circle plain size="default" :icon="Operation" @click="tunConfigDialogVisible = true" />
             </el-tooltip>
-            <el-tooltip :content="tunStatus.error || t('header.tunMode')" placement="bottom" :disabled="!tunStatus.error">
-              <el-icon v-if="tunStatus.error" color="var(--el-color-error)" style="font-size: 16px;"><Warning /></el-icon>
-            </el-tooltip>
+            <template v-if="tunStatus.error">
+              <el-tooltip :content="tunStatus.error" placement="bottom">
+                <el-icon color="var(--el-color-error)" style="font-size: 16px;"><Warning /></el-icon>
+              </el-tooltip>
+            </template>
           </div>
           <span style="font-size: 10px; color: var(--bt-text-sec); margin-top: 3px; transform: scale(0.85); transform-origin: left; white-space: nowrap;">
             {{ t('header.tunModeDesc') }}

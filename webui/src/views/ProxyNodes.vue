@@ -4,32 +4,32 @@
       <div class="flex justify-between items-center bt-section-status">
         <div class="flex items-center gap-3">
           <el-icon :size="24" style="color: var(--bt-primary)"><Monitor /></el-icon>
-          <span class="font-bold text-lg bt-text">代理节点池 (Global Proxy Nodes)</span>
+          <span class="font-bold text-lg bt-text">{{ t('nodes.title') }}</span>
         </div>
         <div class="flex flex-wrap items-center gap-3">
           <div class="flex items-center gap-2">
-            <el-input v-model="testTargetLatency" placeholder="测延目标: host:port" class="w-48" size="small" />
-            <el-button type="warning" plain :icon="Connection" size="small" @click="testAllLatency">{{ testingAllLatency ? '取消' : '测速全部(延迟)' }}</el-button>
+            <el-input v-model="testTargetLatency" :placeholder="t('nodes.testLatencyTarget')" class="w-48" size="small" />
+            <el-button type="warning" plain :icon="Connection" size="small" @click="testAllLatency">{{ testingAllLatency ? t('common.cancel') : t('nodes.testAllLatency') }}</el-button>
           </div>
           <div class="flex items-center gap-2">
-            <el-input v-model="testTargetSpeed" placeholder="测速目标: host:port" class="w-48" size="small" />
-            <el-button type="success" plain :icon="Odometer" size="small" @click="testAllSpeed">{{ testingAllSpeed ? '取消' : '测速全部(速度)' }}</el-button>
+            <el-input v-model="testTargetSpeed" :placeholder="t('nodes.testSpeedTarget')" class="w-48" size="small" />
+            <el-button type="success" plain :icon="Odometer" size="small" @click="testAllSpeed">{{ testingAllSpeed ? t('common.cancel') : t('nodes.testAllSpeed') }}</el-button>
           </div>
-          <el-button type="primary" plain :icon="Plus" @click="createGroup" size="small">新建分组</el-button>
-          <el-button type="danger" plain :icon="Delete" size="small" @click="openCleanDialog">清理失效节点</el-button>
-          <el-button type="primary" :icon="Plus" @click="openImportDialog">添加/导入节点</el-button>
+          <el-button type="primary" plain :icon="Plus" @click="createGroup" size="small">{{ t('nodes.newGroup') }}</el-button>
+          <el-button type="danger" plain :icon="Delete" size="small" @click="openCleanDialog">{{ t('nodes.cleanDeadNodes') }}</el-button>
+          <el-button type="primary" :icon="Plus" @click="openImportDialog">{{ t('nodes.addOrImport') }}</el-button>
         </div>
       </div>
-      
+
       <div class="flex justify-between items-center bg-gray-50/5 p-3 rounded-lg border border-gray-100 dark:border-gray-800">
         <div class="flex items-center gap-4 flex-1">
-          <el-input v-model="searchQuery" placeholder="搜索节点名称 / Host" :prefix-icon="Search" class="w-64" clearable />
+          <el-input v-model="searchQuery" :placeholder="t('nodes.searchPlaceholder')" :prefix-icon="Search" class="w-64" clearable />
         </div>
-        <div class="text-sm text-gray-500 font-medium">共 {{ config.proxyNodes?.length || 0 }} 个节点</div>
+        <div class="text-sm text-gray-500 font-medium">{{ t('nodes.totalCount', { count: config.proxyNodes?.length || 0 }) }}</div>
       </div>
     </div>
 
-    <el-empty v-if="Object.keys(groupedNodes).length === 0" description="暂无代理节点，请点击右上角添加" :image-size="80" />
+    <el-empty v-if="Object.keys(groupedNodes).length === 0" :description="t('nodes.empty')" :image-size="80" />
 
     <div v-else>
       <div v-for="(groupNodes, groupName) in groupedNodes" :key="groupName" class="mb-8">
@@ -65,7 +65,7 @@
               <div class="flex items-center gap-2">
                 <el-button type="info" plain :icon="Share" size="small" @click="openShareDialog(node)" />
                 <el-button v-if="node.type === 'v2ray'" type="primary" plain :icon="Edit" size="small" @click="openV2rayEditor(node)" />
-                <el-popconfirm title="确定要删除此节点吗？" @confirm="deleteNode(node.id)">
+                <el-popconfirm :title="t('nodes.deleteNodeConfirm')" @confirm="deleteNode(node.id)">
                   <template #reference>
                     <el-button type="danger" plain :icon="Delete" size="small" />
                   </template>
@@ -77,26 +77,26 @@
             <div class="mb-4 flex-1">
               <template v-if="node.type === 'v2ray'">
                 <div class="flex items-center gap-2 mb-2 text-sm">
-                  <span class="text-gray-500 w-12">URL:</span>
+                  <span class="text-gray-500 w-12">{{ t('nodes.urlLabel') }}:</span>
                   <span class="font-mono text-gray-600 truncate flex-1">********</span>
                 </div>
                 <div class="flex items-center gap-2 text-sm">
-                  <span class="text-gray-500 w-12">状态:</span>
-                  <el-tag size="small" type="success" effect="plain"><el-icon class="mr-1"><Check /></el-icon>解析成功</el-tag>
+                  <span class="text-gray-500 w-12">{{ t('nodes.statusLabel') }}:</span>
+                  <el-tag size="small" type="success" effect="plain"><el-icon class="mr-1"><Check /></el-icon>{{ t('nodes.parseSuccess') }}</el-tag>
                 </div>
               </template>
 
               <template v-else>
                 <div class="flex items-center gap-2 mb-2">
-                  <span class="text-gray-500 text-sm w-12">地址:</span>
-                  <el-input v-model="node.host" size="small" class="flex-1" placeholder="IP/域名" />
+                  <span class="text-gray-500 text-sm w-12">{{ t('nodes.addressLabel') }}:</span>
+                  <el-input v-model="node.host" size="small" class="flex-1" :placeholder="t('nodes.addressPlaceholder')" />
                   <span class="text-gray-400">:</span>
-                  <el-input-number v-model="node.port" size="small" :min="1" :max="65535" :controls="false" class="w-20" placeholder="端口" />
+                  <el-input-number v-model="node.port" size="small" :min="1" :max="65535" :controls="false" class="w-20" :placeholder="t('nodes.portPlaceholder')" />
                 </div>
                 <div class="flex items-center gap-2">
-                  <span class="text-gray-500 text-sm w-12">认证:</span>
-                  <el-input v-model="node.user" size="small" placeholder="用户名" class="flex-1" />
-                  <el-input v-model="node.pass" size="small" placeholder="密码" show-password class="flex-1" />
+                  <span class="text-gray-500 text-sm w-12">{{ t('nodes.authLabel') }}:</span>
+                  <el-input v-model="node.user" size="small" :placeholder="t('nodes.usernamePlaceholder')" class="flex-1" />
+                  <el-input v-model="node.pass" size="small" :placeholder="t('nodes.passwordPlaceholder')" show-password class="flex-1" />
                 </div>
               </template>
             </div>
@@ -105,12 +105,12 @@
             <div class="flex items-center gap-4 mb-3 text-xs p-2 rounded border" style="border-color: var(--bt-border); background: var(--bt-input-bg);">
               <div class="flex items-center gap-1 flex-1">
                 <el-icon :class="getLatencyColor(node._latency)"><Clock /></el-icon>
-                <span class="text-gray-500">延迟:</span>
+                <span class="text-gray-500">{{ t('nodes.latencyLabel') }}:</span>
                 <span class="font-bold font-mono" :class="getLatencyColor(node._latency)">{{ node._latency ? node._latency + ' ms' : '--' }}</span>
               </div>
               <div class="flex items-center gap-1 flex-1">
                 <el-icon :class="getSpeedColor(node._speed)"><Odometer /></el-icon>
-                <span class="text-gray-500">速度:</span>
+                <span class="text-gray-500">{{ t('nodes.speedLabel') }}:</span>
                 <span class="font-bold font-mono" :class="getSpeedColor(node._speed)">{{ node._speed ? node._speed + ' MB/s' : '--' }}</span>
               </div>
             </div>
@@ -126,7 +126,7 @@
                   :icon="Connection"
                   @click="testLatency(node.id)"
                 >
-                  {{ testingNode === node.id ? '取消' : '测延迟' }}
+                  {{ testingNode === node.id ? t('common.cancel') : t('nodes.testLatencyBtn') }}
                 </el-button>
                 <el-button
                   type="success"
@@ -135,7 +135,7 @@
                   :icon="Odometer"
                   @click="testSpeed(node.id)"
                 >
-                  {{ testingSpeedNode === node.id ? '取消' : '测速度' }}
+                  {{ testingSpeedNode === node.id ? t('common.cancel') : t('nodes.testSpeedBtn') }}
                 </el-button>
               </div>
             </div>
@@ -145,187 +145,187 @@
     </div>
 
     <!-- Share Dialog -->
-    <el-dialog v-model="shareDialogVisible" title="分享节点" width="400px" center destroy-on-close>
+    <el-dialog v-model="shareDialogVisible" :title="t('nodes.shareTitle')" width="400px" center destroy-on-close>
       <div class="flex flex-col items-center justify-center gap-4 p-4">
         <h3 class="font-bold text-lg text-center">{{ shareNode?.displayName }}</h3>
         <div class="p-2 bg-white rounded-lg shadow-sm border border-gray-100">
           <QrcodeVue v-if="shareNodeUrl" :value="shareNodeUrl" :size="200" level="M" />
         </div>
-        <el-button type="primary" @click="copyNodeLink" :icon="DocumentCopy" class="mt-4 w-full">复制节点链接</el-button>
+        <el-button type="primary" @click="copyNodeLink" :icon="DocumentCopy" class="mt-4 w-full">{{ t('nodes.copyNodeLink') }}</el-button>
       </div>
     </el-dialog>
 
     <!-- Import / Add Node Dialog -->
-    <el-dialog v-model="importDialogVisible" title="添加/导入节点" width="50%" destroy-on-close>
+    <el-dialog v-model="importDialogVisible" :title="t('nodes.importTitle')" width="50%" destroy-on-close>
       <el-tabs v-model="importTab" class="mt-[-10px]">
-        <el-tab-pane label="纯文本批量导入" name="text">
+        <el-tab-pane :label="t('nodes.textImportTab')" name="text">
           <div class="mb-2 text-sm text-gray-500">
-            支持粘贴 vmess://, vless://, trojan://, ss://, http://, socks5:// 格式链接。每行一个。
+            {{ t('nodes.textImportHint') }}
           </div>
-          <el-input v-model="importText" type="textarea" :rows="8" placeholder="在此粘贴链接..." />
+          <el-input v-model="importText" type="textarea" :rows="8" :placeholder="t('nodes.textImportPlaceholder')" />
           <div class="mt-4 flex justify-between">
-            <el-button @click="readClipboard" :icon="DocumentCopy">从剪贴板读取</el-button>
-            <el-button type="primary" @click="doImportText" :icon="Check">解析并导入</el-button>
+            <el-button @click="readClipboard" :icon="DocumentCopy">{{ t('nodes.readClipboard') }}</el-button>
+            <el-button type="primary" @click="doImportText" :icon="Check">{{ t('nodes.parseAndImport') }}</el-button>
           </div>
         </el-tab-pane>
-        
-        <el-tab-pane label="扫码导入图片" name="qr">
+
+        <el-tab-pane :label="t('nodes.qrImportTab')" name="qr">
           <div class="flex flex-col items-center justify-center py-8 gap-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
             <el-icon class="text-gray-400" :size="48"><FullScreen /></el-icon>
-            <div class="text-sm text-gray-500">选择一张包含节点二维码的图片进行解析</div>
+            <div class="text-sm text-gray-500">{{ t('nodes.qrHint') }}</div>
             <input type="file" accept="image/*" class="hidden" ref="fileInput" @change="handleQRUpload" />
-            <el-button type="primary" @click="$refs.fileInput.click()">选择图片 / 拍照</el-button>
+            <el-button type="primary" @click="$refs.fileInput.click()">{{ t('nodes.selectImage') }}</el-button>
           </div>
           <div v-if="qrResult" class="mt-4 p-3 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-md border border-green-200 dark:border-green-800 text-sm">
-            <div class="font-bold mb-1">识别成功，已自动填入批量导入框：</div>
+            <div class="font-bold mb-1">{{ t('nodes.qrSuccessTitle') }}</div>
             <div class="truncate opacity-75 font-mono">{{ qrResult }}</div>
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="手动添加基础节点" name="manual">
+        <el-tab-pane :label="t('nodes.manualTab')" name="manual">
           <el-form label-width="80px">
-            <el-form-item label="名称">
-              <el-input v-model="manualForm.displayName" placeholder="例如: 本地SOCKS5" />
+            <el-form-item :label="t('nodes.nameLabel')">
+              <el-input v-model="manualForm.displayName" :placeholder="t('nodes.namePlaceholder')" />
             </el-form-item>
-            <el-form-item label="协议类型">
+            <el-form-item :label="t('nodes.protocolType')">
               <el-radio-group v-model="manualForm.type">
                 <el-radio-button value="socks5">SOCKS5</el-radio-button>
                 <el-radio-button value="http">HTTP</el-radio-button>
               </el-radio-group>
             </el-form-item>
-            <el-form-item label="服务器">
-              <el-input v-model="manualForm.host" placeholder="例如: 192.168.1.100" />
+            <el-form-item :label="t('nodes.serverLabel')">
+              <el-input v-model="manualForm.host" :placeholder="t('nodes.serverPlaceholder')" />
             </el-form-item>
-            <el-form-item label="端口">
+            <el-form-item :label="t('nodes.portLabel')">
               <el-input-number v-model="manualForm.port" :min="1" :max="65535" class="w-full" />
             </el-form-item>
-            <el-form-item label="用户名">
-              <el-input v-model="manualForm.user" placeholder="可选" />
+            <el-form-item :label="t('nodes.usernameLabel')">
+              <el-input v-model="manualForm.user" :placeholder="t('nodes.optionalPlaceholder')" />
             </el-form-item>
-            <el-form-item label="密码">
-              <el-input v-model="manualForm.pass" type="password" show-password placeholder="可选" />
+            <el-form-item :label="t('nodes.passwordLabel')">
+              <el-input v-model="manualForm.pass" type="password" show-password :placeholder="t('nodes.optionalPlaceholder')" />
             </el-form-item>
-            <el-form-item label="分组">
-              <el-select v-model="manualForm.group" allow-create filterable default-first-option placeholder="选择或输入分组 (例如: default)" class="w-full">
+            <el-form-item :label="t('nodes.groupLabel')">
+              <el-select v-model="manualForm.group" allow-create filterable default-first-option :placeholder="t('nodes.groupPlaceholder')" class="w-full">
                 <el-option v-for="g in allGroups" :key="g" :label="g" :value="g" />
               </el-select>
             </el-form-item>
           </el-form>
           <div class="flex justify-end mt-4">
-            <el-button type="primary" @click="doAddManual" :icon="Check">添加到节点池</el-button>
+            <el-button type="primary" @click="doAddManual" :icon="Check">{{ t('nodes.addToPool') }}</el-button>
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="订阅链接导入" name="sub">
+        <el-tab-pane :label="t('nodes.subImportTab')" name="sub">
           <div class="mb-4 text-sm text-gray-500">
-            输入订阅链接 (Base64) 获取节点。支持多条链接，每行一条。可以设置这批节点的分组和名称标签。
+            {{ t('nodes.subHint') }}
           </div>
           <el-form label-width="80px" class="mb-4 bg-gray-50 dark:bg-gray-800 p-4 rounded-md">
-            <el-form-item label="订阅链接" class="mb-3">
-              <el-input v-model="subUrl" type="textarea" :rows="3" placeholder="https://... (支持多行)" />
+            <el-form-item :label="t('nodes.subUrlLabel')" class="mb-3">
+              <el-input v-model="subUrl" type="textarea" :rows="3" :placeholder="t('nodes.subUrlPlaceholder')" />
             </el-form-item>
             <div class="grid grid-cols-2 gap-4">
-              <el-form-item label="配置名称" class="mb-0">
-                <el-input v-model="subName" placeholder="例如: 机场A" size="small" />
+              <el-form-item :label="t('nodes.configNameLabel')" class="mb-0">
+                <el-input v-model="subName" :placeholder="t('nodes.configNamePlaceholder')" size="small" />
               </el-form-item>
-              <el-form-item label="归属分组" class="mb-0">
-                <el-select v-model="subGroup" allow-create filterable default-first-option placeholder="默认为 default" class="w-full" size="small">
+              <el-form-item :label="t('nodes.subGroupLabel')" class="mb-0">
+                <el-select v-model="subGroup" allow-create filterable default-first-option :placeholder="t('nodes.subGroupPlaceholder')" class="w-full" size="small">
                   <el-option v-for="g in allGroups" :key="g" :label="g" :value="g" />
                 </el-select>
               </el-form-item>
             </div>
           </el-form>
           <div class="flex justify-end mb-4">
-            <el-button type="primary" :loading="fetchingSub" @click="fetchSubscription" class="w-32">获取节点</el-button>
+            <el-button type="primary" :loading="fetchingSub" @click="fetchSubscription" class="w-32">{{ t('nodes.fetchNodes') }}</el-button>
           </div>
           <div v-if="subNodes.length > 0" class="border rounded-md p-2 h-64 overflow-y-auto mb-4" style="background: var(--bt-surface); border-color: var(--bt-border);">
             <el-checkbox-group v-model="selectedSubNodes">
               <div v-for="(node, idx) in subNodes" :key="idx" class="mb-2 last:mb-0">
                 <el-checkbox :label="node">
                   <span class="font-bold mr-2">{{ node.displayName }}</span>
-                  <span class="text-xs text-gray-500">{{ node.type }} - {{ node.host }}:{{ node.port }} (组: {{ node.group }})</span>
+                  <span class="text-xs text-gray-500">{{ node.type }} - {{ node.host }}:{{ node.port }} ({{ t('nodes.groupLabel') }}: {{ node.group }})</span>
                 </el-checkbox>
               </div>
             </el-checkbox-group>
           </div>
           <div class="flex justify-between items-center" v-if="subNodes.length > 0">
             <div class="text-sm">
-              已选: <strong>{{ selectedSubNodes.length }}</strong> / {{ subNodes.length }}
-              <el-button link type="primary" @click="selectAllSubNodes">全选</el-button>
+              {{ t('nodes.subSelectedCount', { selected: selectedSubNodes.length, total: subNodes.length }) }}
+              <el-button link type="primary" @click="selectAllSubNodes">{{ t('nodes.selectAll') }}</el-button>
             </div>
-            <el-button type="success" :disabled="selectedSubNodes.length === 0" @click="importSubNodes">导入已选节点</el-button>
+            <el-button type="success" :disabled="selectedSubNodes.length === 0" @click="importSubNodes">{{ t('nodes.importSelected') }}</el-button>
           </div>
         </el-tab-pane>
       </el-tabs>
     </el-dialog>
 
     <!-- V2Ray Edit Dialog -->
-    <el-dialog v-model="v2rayEditDialogVisible" title="编辑 V2Ray 节点参数" width="500px" destroy-on-close>
+    <el-dialog v-model="v2rayEditDialogVisible" :title="t('nodes.v2rayEditTitle')" width="500px" destroy-on-close>
       <el-form label-width="100px" size="small" class="mt-4">
-        <el-form-item label="显示名称">
+        <el-form-item :label="t('nodes.displayName')">
           <el-input v-model="v2rayEditForm.displayName" />
         </el-form-item>
-        <el-form-item label="服务器">
+        <el-form-item :label="t('nodes.serverField')">
           <el-input v-model="v2rayEditForm.host" />
         </el-form-item>
-        <el-form-item label="端口">
+        <el-form-item :label="t('nodes.portField')">
           <el-input-number v-model="v2rayEditForm.port" :min="1" :max="65535" class="w-full" />
         </el-form-item>
-        <el-form-item label="UUID">
-          <el-input v-model="v2rayEditForm.uuid" placeholder="V2Ray UUID" />
+        <el-form-item :label="t('nodes.uuidLabel')">
+          <el-input v-model="v2rayEditForm.uuid" :placeholder="t('nodes.uuidPlaceholder')" />
         </el-form-item>
-        <el-form-item label="传输协议">
+        <el-form-item :label="t('nodes.transportLabel')">
           <el-select v-model="v2rayEditForm.network" class="w-full">
             <el-option label="TCP" value="tcp" />
             <el-option label="WebSocket (WS)" value="ws" />
             <el-option label="gRPC" value="grpc" />
           </el-select>
         </el-form-item>
-        <el-form-item label="路径 (Path)" v-if="v2rayEditForm.network !== 'tcp'">
-          <el-input v-model="v2rayEditForm.path" placeholder="例如: /v2ray" />
+        <el-form-item :label="t('nodes.pathLabel')" v-if="v2rayEditForm.network !== 'tcp'">
+          <el-input v-model="v2rayEditForm.path" :placeholder="t('nodes.pathPlaceholder')" />
         </el-form-item>
-        <el-form-item label="安全配置">
+        <el-form-item :label="t('nodes.securityConfig')">
           <el-select v-model="v2rayEditForm.tls" class="w-full">
-            <el-option label="无 (None)" value="none" />
-            <el-option label="TLS" value="tls" />
-            <el-option label="Reality" value="reality" />
+            <el-option :label="t('nodes.securityNone')" value="none" />
+            <el-option :label="t('nodes.securityTls')" value="tls" />
+            <el-option :label="t('nodes.securityReality')" value="reality" />
           </el-select>
         </el-form-item>
-        <el-form-item label="SNI" v-if="v2rayEditForm.tls !== 'none'">
-          <el-input v-model="v2rayEditForm.sni" placeholder="例如: bing.com" />
+        <el-form-item :label="t('nodes.sniLabel')" v-if="v2rayEditForm.tls !== 'none'">
+          <el-input v-model="v2rayEditForm.sni" :placeholder="t('nodes.sniPlaceholder')" />
         </el-form-item>
       </el-form>
       <div class="flex justify-end mt-4">
-        <el-button @click="v2rayEditDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveV2rayEditor">保存并更新链接</el-button>
+        <el-button @click="v2rayEditDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="saveV2rayEditor">{{ t('nodes.saveAndUpdate') }}</el-button>
       </div>
     </el-dialog>
 
     <!-- Clean Dead Nodes Dialog -->
-    <el-dialog v-model="cleanDialogVisible" title="清理失效节点" width="550px" destroy-on-close>
+    <el-dialog v-model="cleanDialogVisible" :title="t('nodes.cleanTitle')" width="550px" destroy-on-close>
       <div v-if="cleanState === 'idle'" class="text-center py-6">
         <el-icon :size="48" class="text-blue-500 mb-4"><Monitor /></el-icon>
-        <p class="text-base mb-6 bt-text">系统将逐一测试所有节点的延迟，并为您筛选出无法连接的节点进行一键删除。</p>
-        <el-button type="primary" size="large" @click="startCleanTest">开始扫描</el-button>
+        <p class="text-base mb-6 bt-text">{{ t('nodes.cleanIntro') }}</p>
+        <el-button type="primary" size="large" @click="startCleanTest">{{ t('nodes.startScan') }}</el-button>
       </div>
 
       <div v-else-if="cleanState === 'testing'" class="py-6 space-y-4">
         <div class="flex justify-between items-center text-sm bt-text">
-          <span>正在测试: <strong>{{ cleanCurrentNode }}</strong></span>
-          <span v-if="cleanCanceled" class="text-red-500">正在中止...</span>
+          <span>{{ t('nodes.cleanTesting') }}: <strong>{{ cleanCurrentNode }}</strong></span>
+          <span v-if="cleanCanceled" class="text-red-500">{{ t('nodes.cleanCanceling') }}</span>
         </div>
         <el-progress :percentage="cleanProgress" :status="cleanCanceled ? 'exception' : ''" />
         <div class="flex justify-between items-center mt-4">
-          <span class="text-xs text-gray-500">已发现 {{ cleanFailedNodes.length }} 个失效节点</span>
-          <el-button type="danger" plain size="small" @click="cancelCleanTest" :disabled="cleanCanceled">中止扫描</el-button>
+          <span class="text-xs text-gray-500">{{ t('nodes.cleanFound', { count: cleanFailedNodes.length }) }}</span>
+          <el-button type="danger" plain size="small" @click="cancelCleanTest" :disabled="cleanCanceled">{{ t('nodes.cancelScan') }}</el-button>
         </div>
       </div>
 
       <div v-else-if="cleanState === 'done'" class="space-y-4">
-        <el-alert v-if="cleanFailedNodes.length === 0" title="扫描完成" type="success" description="没有发现失效节点，您的节点池非常健康！" show-icon :closable="false" />
+        <el-alert v-if="cleanFailedNodes.length === 0" :title="t('nodes.scanComplete')" type="success" :description="t('nodes.scanHealthy')" show-icon :closable="false" />
         <div v-else>
-          <el-alert title="扫描完成" type="warning" :description="`共发现 ${cleanFailedNodes.length} 个失效节点，请勾选需要删除的节点。`" show-icon :closable="false" class="mb-4" />
-          
+          <el-alert :title="t('nodes.scanComplete')" type="warning" :description="t('nodes.scanFoundFailed', { count: cleanFailedNodes.length })" show-icon :closable="false" class="mb-4" />
+
           <div class="max-h-60 overflow-y-auto border rounded p-2" style="border-color: var(--bt-border)">
             <el-checkbox-group v-model="cleanSelectedNodeIds">
               <div v-for="node in cleanFailedNodes" :key="node.id" class="flex items-center gap-2 py-1">
@@ -338,14 +338,14 @@
               </div>
             </el-checkbox-group>
           </div>
-          
+
           <div class="flex justify-end mt-4">
-            <el-button @click="cleanDialogVisible = false">取消</el-button>
-            <el-button type="danger" @click="confirmCleanNodes" :disabled="cleanSelectedNodeIds.length === 0">删除选中 ({{ cleanSelectedNodeIds.length }})</el-button>
+            <el-button @click="cleanDialogVisible = false">{{ t('common.cancel') }}</el-button>
+            <el-button type="danger" @click="confirmCleanNodes" :disabled="cleanSelectedNodeIds.length === 0">{{ t('nodes.deleteSelected', { count: cleanSelectedNodeIds.length }) }}</el-button>
           </div>
         </div>
         <div v-if="cleanFailedNodes.length === 0" class="flex justify-end mt-4">
-          <el-button @click="cleanDialogVisible = false">关闭</el-button>
+          <el-button @click="cleanDialogVisible = false">{{ t('nodes.close') }}</el-button>
         </div>
       </div>
     </el-dialog>
@@ -359,6 +359,7 @@ import { Plus, Delete, Monitor, Connection, DocumentCopy, Check, Edit, Search, F
 import { parseProxyUrl, decodeV2RayUrl, encodeV2RayUrl } from '../utils/v2rayParser';
 import jsQR from 'jsqr';
 import QrcodeVue from 'qrcode.vue';
+import { t } from '../i18n';
 
 const props = defineProps({
   config: Object
@@ -369,7 +370,7 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 const importDialogVisible = ref(false);
 const importTab = ref('text');
 const importText = ref('');
-const manualForm = ref({ displayName: '自建节点', type: 'socks5', host: '', port: 1080, user: '', pass: '', group: 'default' });
+const manualForm = ref({ displayName: '', type: 'socks5', host: '', port: 1080, user: '', pass: '', group: 'default' });
 const testingNode = ref(null);
 const testingSpeedNode = ref(null);
 const testingAllLatency = ref(false);
@@ -441,19 +442,19 @@ const groupedNodes = computed(() => {
 
 const createGroup = async () => {
   try {
-    const { value } = await ElMessageBox.prompt('请输入新的分组名称', '新建分组', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
+    const { value } = await ElMessageBox.prompt(t('nodes.groupCreatePrompt'), t('nodes.groupCreateTitle'), {
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
       inputPattern: /\S+/,
-      inputErrorMessage: '分组名称不能为空'
+      inputErrorMessage: t('nodes.groupNameRequired')
     });
     if (value) {
       if (!props.config.proxyGroups) props.config.proxyGroups = [];
       if (!props.config.proxyGroups.includes(value)) {
         props.config.proxyGroups.push(value);
-        ElMessage.success(`分组 ${value} 创建成功`);
+        ElMessage.success(t('nodes.groupCreated', { name: value }));
       } else {
-        ElMessage.warning('该分组已存在');
+        ElMessage.warning(t('nodes.groupExists'));
       }
     }
   } catch(e) {}
@@ -492,10 +493,10 @@ const copyNodeLink = async () => {
   if (!shareNodeUrl.value) return;
   try {
     await navigator.clipboard.writeText(shareNodeUrl.value);
-    ElMessage.success('节点链接已复制到剪贴板');
+    ElMessage.success(t('nodes.nodeLinkCopied'));
     shareDialogVisible.value = false;
   } catch(e) {
-    ElMessage.error('复制失败');
+    ElMessage.error(t('nodes.copyFailed'));
   }
 };
 
@@ -518,13 +519,13 @@ const handleQRUpload = (event) => {
       if (code) {
         qrResult.value = code.data;
         importText.value = (importText.value ? importText.value + '\n' : '') + code.data;
-        ElMessage.success('二维码解析成功，已填入批量导入文本框中');
+        ElMessage.success(t('nodes.qrSuccess'));
         setTimeout(() => {
           importTab.value = 'text';
           qrResult.value = '';
         }, 1500);
       } else {
-        ElMessage.error('未识别到二维码，请换一张清晰的图片');
+        ElMessage.error(t('nodes.qrNoMatch'));
       }
     };
     img.src = e.target.result;
@@ -534,13 +535,13 @@ const handleQRUpload = (event) => {
 };
 
 const fetchSubscription = async () => {
-  if (!subUrl.value) return ElMessage.warning('请输入订阅链接');
+  if (!subUrl.value) return ElMessage.warning(t('nodes.subUrlRequired'));
   fetchingSub.value = true;
   try {
     const res = await fetch('/api/fetch-subscription', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         url: subUrl.value,
         subName: subName.value,
         subGroup: subGroup.value
@@ -550,15 +551,15 @@ const fetchSubscription = async () => {
     if (data.success) {
       subNodes.value = data.nodes;
       selectedSubNodes.value = [...data.nodes];
-      ElMessage.success(`成功解析 ${data.nodes.length} 个节点`);
+      ElMessage.success(t('nodes.subParsed', { count: data.nodes.length }));
       if (data.errors) {
-        ElMessage.warning(`部分链接失败: ${data.errors.join(', ')}`);
+        ElMessage.warning(t('nodes.subPartialFailed', { errors: data.errors.join(', ') }));
       }
     } else {
-      ElMessage.error(data.message || '获取失败');
+      ElMessage.error(data.message || t('common.failed'));
     }
   } catch(e) {
-    ElMessage.error('请求失败');
+    ElMessage.error(t('nodes.requestFailed'));
   } finally {
     fetchingSub.value = false;
   }
@@ -578,7 +579,7 @@ const importSubNodes = () => {
     });
     count++;
   }
-  ElMessage.success(`成功导入 ${count} 个订阅节点`);
+  ElMessage.success(t('nodes.subImported', { count }));
   importDialogVisible.value = false;
 };
 
@@ -589,7 +590,7 @@ const v2rayEditingNodeId = ref(null);
 const openV2rayEditor = (node) => {
   const decoded = decodeV2RayUrl(node.rawUrl);
   if (!decoded) {
-    ElMessage.error('无法解析此 V2Ray 节点参数');
+    ElMessage.error(t('nodes.v2rayParseError'));
     return;
   }
   v2rayEditForm.value = { ...decoded, displayName: node.displayName };
@@ -600,13 +601,13 @@ const openV2rayEditor = (node) => {
 const saveV2rayEditor = () => {
   const node = props.config.proxyNodes.find(n => n.id === v2rayEditingNodeId.value);
   if (!node) return;
-  
+
   const newUrl = encodeV2RayUrl(v2rayEditForm.value);
   if (!newUrl) {
-    ElMessage.error('生成节点链接失败，请检查参数是否正确');
+    ElMessage.error(t('nodes.v2rayGenerateError'));
     return;
   }
-  
+
   node.rawUrl = newUrl;
   node.displayName = v2rayEditForm.value.displayName;
   // Also parse it back to get basic info in sync
@@ -615,14 +616,14 @@ const saveV2rayEditor = () => {
     node.host = basicInfo.host;
     node.port = basicInfo.port;
   }
-  
-  ElMessage.success('节点参数已更新');
+
+  ElMessage.success(t('nodes.v2rayUpdated'));
   v2rayEditDialogVisible.value = false;
 };
 
 const openImportDialog = () => {
   importText.value = '';
-  manualForm.value = { displayName: '自建节点', type: 'socks5', host: '', port: 1080, user: '', pass: '', group: 'default' };
+  manualForm.value = { displayName: t('nodes.defaultManualName'), type: 'socks5', host: '', port: 1080, user: '', pass: '', group: 'default' };
   importTab.value = 'text';
   subUrl.value = '';
   subName.value = '';
@@ -658,7 +659,7 @@ const testLatency = async (nodeId, silent = false) => {
     const ac = abortControllers.value[key];
     if (ac) { ac.abort(); delete abortControllers.value[key]; }
     testingNode.value = null;
-    if (!silent) ElMessage.info('已取消延迟测试');
+    if (!silent) ElMessage.info(t('nodes.latencyCanceled'));
     return;
   }
   testingNode.value = nodeId;
@@ -680,16 +681,16 @@ const testLatency = async (nodeId, silent = false) => {
     
     if (data.success) {
       if (node) node._latency = data.latency;
-      if (!silent) ElMessage.success(`测试成功! 延迟: ${data.latency}ms`);
+      if (!silent) ElMessage.success(t('nodes.testLatencySuccess', { latency: data.latency }));
     } else {
       if (node) node._latency = null;
-      if (!silent) ElMessage.error(`测试失败: ${data.message}`);
+      if (!silent) ElMessage.error(t('nodes.testLatencyFailed', { msg: data.message }));
     }
   } catch (err) {
     if (err.name === 'AbortError') {
-      if (!silent) ElMessage.info('延迟测试已取消');
+      if (!silent) ElMessage.info(t('nodes.latencyCanceled'));
     } else {
-      if (!silent) ElMessage.error('请求失败');
+      if (!silent) ElMessage.error(t('nodes.requestFailed'));
     }
   } finally {
     if (testingNode.value === nodeId) testingNode.value = null;
@@ -704,7 +705,7 @@ const testSpeed = async (nodeId, silent = false) => {
     const ac = abortControllers.value[key];
     if (ac) { ac.abort(); delete abortControllers.value[key]; }
     testingSpeedNode.value = null;
-    if (!silent) ElMessage.info('已取消测速');
+    if (!silent) ElMessage.info(t('nodes.speedCanceled'));
     return;
   }
   testingSpeedNode.value = nodeId;
@@ -723,19 +724,19 @@ const testSpeed = async (nodeId, silent = false) => {
     });
     const data = await res.json();
     const node = props.config.proxyNodes.find(n => n.id === nodeId);
-    
+
     if (data.success) {
       if (node) node._speed = data.speed;
-      if (!silent) ElMessage.success(`测试成功! 预估速度: ${data.speed} MB/s`);
+      if (!silent) ElMessage.success(t('nodes.testSpeedSuccess', { speed: data.speed }));
     } else {
       if (node) node._speed = null;
-      if (!silent) ElMessage.error(`测试失败: ${data.message}`);
+      if (!silent) ElMessage.error(t('nodes.testSpeedFailed', { msg: data.message }));
     }
   } catch (err) {
     if (err.name === 'AbortError') {
-      if (!silent) ElMessage.info('测速已取消');
+      if (!silent) ElMessage.info(t('nodes.speedCanceled'));
     } else {
-      if (!silent) ElMessage.error('请求失败');
+      if (!silent) ElMessage.error(t('nodes.requestFailed'));
     }
   } finally {
     if (testingSpeedNode.value === nodeId) testingSpeedNode.value = null;
@@ -754,17 +755,17 @@ const testAllLatency = async () => {
     });
     testingAllLatency.value = false;
     testingNode.value = null;
-    ElMessage.info('已取消全部延迟测试');
+    ElMessage.info(t('nodes.cancelAllLatency'));
     return;
   }
   if (!props.config.proxyNodes || props.config.proxyNodes.length === 0) return;
   testingAllLatency.value = true;
-  ElMessage.info('开始全部节点延迟测试，请稍候...');
+  ElMessage.info(t('nodes.startAllLatency'));
   const promises = props.config.proxyNodes.map(n => testLatency(n.id, true));
   await Promise.allSettled(promises);
   if (testingAllLatency.value) {
     testingAllLatency.value = false;
-    ElMessage.success('全部节点延迟测试完成');
+    ElMessage.success(t('nodes.allLatencyComplete'));
   }
 };
 
@@ -779,17 +780,17 @@ const testAllSpeed = async () => {
     });
     testingAllSpeed.value = false;
     testingSpeedNode.value = null;
-    ElMessage.info('已取消全部测速');
+    ElMessage.info(t('nodes.cancelAllSpeed'));
     return;
   }
   if (!props.config.proxyNodes || props.config.proxyNodes.length === 0) return;
   testingAllSpeed.value = true;
-  ElMessage.info('开始全部节点测速，请稍候...');
+  ElMessage.info(t('nodes.startAllSpeed'));
   const promises = props.config.proxyNodes.map(n => testSpeed(n.id, true));
   await Promise.all(promises);
   if (testingAllSpeed.value) {
     testingAllSpeed.value = false;
-    ElMessage.success('全部节点测速完成');
+    ElMessage.success(t('nodes.allSpeedComplete'));
   }
 };
 
@@ -851,7 +852,7 @@ const confirmCleanNodes = () => {
     deleteNode(id);
   });
   cleanDialogVisible.value = false;
-  ElMessage.success(`成功删除了 ${cleanSelectedNodeIds.value.length} 个失效节点`);
+  ElMessage.success(t('nodes.deletedCount', { count: cleanSelectedNodeIds.value.length }));
 };
 
 const readClipboard = async () => {
@@ -859,12 +860,12 @@ const readClipboard = async () => {
     const text = await navigator.clipboard.readText();
     if (text) {
       importText.value = (importText.value ? importText.value + '\n' : '') + text;
-      ElMessage.success('已追加剪贴板内容');
+      ElMessage.success(t('nodes.clipboardAppended'));
     } else {
-      ElMessage.warning('剪贴板为空');
+      ElMessage.warning(t('nodes.clipboardEmpty'));
     }
   } catch (err) {
-    ElMessage.error('无法读取剪贴板，请手动粘贴');
+    ElMessage.error(t('nodes.clipboardError'));
   }
 };
 
@@ -914,16 +915,16 @@ const doImportText = () => {
   }
   
   if (imported > 0) {
-    ElMessage.success(`成功导入 ${imported} 个节点`);
+    ElMessage.success(t('nodes.importedCount', { count: imported }));
     importDialogVisible.value = false;
   } else {
-    ElMessage.warning('未解析到有效链接');
+    ElMessage.warning(t('nodes.noValidLinks'));
   }
 };
 
 const doAddManual = () => {
   if (!manualForm.value.host || !manualForm.value.port) {
-    ElMessage.warning('请填写主机和端口');
+    ElMessage.warning(t('nodes.hostPortRequired'));
     return;
   }
   if (!props.config.proxyNodes) props.config.proxyNodes = [];
@@ -931,7 +932,7 @@ const doAddManual = () => {
     id: 'node_' + generateId(),
     ...manualForm.value
   });
-  ElMessage.success('节点已添加');
+  ElMessage.success(t('nodes.nodeAdded'));
   importDialogVisible.value = false;
 };
 </script>
