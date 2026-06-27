@@ -16,6 +16,12 @@ class ProxyDialer {
       return callback(new Error('Proxy chain is empty'));
     }
 
+    // If chain contains multiple v2ray nodes, use Xray native chaining
+    const v2rayCount = nodes.filter(n => n.type === 'v2ray').length;
+    if (v2rayCount > 1) {
+      return this.dialV2rayChain(nodes, targetHost, targetPort, callback);
+    }
+
     const firstNode = nodes[0];
     let socket;
 
@@ -70,6 +76,52 @@ class ProxyDialer {
     };
 
     performDial();
+  }
+
+  /**
+   * Dials through a chain of v2ray nodes using Xray's native proxySettings chaining.
+   * Each v2ray node gets its own Xray process; subsequent nodes route through
+   * the previous node's local SOCKS5 port via proxySettings.
+   */
+  static dialV2rayChain(nodes, targetHost, targetPort, callback) {
+    const { startXray } = require('./xrayManager');
+
+    (async () => {
+      try {
+        let prevSocksPort = null;
+
+        for (let i = 0; i < nodes.length; i++) {
+          const node = nodes[i];
+          if (node.type === 'v2ray') {
+            getLogger().info(`[ProxyChain] Starting Xray for node ${i + 1}/${nodes.length} (${node.displayName || node.host})${prevSocksPort ? ' via port ' + prevSocksPort : ' (direct)'}`);
+            const localPort = await startXray(node, prevSocksPort);
+            if (!localPort) throw new Error(`Failed to start Xray for chain node ${i + 1}`);
+            prevSocksPort = localPort;
+          } else {
+            throw new Error(`Non-v2ray node at position ${i} is not supported in multi-v2ray chain mode`);
+          }
+        }
+
+        // Connect to the last Xray's local SOCKS5 port and handshake to target
+        const finalPort = prevSocksPort;
+        const socket = new net.Socket();
+        socket.connect(finalPort, '127.0.0.1', () => {
+          socket.removeAllListeners('error');
+          this.handshakeSocks5(socket, '', '', targetHost, targetPort, (err) => {
+            if (err) {
+              socket.destroy();
+              return callback(err);
+            }
+            callback(null, socket);
+          });
+        });
+        socket.once('error', (err) => {
+          callback(new Error(`Failed to connect to final Xray port ${finalPort}: ${err.message}`));
+        });
+      } catch (err) {
+        callback(err);
+      }
+    })();
   }
 
   static handshakeChain(socket, nodes, currentIndex, finalHost, finalPort, callback) {

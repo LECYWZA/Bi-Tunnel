@@ -143,21 +143,24 @@ function parseVless(rawUrl) {
   };
 }
 
-async function startXray(v2rayNode) {
+async function startXray(v2rayNode, viaSocksPort) {
   const rawUrl = v2rayNode.rawUrl;
-  
-  // Update current active proxy url on start
-  currentV2rayUrl = rawUrl;
+  const cacheKey = viaSocksPort ? `${rawUrl}@${viaSocksPort}` : rawUrl;
+
+  // Update current active proxy url on start (only for direct, non-chained nodes)
+  if (!viaSocksPort) {
+    currentV2rayUrl = rawUrl;
+  }
 
   // Check if already active and running
-  if (activeXrays.has(rawUrl)) {
-    const item = activeXrays.get(rawUrl);
+  if (activeXrays.has(cacheKey)) {
+    const item = activeXrays.get(cacheKey);
     item.lastUsed = Date.now();
     return item.port;
   }
 
   // Check if it's already starting
-  let startingPromise = startingPromises.get(rawUrl);
+  let startingPromise = startingPromises.get(cacheKey);
   if (startingPromise) {
     return startingPromise;
   }
@@ -176,8 +179,25 @@ async function startXray(v2rayNode) {
       }
     } catch (err) {
       getLogger().error(`[Xray] Failed to parse node config: ${err.message}`);
-      startingPromises.delete(rawUrl);
+      startingPromises.delete(cacheKey);
       return null;
+    }
+
+    // Build outbounds: if viaSocksPort is set, chain through a SOCKS5 outbound
+    const outbounds = [];
+    if (viaSocksPort) {
+      outbounds.push({
+        tag: 'via-proxy',
+        protocol: 'socks',
+        settings: {
+          servers: [{ address: '127.0.0.1', port: viaSocksPort }]
+        }
+      });
+      outbound.tag = 'v2ray-out';
+      outbound.proxySettings = { tag: 'via-proxy' };
+      outbounds.push(outbound);
+    } else {
+      outbounds.push(outbound);
     }
 
     const config = {
@@ -188,7 +208,7 @@ async function startXray(v2rayNode) {
         protocol: 'socks',
         settings: { auth: 'noauth', udp: false }
       }],
-      outbounds: [outbound]
+      outbounds: outbounds
     };
 
     const configPath = path.join(BIN_DIR, `config-${localPort}.json`);
@@ -218,8 +238,8 @@ async function startXray(v2rayNode) {
       proc.on('error', (err) => {
         getLogger().error(`[Xray ${localPort}] Process error: ${err.message}`);
         try { fs.unlinkSync(configPath); } catch(e) {}
-        activeXrays.delete(rawUrl);
-        startingPromises.delete(rawUrl);
+        activeXrays.delete(cacheKey);
+        startingPromises.delete(cacheKey);
         if (!isResolved) {
           isResolved = true;
           reject(err);
@@ -229,8 +249,8 @@ async function startXray(v2rayNode) {
       proc.on('exit', (code) => {
         getLogger().info(`[Xray ${localPort}] Process exited with code ${code}`);
         try { fs.unlinkSync(configPath); } catch(e) {}
-        activeXrays.delete(rawUrl);
-        startingPromises.delete(rawUrl);
+        activeXrays.delete(cacheKey);
+        startingPromises.delete(cacheKey);
         if (!isResolved) {
           isResolved = true;
           reject(new Error(`Xray exited prematurely: ${errorLogs || 'Unknown error'}`));
@@ -246,12 +266,12 @@ async function startXray(v2rayNode) {
           sock.destroy();
           if (!isResolved) {
             isResolved = true;
-            activeXrays.set(rawUrl, {
+            activeXrays.set(cacheKey, {
               process: proc,
               port: localPort,
               lastUsed: Date.now()
             });
-            startingPromises.delete(rawUrl);
+            startingPromises.delete(cacheKey);
             resolve(localPort);
           }
         });
@@ -270,12 +290,12 @@ async function startXray(v2rayNode) {
     });
   })();
 
-  startingPromises.set(rawUrl, startingPromise);
+  startingPromises.set(cacheKey, startingPromise);
   try {
     const port = await startingPromise;
     return port;
   } catch (err) {
-    startingPromises.delete(rawUrl);
+    startingPromises.delete(cacheKey);
     throw err;
   }
 }
@@ -311,12 +331,13 @@ function getStatus() {
 setInterval(() => {
   const now = Date.now();
   const idleTimeout = 5 * 60 * 1000; // 5 minutes
-  for (const [rawUrl, item] of activeXrays.entries()) {
-    if (rawUrl === currentV2rayUrl) continue;
+  for (const [cacheKey, item] of activeXrays.entries()) {
+    // Skip the primary active node (direct, non-chained)
+    if (cacheKey === currentV2rayUrl) continue;
     if (now - item.lastUsed > idleTimeout) {
       getLogger().info(`[Xray] Cleaning up idle xray process on port ${item.port} for node...`);
       try { item.process.kill(); } catch(e) {}
-      activeXrays.delete(rawUrl);
+      activeXrays.delete(cacheKey);
     }
   }
 }, 30000);
