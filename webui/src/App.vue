@@ -156,6 +156,7 @@
 
       <!-- Router View -->
       <router-view v-slot="slotProps">
+        <keep-alive :include="['TrafficLogs']">
         <component
           :is="slotProps.Component"
           :key="slotProps.route.fullPath"
@@ -166,6 +167,7 @@
           @stop="stopTunnel"
           @save="saveConfig(true)"
         />
+        </keep-alive>
       </router-view>
     </main>
   </div>
@@ -699,12 +701,15 @@ const connectWebSocket = () => {
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
-      console.log("WebSocket received message:", msg);
       if (msg.type === 'clients_update' && config.server) {
         config.server.knownClients = msg.data;
-      }
-      if (msg.type === 'connections_update' && config.client) {
+      } else if (msg.type === 'connections_update' && config.client) {
         config.client.connections = msg.data;
+      } else if (msg.type === 'traffic_log') {
+        // Dispatch to registered traffic log listeners
+        if (trafficLogListeners.length > 0) {
+          trafficLogListeners.forEach(fn => fn(msg.data));
+        }
       }
     } catch (e) {
       console.error("WS message parse error:", e);
@@ -730,6 +735,16 @@ const sendWsMessage = (msg) => {
 };
 
 provide('sendWsMessage', sendWsMessage);
+
+// Traffic log listener registry (for WS-pushed logs)
+const trafficLogListeners = [];
+provide('onTrafficLog', (fn) => {
+  trafficLogListeners.push(fn);
+  return () => {
+    const idx = trafficLogListeners.indexOf(fn);
+    if (idx !== -1) trafficLogListeners.splice(idx, 1);
+  };
+});
 
 const stopService = async () => {
   try {

@@ -6,10 +6,10 @@
 
 /* ===== Theme Variables ===== */
 :root {
-  --bt-bg: #f0f2f5;
-  --bt-surface: #ffffff;
-  --bt-surface-hover: #f8f9fb;
-  --bt-border: #e5e7eb;
+  --bt-bg: #e8ebf0;
+  --bt-surface: #f5f7fa;
+  --bt-surface-hover: #eef1f5;
+  --bt-border: #d8dde5;
   --bt-text: #1e293b;
   --bt-text-secondary: #64748b;
   --bt-text-muted: #94a3b8;
@@ -19,12 +19,12 @@
   --bt-success: #22c55e;
   --bt-danger: #ef4444;
   --bt-warning: #f59e0b;
-  --bt-header-bg: rgba(255, 255, 255, 0.85);
+  --bt-header-bg: rgba(245, 247, 250, 0.85);
   --bt-header-border: rgba(99, 102, 241, 0.15);
   --bt-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
   --bt-card-shadow-hover: 0 10px 25px rgba(0, 0, 0, 0.08);
-  --bt-input-bg: #f8fafc;
-  --bt-input-border: #e2e8f0;
+  --bt-input-bg: #eef1f5;
+  --bt-input-border: #d8dde5;
   --bt-menu-active-bg: rgba(99, 102, 241, 0.08);
   --bt-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
 }
@@ -499,6 +499,16 @@ html.dark .el-dialog__header {
 }
 
 /* Table overrides */
+.el-table {
+  --el-table-bg-color: var(--bt-surface);
+  --el-table-tr-bg-color: var(--bt-surface);
+  --el-table-header-bg-color: var(--bt-surface-hover);
+  --el-table-row-hover-bg-color: var(--bt-surface-hover);
+  --el-table-border-color: var(--bt-border);
+  --el-table-text-color: var(--bt-text);
+  --el-table-header-text-color: var(--bt-text-secondary);
+}
+
 html.dark .el-table {
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;

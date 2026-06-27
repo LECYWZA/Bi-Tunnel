@@ -150,6 +150,23 @@ function createWebServer(statusCallback) {
     res.json(trafficLogger.getLogs(limit, offset, queryParams));
   });
 
+  app.get('/api/traffic-logs/recording', (req, res) => {
+    res.json({ enabled: trafficLogger.isEnabled() });
+  });
+
+  app.post('/api/traffic-logs/recording', (req, res) => {
+    const enabled = !!req.body.enabled;
+    trafficLogger.setEnabled(enabled);
+    getLogger().info(`[Traffic] Recording ${enabled ? 'enabled' : 'disabled'}`);
+    res.json({ success: true, enabled: trafficLogger.isEnabled() });
+  });
+
+  app.delete('/api/traffic-logs', (req, res) => {
+    trafficLogger.clear();
+    getLogger().info('[Traffic] Logs cleared');
+    res.json({ success: true });
+  });
+
   app.post('/api/tunnel/:mode/start', async (req, res) => {
     const { mode } = req.params;
     if (app.locals.startTunnel) {
@@ -872,6 +889,19 @@ function createWebServer(statusCallback) {
   };
   app.locals.broadcastConnectionsUpdate = broadcastConnectionsUpdate;
 
+  // Broadcast new traffic logs to subscribed WS clients
+  const broadcastTrafficLog = (logEntry) => {
+    const msg = JSON.stringify({ type: 'traffic_log', data: logEntry });
+    [wss, wssHttp].forEach(ws => {
+      ws.clients.forEach(c => {
+        // Only push to clients that subscribed to traffic logs
+        if (c.readyState === 1 && c._trafficSubscribed) c.send(msg);
+      });
+    });
+  };
+  trafficLogger.on('new_log', broadcastTrafficLog);
+  app.locals.broadcastTrafficLog = broadcastTrafficLog;
+
   const handleWsConnection = (ws) => {
     broadcastClientsUpdate();
     broadcastConnectionsUpdate();
@@ -879,6 +909,16 @@ function createWebServer(statusCallback) {
     ws.on('message', (raw) => {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch (e) { return; }
+
+      // Handle traffic log subscription (no config change needed)
+      if (msg.type === 'traffic_subscribe') {
+        ws._trafficSubscribed = true;
+        return;
+      }
+      if (msg.type === 'traffic_unsubscribe') {
+        ws._trafficSubscribed = false;
+        return;
+      }
 
       const currentConfig = configManager.getConfig();
       let changed = false;

@@ -10,7 +10,16 @@ class TrafficLogger extends EventEmitter {
     this.nextId = 1;
     this.filePath = path.join(process.cwd(), 'logs', 'traffic_logs.json');
     this.saveTimer = null;
+    this.recordingEnabled = true;
     this.loadLogs();
+  }
+
+  setEnabled(enabled) {
+    this.recordingEnabled = !!enabled;
+  }
+
+  isEnabled() {
+    return this.recordingEnabled;
   }
 
   loadLogs() {
@@ -123,6 +132,9 @@ class TrafficLogger extends EventEmitter {
   }
 
   addLog({ module, sourceIp, target, action, rulePattern = '', bytesTransferred = 0, durationMs = 0, status = 'success', error = '', clientId = '', routePath }) {
+    // If recording is disabled, do not store or emit anything
+    if (!this.recordingEnabled) return null;
+
     const logEntry = {
       id: this.nextId++,
       timestamp: Date.now(),
