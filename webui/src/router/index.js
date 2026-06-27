@@ -5,6 +5,7 @@ import ProxyTester from '../components/ProxyTester.vue';
 import ProxyNodes from '../views/ProxyNodes.vue';
 import ProxyChains from '../views/ProxyChains.vue';
 import TrafficLogs from '../components/TrafficLogs.vue';
+import RuleCards from '../views/RuleCards.vue';
 
 const routes = [
   { path: '/', redirect: '/config' },
@@ -12,6 +13,7 @@ const routes = [
   { path: '/proxies', name: 'ProxySection', component: ProxySection },
   { path: '/nodes', name: 'ProxyNodes', component: ProxyNodes },
   { path: '/chains', name: 'ProxyChains', component: ProxyChains },
+  { path: '/rules', name: 'RuleCards', component: RuleCards },
   { path: '/tester', name: 'ProxyTester', component: ProxyTester },
   { path: '/logs', name: 'TrafficLogs', component: TrafficLogs }
 ];

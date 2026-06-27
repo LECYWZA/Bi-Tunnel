@@ -110,7 +110,7 @@
 
         <div class="mb-4">
           <div class="flex gap-2">
-            <el-select v-model="selectedNodeToAdd" class="flex-1" placeholder="从节点池中选择一个节点...">
+            <el-select v-model="selectedNodeToAdd" class="flex-1" placeholder="从节点池中选择一个节点..." filterable clearable>
               <el-option v-for="node in config.proxyNodes" :key="node.id" :label="node.displayName" :value="node.id">
                 <span class="float-left">{{ node.displayName }}</span>
                 <span class="float-right text-gray-400 text-xs">{{ node.type.toUpperCase() }}</span>

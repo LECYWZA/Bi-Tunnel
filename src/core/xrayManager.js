@@ -5,17 +5,29 @@ const net = require('net');
 const { getLogger } = require('../utils/logger');
 const { XRAY_EXE, BIN_DIR } = require('../utils/xrayDownloader');
 
-let currentXrayProcess = null;
-let currentListenPort = 0;
+const activeXrays = new Map(); // rawUrl -> { process, port, lastUsed }
+const startingPromises = new Map(); // rawUrl -> Promise
+const reservedPorts = new Set();
 let currentV2rayUrl = null;
-let startingPromise = null;
+
+let currentTunProcess = null;
+let currentTunPort = 0;
+let currentTunError = null;
 
 async function getFreePort() {
   return new Promise((resolve) => {
     const srv = net.createServer();
     srv.listen(0, '127.0.0.1', () => {
       const port = srv.address().port;
-      srv.close(() => resolve(port));
+      srv.close(() => {
+        if (reservedPorts.has(port)) {
+          resolve(getFreePort());
+        } else {
+          reservedPorts.add(port);
+          setTimeout(() => reservedPorts.delete(port), 5000);
+          resolve(port);
+        }
+      });
     });
   });
 }
@@ -132,39 +144,39 @@ function parseVless(rawUrl) {
 }
 
 async function startXray(v2rayNode) {
-  if (currentXrayProcess && currentV2rayUrl === v2rayNode.rawUrl && currentListenPort > 0) {
-    return currentListenPort;
+  const rawUrl = v2rayNode.rawUrl;
+  
+  // Update current active proxy url on start
+  currentV2rayUrl = rawUrl;
+
+  // Check if already active and running
+  if (activeXrays.has(rawUrl)) {
+    const item = activeXrays.get(rawUrl);
+    item.lastUsed = Date.now();
+    return item.port;
   }
 
+  // Check if it's already starting
+  let startingPromise = startingPromises.get(rawUrl);
   if (startingPromise) {
-    // If it's already starting, wait for it
-    if (currentV2rayUrl === v2rayNode.rawUrl) {
-      return startingPromise;
-    }
-    // If starting a different one, wait for the previous start to finish before killing
-    await startingPromise;
+    return startingPromise;
   }
 
   startingPromise = (async () => {
-    if (currentXrayProcess) {
-      currentXrayProcess.kill();
-      currentXrayProcess = null;
-    }
-
-    currentV2rayUrl = v2rayNode.rawUrl;
     const localPort = await getFreePort();
     
     let outbound;
     try {
-      if (v2rayNode.rawUrl.startsWith('vmess://')) {
-        outbound = parseVmess(v2rayNode.rawUrl);
-      } else if (v2rayNode.rawUrl.startsWith('vless://')) {
-        outbound = parseVless(v2rayNode.rawUrl);
+      if (rawUrl.startsWith('vmess://')) {
+        outbound = parseVmess(rawUrl);
+      } else if (rawUrl.startsWith('vless://')) {
+        outbound = parseVless(rawUrl);
       } else {
-        throw new Error('Unsupported v2ray protocol: ' + v2rayNode.rawUrl.split(':')[0]);
+        throw new Error('Unsupported v2ray protocol: ' + rawUrl.split(':')[0]);
       }
     } catch (err) {
       getLogger().error(`[Xray] Failed to parse node config: ${err.message}`);
+      startingPromises.delete(rawUrl);
       return null;
     }
 
@@ -174,49 +186,51 @@ async function startXray(v2rayNode) {
         port: localPort,
         listen: '127.0.0.1',
         protocol: 'socks',
-        settings: { auth: 'noauth', udp: true }
+        settings: { auth: 'noauth', udp: false }
       }],
       outbounds: [outbound]
     };
 
-    const configPath = path.join(BIN_DIR, 'config.json');
+    const configPath = path.join(BIN_DIR, `config-${localPort}.json`);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
     return new Promise((resolve, reject) => {
       getLogger().info(`[Xray] Starting xray-core on local SOCKS5 port ${localPort}...`);
-      currentXrayProcess = spawn(XRAY_EXE, ['run', '-c', configPath], {
+      const proc = spawn(XRAY_EXE, ['run', '-c', configPath], {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       });
 
       let errorLogs = '';
-      currentXrayProcess.stderr.on('data', (data) => {
+      proc.stderr.on('data', (data) => {
         const msg = data.toString();
         errorLogs += msg;
-        getLogger().error(`[Xray Core] ${msg.trim()}`);
+        getLogger().error(`[Xray Core ${localPort}] ${msg.trim()}`);
       });
-      currentXrayProcess.stdout.on('data', (data) => {
+      proc.stdout.on('data', (data) => {
         const msg = data.toString();
         errorLogs += msg;
-        getLogger().info(`[Xray Core] ${msg.trim()}`);
+        getLogger().info(`[Xray Core ${localPort}] ${msg.trim()}`);
       });
 
       let isResolved = false;
 
-      currentXrayProcess.on('error', (err) => {
-        getLogger().error(`[Xray] Process error: ${err.message}`);
-        currentListenPort = 0;
-        currentV2rayUrl = null;
+      proc.on('error', (err) => {
+        getLogger().error(`[Xray ${localPort}] Process error: ${err.message}`);
+        try { fs.unlinkSync(configPath); } catch(e) {}
+        activeXrays.delete(rawUrl);
+        startingPromises.delete(rawUrl);
         if (!isResolved) {
           isResolved = true;
-          reject(new Error(`Failed to start Xray: ${err.message}`));
+          reject(err);
         }
       });
 
-      currentXrayProcess.on('exit', (code) => {
-        getLogger().error(`[Xray] Process exited with code ${code}`);
-        currentListenPort = 0;
-        currentV2rayUrl = null;
+      proc.on('exit', (code) => {
+        getLogger().info(`[Xray ${localPort}] Process exited with code ${code}`);
+        try { fs.unlinkSync(configPath); } catch(e) {}
+        activeXrays.delete(rawUrl);
+        startingPromises.delete(rawUrl);
         if (!isResolved) {
           isResolved = true;
           reject(new Error(`Xray exited prematurely: ${errorLogs || 'Unknown error'}`));
@@ -232,7 +246,12 @@ async function startXray(v2rayNode) {
           sock.destroy();
           if (!isResolved) {
             isResolved = true;
-            currentListenPort = localPort;
+            activeXrays.set(rawUrl, {
+              process: proc,
+              port: localPort,
+              lastUsed: Date.now()
+            });
+            startingPromises.delete(rawUrl);
             resolve(localPort);
           }
         });
@@ -251,31 +270,256 @@ async function startXray(v2rayNode) {
     });
   })();
 
-  const port = await startingPromise;
-  startingPromise = null;
-  return port;
-}
-function getActiveXrayPort() {
-  return currentListenPort;
-}
-
-function stopXray() {
-  if (currentXrayProcess) {
-    currentXrayProcess.kill();
-    currentXrayProcess = null;
-    currentListenPort = 0;
-    currentV2rayUrl = null;
-    getLogger().info('[Xray] Process stopped.');
+  startingPromises.set(rawUrl, startingPromise);
+  try {
+    const port = await startingPromise;
+    return port;
+  } catch (err) {
+    startingPromises.delete(rawUrl);
+    throw err;
   }
 }
 
+function getActiveXrayPort() {
+  if (currentV2rayUrl && activeXrays.has(currentV2rayUrl)) {
+    return activeXrays.get(currentV2rayUrl).port;
+  }
+  return 0;
+}
+
+function stopXray() {
+  currentV2rayUrl = null;
+  for (const [rawUrl, item] of activeXrays.entries()) {
+    try { item.process.kill(); } catch(e) {}
+  }
+  activeXrays.clear();
+  startingPromises.clear();
+  getLogger().info('[Xray] All processes stopped.');
+}
+
 function getStatus() {
+  const activeItem = currentV2rayUrl ? activeXrays.get(currentV2rayUrl) : null;
   return {
-    running: !!currentXrayProcess,
-    pid: currentXrayProcess ? currentXrayProcess.pid : null,
-    port: currentListenPort,
+    running: !!activeItem,
+    pid: activeItem ? activeItem.process.pid : null,
+    port: activeItem ? activeItem.port : 0,
     url: currentV2rayUrl
   };
 }
 
-module.exports = { startXray, stopXray, getActiveXrayPort, getStatus };
+// Cleanup timer for idle processes
+setInterval(() => {
+  const now = Date.now();
+  const idleTimeout = 5 * 60 * 1000; // 5 minutes
+  for (const [rawUrl, item] of activeXrays.entries()) {
+    if (rawUrl === currentV2rayUrl) continue;
+    if (now - item.lastUsed > idleTimeout) {
+      getLogger().info(`[Xray] Cleaning up idle xray process on port ${item.port} for node...`);
+      try { item.process.kill(); } catch(e) {}
+      activeXrays.delete(rawUrl);
+    }
+  }
+}, 30000);
+
+async function startTun(proxyPort) {
+  const os = require('os');
+  if (currentTunProcess) {
+    if (currentTunPort === proxyPort) {
+      return { success: true, port: proxyPort };
+    }
+    await stopTun();
+  }
+
+  currentTunPort = proxyPort;
+  currentTunError = null;
+
+  const config = {
+    log: { loglevel: 'warning' },
+    dns: {
+      servers: [
+        "tcp://1.1.1.1:53",
+        "tcp://8.8.8.8:53"
+      ]
+    },
+    inbounds: [
+      {
+        "tag": "tun-in",
+        "protocol": "tun",
+        "port": 0,
+        "settings": {
+          "name": "tun-bi",
+          "mtu": 1500,
+          "gateway": ["10.0.9.1/24"],
+          "autoSystemRoutingTable": ["0.0.0.0/0"]
+        },
+        "sniffing": {
+          "enabled": true,
+          "destOverride": ["http", "tls", "quic"],
+          "routeOnly": false
+        }
+      }
+    ],
+    outbounds: [
+      {
+        "tag": "socks-out",
+        "protocol": "socks",
+        "settings": {
+          "servers": [
+            {
+              "address": "127.0.0.1",
+              "port": proxyPort
+            }
+          ]
+        }
+      },
+      {
+        "tag": "dns-out",
+        "protocol": "dns",
+        "settings": {}
+      }
+    ],
+    "routing": {
+      "rules": [
+        {
+          "type": "field",
+          "port": 53,
+          "outboundTag": "dns-out"
+        }
+      ]
+    }
+  };
+
+  const configPath = path.join(BIN_DIR, 'tun-config.json');
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+  return new Promise(async (resolve, reject) => {
+    getLogger().info(`[Xray TUN] Starting xray-core in TUN mode pointing to SOCKS5 port ${proxyPort}...`);
+    
+    const routeManager = require('../utils/routeManager');
+    if (os.platform() === 'linux') {
+      try {
+        await routeManager.tearDownLinuxTunRouting('tun-bi');
+      } catch(e) {}
+    }
+
+    currentTunProcess = spawn(XRAY_EXE, ['run', '-c', configPath], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+
+    let errorLogs = '';
+    let isResolved = false;
+
+    currentTunProcess.stderr.on('data', (data) => {
+      const msg = data.toString();
+      errorLogs += msg;
+      getLogger().error(`[Xray TUN Core] ${msg.trim()}`);
+    });
+    
+    currentTunProcess.stdout.on('data', (data) => {
+      const msg = data.toString();
+      errorLogs += msg;
+      getLogger().info(`[Xray TUN Core] ${msg.trim()}`);
+    });
+
+    currentTunProcess.on('error', (err) => {
+      getLogger().error(`[Xray TUN] Process error: ${err.message}`);
+      currentTunError = err.message;
+      currentTunPort = 0;
+      if (!isResolved) {
+        isResolved = true;
+        reject(err);
+      }
+    });
+
+    currentTunProcess.on('exit', (code) => {
+      getLogger().error(`[Xray TUN] Process exited with code ${code}`);
+      if (!currentTunProcess) {
+        currentTunPort = 0;
+        currentTunError = null;
+        return;
+      }
+      
+      currentTunPort = 0;
+      currentTunProcess = null;
+      
+      let friendlyError = 'Xray exited prematurely';
+      if (errorLogs.includes('permission denied') || errorLogs.includes('WintunCreateAdapter') || errorLogs.includes('create TUN') || errorLogs.includes('operation not permitted')) {
+        friendlyError = '权限不足，请使用管理员/Root权限运行程序以创建虚拟网卡';
+      } else if (errorLogs.trim()) {
+        friendlyError = errorLogs.trim();
+      }
+      
+      currentTunError = friendlyError;
+      if (!isResolved) {
+        isResolved = true;
+        reject(new Error(friendlyError));
+      }
+    });
+
+    // Wait a bit and check if Xray is still running
+    setTimeout(async () => {
+      if (isResolved) return;
+      if (currentTunProcess && currentTunProcess.pid) {
+        if (os.platform() === 'linux') {
+          try {
+            await routeManager.setupLinuxTunRouting('tun-bi');
+          } catch (err) {
+            getLogger().error(`[Xray TUN] Linux route setup failed: ${err.message}`);
+            currentTunError = `路由配置失败: ${err.message}`;
+            try { currentTunProcess.kill(); } catch(e) {}
+            if (!isResolved) {
+              isResolved = true;
+              reject(err);
+            }
+            return;
+          }
+        }
+        isResolved = true;
+        resolve({ success: true, port: proxyPort });
+      } else {
+        if (!isResolved) {
+          isResolved = true;
+          reject(new Error(currentTunError || 'Failed to start TUN process'));
+        }
+      }
+    }, 2000);
+  });
+}
+
+async function stopTun() {
+  if (currentTunProcess) {
+    const routeManager = require('../utils/routeManager');
+    const os = require('os');
+    if (os.platform() === 'linux') {
+      try {
+        await routeManager.tearDownLinuxTunRouting('tun-bi');
+      } catch(e) {}
+    }
+    const proc = currentTunProcess;
+    currentTunProcess = null; // Set to null before killing to mark as intentional stop
+    proc.kill();
+    currentTunPort = 0;
+    currentTunError = null;
+    getLogger().info('[Xray TUN] Process stopped and routing cleared.');
+  }
+}
+
+function getTunStatus() {
+  return {
+    running: !!currentTunProcess,
+    pid: currentTunProcess ? currentTunProcess.pid : null,
+    port: currentTunPort,
+    error: currentTunError
+  };
+}
+
+module.exports = {
+  startXray,
+  stopXray,
+  getActiveXrayPort,
+  getStatus,
+  startTun,
+  stopTun,
+  getTunStatus
+};

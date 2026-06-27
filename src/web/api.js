@@ -218,20 +218,120 @@ function createWebServer(statusCallback) {
     }
   });
 
+  const dns = require('dns').promises;
+  async function resolveHost(host) {
+    if (!host) return null;
+    if (net.isIP(host)) return host;
+    try {
+      const res = await dns.lookup(host);
+      return res.address;
+    } catch (e) {
+      return null;
+    }
+  }
+
   app.post('/api/system-proxy/enable', async (req, res) => {
     const { host, port } = req.body;
     if (!port) {
       return res.status(400).json({ success: false, message: 'Port is required' });
     }
     const success = await enableSystemProxy(host || '127.0.0.1', port);
+    if (success) {
+      const currentConfig = configManager.getConfig();
+      currentConfig.globalProxyEnabled = true;
+      currentConfig.globalProxyPort = port;
+      configManager.saveConfig(currentConfig);
+    }
     res.json({ success });
   });
 
   app.post('/api/system-proxy/disable', async (req, res) => {
     const success = await disableSystemProxy();
-    const { stopXray } = require('../core/xrayManager');
-    stopXray();
+    if (success) {
+      const currentConfig = configManager.getConfig();
+      currentConfig.globalProxyEnabled = false;
+      configManager.saveConfig(currentConfig);
+    }
     res.json({ success });
+  });
+
+  app.get('/api/tun/status', (req, res) => {
+    const xrayManager = require('../core/xrayManager');
+    res.json(xrayManager.getTunStatus());
+  });
+
+  app.post('/api/tun/enable', async (req, res) => {
+    const { port } = req.body;
+    if (!port) {
+      return res.status(400).json({ success: false, message: 'Port is required' });
+    }
+
+    const routeManager = require('../utils/routeManager');
+    const xrayManager = require('../core/xrayManager');
+
+    try {
+      // 1. Stop any existing TUN and clear bypasses
+      await xrayManager.stopTun();
+      await routeManager.clearAllBypasses();
+
+      // 2. Add bypass routes
+      const gatewayInfo = await routeManager.getDefaultGateway();
+      if (gatewayInfo) {
+        const config = configManager.getConfig();
+        const hostsToResolve = [];
+        if (config.mode === 'client' && config.client?.tunnelHost) {
+          hostsToResolve.push(config.client.tunnelHost);
+        }
+        if (config.proxyNodes) {
+          config.proxyNodes.forEach(node => {
+            if (node.host) hostsToResolve.push(node.host);
+          });
+        }
+
+        const ipSet = new Set();
+        for (const host of hostsToResolve) {
+          const ip = await resolveHost(host);
+          if (ip) ipSet.add(ip);
+        }
+
+        for (const ip of ipSet) {
+          await routeManager.addBypassRoute(ip, gatewayInfo);
+        }
+      }
+
+      // 3. Start TUN core
+      await xrayManager.startTun(port);
+
+      // 4. Save config
+      const currentConfig = configManager.getConfig();
+      currentConfig.tunModeEnabled = true;
+      currentConfig.tunProxyPort = port;
+      configManager.saveConfig(currentConfig);
+
+      res.json({ success: true });
+    } catch (err) {
+      getLogger().error(`[API] Failed to enable TUN mode: ${err.message}`);
+      res.json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/tun/disable', async (req, res) => {
+    const routeManager = require('../utils/routeManager');
+    const xrayManager = require('../core/xrayManager');
+
+    try {
+      await xrayManager.stopTun();
+      await routeManager.clearAllBypasses();
+
+      const currentConfig = configManager.getConfig();
+      currentConfig.tunModeEnabled = false;
+      configManager.saveConfig(currentConfig);
+
+      res.json({ success: true });
+    } catch (err) {
+      getLogger().error(`[API] Failed to disable TUN mode: ${err.message}`);
+      res.json({ success: false, message: err.message });
+    }
   });
 
   app.post('/api/test-latency', (req, res) => {
@@ -247,10 +347,10 @@ function createWebServer(statusCallback) {
       const chain = globalConfig.proxyChains?.find(c => c.id === id);
       if (!chain) return res.status(404).json({ success: false, message: 'Chain not found' });
       nodesToDial = chain.nodes.map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
-      // v2ray nodes must come first in the chain
+      // Only one v2ray node is supported in a chain test; it must be the first
       const v2rayNodes = nodesToDial.filter(n => n.type === 'v2ray');
       const nonV2rayNodes = nodesToDial.filter(n => n.type !== 'v2ray');
-      nodesToDial = [...v2rayNodes, ...nonV2rayNodes];
+      nodesToDial = v2rayNodes.length > 0 ? [v2rayNodes[0], ...nonV2rayNodes] : [...nonV2rayNodes];
       if (nodesToDial.length === 0) return res.status(400).json({ success: false, message: 'Chain has no valid nodes' });
     } else {
       return res.status(400).json({ success: false, message: 'Invalid test type' });
@@ -527,7 +627,15 @@ function createWebServer(statusCallback) {
   app.post('/api/service/stop', (req, res) => {
     getLogger().info('[Service] Stop requested via Web API, shutting down...');
     res.json({ success: true, message: '服务正在停止...' });
-    setTimeout(() => {
+    setTimeout(async () => {
+      const { disableSystemProxy } = require('../utils/systemProxy');
+      const xrayManager = require('../core/xrayManager');
+      const routeManager = require('../utils/routeManager');
+
+      try { await disableSystemProxy(); } catch (e) {}
+      try { await xrayManager.stopTun(); } catch (e) {}
+      try { await routeManager.clearAllBypasses(); } catch (e) {}
+
       const { stopXray } = require('../core/xrayManager');
       stopXray();
       if (app.locals.server) {
@@ -543,7 +651,15 @@ function createWebServer(statusCallback) {
   app.post('/api/service/restart', (req, res) => {
     getLogger().info('[Service] Restart requested via Web API, restarting...');
     res.json({ success: true, message: '服务正在重启...' });
-    setTimeout(() => {
+    setTimeout(async () => {
+      const { disableSystemProxy } = require('../utils/systemProxy');
+      const xrayManager = require('../core/xrayManager');
+      const routeManager = require('../utils/routeManager');
+
+      try { await disableSystemProxy(); } catch (e) {}
+      try { await xrayManager.stopTun(); } catch (e) {}
+      try { await routeManager.clearAllBypasses(); } catch (e) {}
+
       // 停止所有隧道和转发（释放所有端口）
       if (app.locals.stopTunnel) {
         try { app.locals.stopTunnel('server'); } catch (e) {}
@@ -603,9 +719,10 @@ function createWebServer(statusCallback) {
       const chain = config.proxyChains?.find(c => c.id === id);
       if (!chain) return res.status(404).json({ success: false, message: 'Chain not found' });
       nodesToDial = chain.nodes.map(ref => config.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
+      // Only one v2ray node is supported in a chain test; it must be the first
       const v2rayNodes = nodesToDial.filter(n => n.type === 'v2ray');
       const nonV2rayNodes = nodesToDial.filter(n => n.type !== 'v2ray');
-      nodesToDial = [...v2rayNodes, ...nonV2rayNodes];
+      nodesToDial = v2rayNodes.length > 0 ? [v2rayNodes[0], ...nonV2rayNodes] : [...nonV2rayNodes];
       if (nodesToDial.length === 0) return res.status(400).json({ success: false, message: 'Chain has no valid nodes' });
     } else {
       let node = config.proxyNodes?.find(n => n.id === id);

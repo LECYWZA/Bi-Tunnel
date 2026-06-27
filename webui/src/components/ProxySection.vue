@@ -29,27 +29,29 @@
                 <el-radio-button value="server">服务端代理</el-radio-button>
                 <el-radio-button value="client">客户端代理</el-radio-button>
               </el-radio-group>
-              <span class="text-sm font-bold text-gray-600">代理监听端口: {{ item._ref.listenPort }}</span>
             </div>
             
             <div class="flex items-center gap-2">
               <el-switch v-model="item._ref.enabled" inline-prompt active-text="已启用" inactive-text="已停用" />
-              <el-tooltip content="将此代理设为 Windows 系统的全局代理。开启后，本机的所有网络请求都会经过此代理。" placement="top">
-                <el-switch 
-                  v-model="item._ref.isSystemProxy" 
-                  inline-prompt 
-                  active-text="全局代理" 
-                  inactive-text="全局代理" 
-                  @change="toggleSystemProxy(item._ref)"
-                  :disabled="item._ref.enabled === false"
-                />
-              </el-tooltip>
               <el-button type="danger" circle plain :icon="Delete" size="small" @click="removeProxy(item._mode, item._ref)" />
             </div>
           </div>
           
           <el-form label-position="top">
             <el-row :gutter="16">
+              <el-col :span="24">
+                <el-form-item class="mb-2">
+                  <template #label>
+                    <div class="flex items-center gap-1">
+                      <span>代理名称</span>
+                      <el-tooltip content="为此代理指定一个友好的名称，便于在顶部导航栏区分不同的代理选项。" placement="top">
+                        <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <el-input v-model="item._ref.name" placeholder="请输入代理名称 (例：办公代理/全球分流)" />
+                </el-form-item>
+              </el-col>
               <el-col :span="12">
                 <el-form-item class="mb-2">
                   <template #label>
@@ -212,40 +214,23 @@
               <div class="flex-1 grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
                 <!-- Match Pattern -->
                 <div class="flex items-center rounded overflow-hidden" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
-                  <span class="text-xs text-gray-500 px-3 py-1.5 select-none whitespace-nowrap" style="background: var(--bt-surface); border-right: 1px solid var(--bt-border);">匹配规则</span>
+                  <span class="text-xs text-gray-500 px-3 py-1.5 select-none whitespace-nowrap" style="background: var(--bt-surface); border-right: 1px solid var(--bt-border);">规则卡片</span>
                   <el-select 
-                    v-model="rule.pattern" 
+                    v-model="rule.ruleCardIds" 
                     multiple
+                    filterable 
                     collapse-tags
                     collapse-tags-tooltip
-                    allow-create 
-                    filterable 
-                    default-first-option
-                    placeholder="例如: geoip:cn 或 *.google.com" 
+                    placeholder="选择分流规则卡片 (可多选)" 
                     class="rule-input flex-1" 
                     style="width: 100%;"
                   >
-                    <el-option-group label="基于 GeoIP 分流 (国内外路由)">
-                      <el-option label="匹配国内 IP (geoip:cn)" value="geoip:cn" />
-                      <el-option label="匹配非国内/海外 IP (geoip:!cn)" value="geoip:!cn" />
-                    </el-option-group>
-                    <el-option-group label="内网与私有地址">
-                      <el-option label="10.x.x.x (10.*.*.*)" value="10.*.*.*" />
-                      <el-option label="172.16-31.x.x (172.*.*.*)" value="172.*.*.*" />
-                      <el-option label="192.168.x.x (192.168.*.*)" value="192.168.*.*" />
-                      <el-option label="Localhost (127.*.*.* | localhost)" value="127.*.*.*" />
-                    </el-option-group>
-                    <el-option-group label="常用域名分流">
-                      <el-option label="匹配所有 (兜底规则) (*)" value="*" />
-                      <el-option label="谷歌服务 (*.google.com)" value="*.google.com" />
-                      <el-option label="YouTube (*.youtube.com)" value="*.youtube.com" />
-                      <el-option label="OpenAI (*.openai.com)" value="*.openai.com" />
-                      <el-option label="GitHub (*.github.com)" value="*.github.com" />
-                      <el-option label="HuggingFace (*.huggingface.co)" value="*.huggingface.co" />
-                      <el-option label="Docker (*.docker.com)" value="*.docker.com" />
-                      <el-option label="Telegram (*.telegram.org)" value="*.telegram.org" />
-                      <el-option label="微软服务 (*.microsoft.com)" value="*.microsoft.com" />
-                    </el-option-group>
+                    <el-option 
+                      v-for="card in config.ruleCards || []" 
+                      :key="card.id" 
+                      :label="card.name" 
+                      :value="card.id" 
+                    />
                   </el-select>
                 </div>
 
@@ -254,7 +239,7 @@
                 <!-- Route Action -->
                 <div class="flex items-center rounded overflow-hidden" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
                   <span class="text-xs text-gray-500 px-3 py-1.5 select-none whitespace-nowrap" style="background: var(--bt-surface); border-right: 1px solid var(--bt-border);">转发至</span>
-                  <el-select v-model="rule.action" class="rule-select flex-1" style="width: 100%;" multiple collapse-tags collapse-tags-tooltip placeholder="请选择目标 (支持多选)">
+                  <el-select v-model="rule.action" class="rule-select flex-1" style="width: 100%;" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择目标 (支持多选)">
                     <el-option-group label="内置动作">
                       <el-option label="直连 (本地网络)" value="direct_local" />
                       <el-option label="直连 (远端隧道)" value="direct_remote" />
@@ -282,7 +267,7 @@
             <el-icon class="text-gray-400"><InfoFilled /></el-icon>
           </el-tooltip>
           <span class="text-xs font-bold text-gray-700">默认兜底动作:</span>
-          <el-select v-model="currentProxy.defaultRuleAction" size="small" style="width: 220px;" multiple collapse-tags collapse-tags-tooltip placeholder="请选择兜底动作 (支持多选)">
+          <el-select v-model="currentProxy.defaultRuleAction" size="small" style="width: 220px;" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择兜底动作 (支持多选)">
             <el-option-group label="内置动作">
               <el-option label="直连 (本地网络)" value="direct_local" />
               <el-option label="直连 (远端隧道)" value="direct_remote" />
@@ -366,6 +351,7 @@ const allProxies = computed(() => {
 const handleAddProxy = (mode) => {
   if (!props.config[mode].proxies) props.config[mode].proxies = [];
   props.config[mode].proxies.push({
+    name: '',
     enabled: true,
     listenPort: 1080,
     listenIp: '0.0.0.0',
@@ -422,44 +408,13 @@ const openAclDialog = (px) => {
 };
 
 const addRule = (px) => {
-  if (!px.proxyRules) px.proxyRules = [];
-  px.proxyRules.push({ id: Math.random().toString(36).substr(2, 9), pattern: [], action: ['direct_local'] });
-};
-
-const toggleSystemProxy = async (px) => {
-  try {
-    if (px.isSystemProxy) {
-      // First turn off any other proxies that might have this flag on
-      ['server', 'client'].forEach(m => {
-        (props.config[m]?.proxies || []).forEach(p => {
-          if (p !== px) p.isSystemProxy = false;
-        });
-      });
-      const res = await fetch('/api/system-proxy/enable', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host: '127.0.0.1', port: px.listenPort })
-      });
-      const data = await res.json();
-      if (data.success) {
-        ElMessage.success('已开启全局系统代理');
-      } else {
-        px.isSystemProxy = false;
-        ElMessage.error('无法开启系统代理，请检查权限');
-      }
-    } else {
-      const res = await fetch('/api/system-proxy/disable', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        ElMessage.success('已关闭全局系统代理并恢复原样');
-      } else {
-        ElMessage.error('关闭系统代理失败');
-      }
-    }
-  } catch (err) {
-    px.isSystemProxy = !px.isSystemProxy;
-    ElMessage.error('请求失败: ' + err.message);
+  if (!props.config.ruleCards || props.config.ruleCards.length === 0) {
+    ElMessage.warning('暂无分流规则卡片，请先到“分流规则”页面创建规则卡片！');
+    return;
   }
+  if (!px.proxyRules) px.proxyRules = [];
+  const defaultCardId = props.config.ruleCards[0].id;
+  px.proxyRules.push({ id: Math.random().toString(36).substr(2, 9), ruleCardIds: [defaultCardId], action: ['direct_local'] });
 };
 </script>
 

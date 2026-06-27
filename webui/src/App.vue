@@ -1,5 +1,9 @@
 <template>
-  <div v-if="!isLoggedIn">
+  <div v-if="isCheckingAuth" class="min-h-screen flex flex-col items-center justify-center gap-3" :style="{ background: 'var(--bt-bg)' }">
+    <el-icon class="is-loading" :size="36" color="var(--el-color-primary)"><Loading /></el-icon>
+    <span style="font-size: 14px; color: var(--bt-text-sec);">{{ t('common.loading') }}</span>
+  </div>
+  <div v-else-if="!isLoggedIn">
     <Login v-model:isDark="isDark" @login-success="onLoginSuccess" />
   </div>
   <div v-else class="min-h-screen" :style="{ background: 'var(--bt-bg)' }">
@@ -22,28 +26,87 @@
             <span v-if="xrayStatus.running" style="opacity: 0.7;">:{{ xrayStatus.port }}</span>
           </div>
         </el-tooltip>
+
+        <!-- Select Active Proxy -->
+        <el-select
+          v-model="config.activeProxyPort"
+          :placeholder="t('header.activeProxy')"
+          size="default"
+          style="width: 200px; margin-left: 10px;"
+          :disabled="allProxies.length === 0"
+          @change="handleActiveProxyChange"
+        >
+          <el-option
+            v-for="item in allProxies"
+            :key="item.port"
+            :label="item.label"
+            :value="item.port"
+          />
+        </el-select>
+
+        <!-- Global System Proxy Switch -->
+        <div class="flex flex-col items-start justify-center leading-none" style="margin-left: 5px; height: 38px;">
+          <el-switch
+            v-model="config.globalProxyEnabled"
+            :disabled="!config.activeProxyPort"
+            inline-prompt
+            :active-text="t('header.systemProxy')"
+            :inactive-text="t('header.systemProxy')"
+            style="width: 80px; height: 20px; --el-switch-on-color: var(--el-color-primary); --el-switch-off-color: var(--el-text-color-placeholder);"
+            :loading="systemProxyLoading"
+            @change="handleGlobalProxyToggle"
+          />
+          <span style="font-size: 10px; color: var(--bt-text-sec); margin-top: 3px; transform: scale(0.85); transform-origin: left; white-space: nowrap;">
+            {{ t('header.systemProxyDesc') }}
+          </span>
+        </div>
+
+        <!-- Virtual Network Card (TUN) Switch -->
+        <div class="flex flex-col items-start justify-center leading-none" style="height: 38px;">
+          <div class="flex items-center gap-1">
+            <el-switch
+              v-model="config.tunModeEnabled"
+              :disabled="!config.activeProxyPort"
+              inline-prompt
+              :active-text="t('header.tunMode')"
+              :inactive-text="t('header.tunMode')"
+              style="width: 80px; height: 20px; --el-switch-on-color: var(--el-color-primary); --el-switch-off-color: var(--el-text-color-placeholder);"
+              :loading="tunLoading"
+              @change="handleTunToggle"
+            />
+            <el-tooltip :content="tunStatus.error || t('header.tunMode')" placement="bottom" :disabled="!tunStatus.error">
+              <el-icon v-if="tunStatus.error" color="var(--el-color-error)"><Warning /></el-icon>
+            </el-tooltip>
+          </div>
+          <span style="font-size: 10px; color: var(--bt-text-sec); margin-top: 3px; transform: scale(0.85); transform-origin: left; white-space: nowrap;">
+            {{ t('header.tunModeDesc') }}
+          </span>
+        </div>
       </div>
 
       <!-- Navigation in center -->
       <div class="flex justify-center flex-1 min-w-[600px]">
         <el-menu :default-active="$route.path" router mode="horizontal" class="bt-nav-header" :ellipsis="false">
           <el-menu-item index="/config">
-            <el-icon><Setting /></el-icon> 隧道映射
+            <el-icon><Setting /></el-icon> {{ t('nav.tunnel') }}
           </el-menu-item>
           <el-menu-item index="/proxies">
-            <el-icon><Connection /></el-icon> 混合代理
+            <el-icon><Connection /></el-icon> {{ t('nav.proxies') }}
           </el-menu-item>
           <el-menu-item index="/nodes">
-            <el-icon><Monitor /></el-icon> 代理池
+            <el-icon><Monitor /></el-icon> {{ t('nav.nodes') }}
           </el-menu-item>
           <el-menu-item index="/chains">
-            <el-icon><Link /></el-icon> 代理链
+            <el-icon><Link /></el-icon> {{ t('nav.chains') }}
+          </el-menu-item>
+          <el-menu-item index="/rules">
+            <el-icon><Memo /></el-icon> {{ t('nav.rules') }}
           </el-menu-item>
           <el-menu-item index="/tester">
-            <el-icon><Odometer /></el-icon> 测试台
+            <el-icon><Odometer /></el-icon> {{ t('nav.tester') }}
           </el-menu-item>
           <el-menu-item index="/logs">
-            <el-icon><DataLine /></el-icon> 审计
+            <el-icon><DataLine /></el-icon> {{ t('nav.logs') }}
           </el-menu-item>
         </el-menu>
       </div>
@@ -52,12 +115,17 @@
         <!-- Unsaved indicator -->
         <div v-if="hasUnsavedChanges" class="bt-unsaved">
           <el-icon><InfoFilled /></el-icon>
-          <span>未保存</span>
+          <span>{{ t('header.unsavedChanges') }}</span>
         </div>
 
         <!-- Theme Toggle -->
-        <div class="bt-theme-toggle" @click="toggleTheme" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
+        <div class="bt-theme-toggle" @click="toggleTheme" :title="isDark ? t('login.themeDarkTitle') : t('login.themeLightTitle')">
           {{ isDark ? '☀️' : '🌙' }}
+        </div>
+
+        <!-- Language Switcher -->
+        <div class="bt-locale-toggle" @click="toggleLocale" :title="locale === 'zh' ? 'Switch to English' : '切换到中文'">
+          {{ locale === 'zh' ? 'EN' : 'ZH' }}
         </div>
 
         <!-- HTTP/HTTPS Toggle -->
@@ -68,18 +136,18 @@
         </el-tooltip>
 
         <!-- Stop Service -->
-        <el-tooltip content="停止服务" placement="bottom">
+        <el-tooltip :content="t('header.stopService')" placement="bottom">
           <el-button class="bt-btn-danger" size="default" :icon="SwitchButton" circle @click="stopService" />
         </el-tooltip>
 
         <!-- Restart Service -->
-        <el-tooltip content="重启服务" placement="bottom">
+        <el-tooltip :content="t('header.restartService')" placement="bottom">
           <el-button class="bt-btn-warning" size="default" :icon="RefreshRight" circle @click="restartService" />
         </el-tooltip>
 
         <!-- Save button -->
-        <el-button class="bt-btn-primary" size="default" :icon="Check" @click="saveConfig(false)">
-          立即应用配置
+        <el-button class="bt-btn-primary" size="default" :icon="Check" :disabled="!hasUnsavedChanges" @click="saveConfig(false)">
+          {{ t('header.applyConfig') }}
         </el-button>
       </div>
     </header>
@@ -108,10 +176,20 @@
 import { ref, reactive, onMounted, computed, watch, onUnmounted, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
-import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight } from '@element-plus/icons-vue';
+import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading } from '@element-plus/icons-vue';
 import Login from './components/Login.vue';
+import { t, locale, setLocale } from './i18n';
 
 const isLoggedIn = ref(false);
+const isCheckingAuth = ref(true);
+
+const toggleLocale = () => {
+  const newLocale = locale.value === 'zh' ? 'en' : 'zh';
+  setLocale(newLocale);
+};
+
+provide('t', t);
+provide('locale', locale);
 let statusTimer = null;
 
 const onLoginSuccess = () => {
@@ -208,6 +286,168 @@ const xrayStatus = reactive({
   port: 0
 });
 
+const allProxies = computed(() => {
+  const list = [];
+  if (config.server && Array.isArray(config.server.proxies)) {
+    config.server.proxies.forEach(p => {
+      list.push({
+        port: p.listenPort,
+        label: `${p.name || '未命名'} (端口: ${p.listenPort})`,
+        type: 'server'
+      });
+    });
+  }
+  if (config.client && Array.isArray(config.client.proxies)) {
+    config.client.proxies.forEach(p => {
+      list.push({
+        port: p.listenPort,
+        label: `${p.name || '未命名'} (端口: ${p.listenPort})`,
+        type: 'client'
+      });
+    });
+  }
+  return list;
+});
+
+const tunStatus = computed(() => status.tun || { running: false, pid: null, port: 0, error: null });
+
+const systemProxyLoading = ref(false);
+const tunLoading = ref(false);
+
+const handleActiveProxyChange = (val) => {
+  if (config.globalProxyEnabled) {
+    handleGlobalProxyToggle(true);
+  }
+  if (config.tunModeEnabled) {
+    handleTunToggle(true);
+  }
+  saveConfig(true);
+};
+
+const ensureActiveProxyEnabled = () => {
+  if (!config.activeProxyPort) return;
+  let found = false;
+  if (config.server && Array.isArray(config.server.proxies)) {
+    config.server.proxies.forEach(p => {
+      if (p.listenPort === config.activeProxyPort && !p.enabled) {
+        p.enabled = true;
+        found = true;
+      }
+    });
+  }
+  if (config.client && Array.isArray(config.client.proxies)) {
+    config.client.proxies.forEach(p => {
+      if (p.listenPort === config.activeProxyPort && !p.enabled) {
+        p.enabled = true;
+        found = true;
+      }
+    });
+  }
+  if (found) {
+    saveConfig(true);
+  }
+};
+
+const handleGlobalProxyToggle = async (val) => {
+  if (!config.activeProxyPort) return;
+  systemProxyLoading.value = true;
+  try {
+    if (val) {
+      if (config.tunModeEnabled) {
+        config.tunModeEnabled = false;
+        config.tunProxyPort = null;
+        try {
+          await fetch('/api/tun/disable', { method: 'POST' });
+          ElMessage.warning('虚拟网卡 (TUN) 模式已自动关闭');
+        } catch (e) {
+          console.error('Failed to auto-disable TUN:', e);
+        }
+      }
+      ensureActiveProxyEnabled();
+      const res = await fetch('/api/system-proxy/enable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: '127.0.0.1', port: config.activeProxyPort })
+      });
+      const data = await res.json();
+      if (data.success) {
+        config.globalProxyPort = config.activeProxyPort;
+        ElMessage.success('全局系统代理已开启');
+      } else {
+        ElMessage.error('开启系统代理失败');
+        config.globalProxyEnabled = false;
+      }
+    } else {
+      const res = await fetch('/api/system-proxy/disable', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        config.globalProxyPort = null;
+        ElMessage.warning('全局系统代理已关闭');
+      } else {
+        ElMessage.error('关闭系统代理失败');
+        config.globalProxyEnabled = true;
+      }
+    }
+  } catch (e) {
+    ElMessage.error('网络请求失败: ' + e.message);
+    config.globalProxyEnabled = !val;
+  } finally {
+    systemProxyLoading.value = false;
+  }
+};
+
+const handleTunToggle = async (val) => {
+  if (!config.activeProxyPort) return;
+  tunLoading.value = true;
+  try {
+    if (val) {
+      if (config.globalProxyEnabled) {
+        config.globalProxyEnabled = false;
+        config.globalProxyPort = null;
+        try {
+          await fetch('/api/system-proxy/disable', { method: 'POST' });
+          ElMessage.warning('全局系统代理已自动关闭');
+        } catch (e) {
+          console.error('Failed to auto-disable System Proxy:', e);
+        }
+      }
+      ensureActiveProxyEnabled();
+      const res = await fetch('/api/tun/enable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port: config.activeProxyPort })
+      });
+      const data = await res.json();
+      if (data.success) {
+        config.tunProxyPort = config.activeProxyPort;
+        ElMessage.success('虚拟网卡 (TUN) 模式已开启');
+      } else {
+        ElMessageBox.alert(data.message || '开启失败，未知错误', '虚拟网卡启动失败', {
+          confirmButtonText: '确定',
+          type: 'error'
+        });
+        config.tunModeEnabled = false;
+      }
+    } else {
+      const res = await fetch('/api/tun/disable', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        config.tunProxyPort = null;
+        ElMessage.warning('虚拟网卡 (TUN) 模式已关闭');
+      } else {
+        ElMessage.error('关闭虚拟网卡模式失败');
+        config.tunModeEnabled = true;
+      }
+    }
+  } catch (e) {
+    ElMessage.error('网络请求失败: ' + e.message);
+    config.tunModeEnabled = !val;
+  } finally {
+    tunLoading.value = false;
+    fetchStatus();
+  }
+};
+
 const availableIps = ref(['0.0.0.0', '127.0.0.1']);
 
 const handleTabSelect = (index) => {
@@ -224,6 +464,7 @@ const fetchStatus = async () => {
     status.clientRunning = data.clientRunning;
     status.connectedClients = data.connectedClients || [];
     status.clientConnections = data.clientConnections || [];
+    status.tun = data.tun || { running: false, pid: null, port: 0, error: null };
   } catch (e) {}
 };
 
@@ -259,6 +500,9 @@ const fetchConfig = async () => {
     const data = await res.json();
     isLoggedIn.value = true;
     connectWebSocket();
+    fetchNetworkInterfaces();
+    fetchStatus();
+    fetchXrayStatus();
     
     // Format arrays for textareas
     if (data.server && data.server.proxies) {
@@ -292,6 +536,14 @@ const fetchConfig = async () => {
     
     Object.assign(config, data);
     
+    if (config.activeProxyPort === undefined || config.activeProxyPort === '') {
+      if (allProxies.value.length > 0) {
+        config.activeProxyPort = allProxies.value[0].port;
+      } else {
+        config.activeProxyPort = '';
+      }
+    }
+    
     if (!config.server) config.server = {};
     if (!config.client) config.client = {};
     if (config.server.autoStart === undefined) config.server.autoStart = false;
@@ -317,6 +569,8 @@ const fetchConfig = async () => {
     setTimeout(() => { hasUnsavedChanges.value = false; }, 100);
   } catch (e) {
     console.error(e);
+  } finally {
+    isCheckingAuth.value = false;
   }
 };
 
@@ -420,12 +674,6 @@ let ws = null;
 onMounted(() => {
   initTheme();
   fetchConfig();
-  if (isLoggedIn.value) {
-    fetchNetworkInterfaces();
-    fetchStatus();
-    fetchXrayStatus();
-    connectWebSocket();
-  }
   
   statusTimer = setInterval(() => {
     if (isLoggedIn.value) {

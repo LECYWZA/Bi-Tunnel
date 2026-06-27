@@ -33,7 +33,8 @@ function init() {
     clientConnections: tunnelClient.clients ? Array.from(tunnelClient.clients.entries()).map(([id, c]) => ({
       id,
       status: c.status
-    })) : []
+    })) : [],
+    tun: require('./core/xrayManager').getTunStatus()
   }));
 
   // Bind tunnelServer events once globally
@@ -157,6 +158,64 @@ function init() {
   serverProxy.applyConfig().catch(err => getLogger().error('[Proxy-server] applyConfig error: ' + JSON.stringify(err)));
   clientForwarder.applyConfig().catch(err => getLogger().error('[Forward-client] applyConfig error: ' + JSON.stringify(err)));
   clientProxy.applyConfig().catch(err => getLogger().error('[Proxy-client] applyConfig error: ' + JSON.stringify(err)));
+
+  // Auto start TUN mode and system proxy if enabled in config
+  if (config.tunModeEnabled && config.tunProxyPort) {
+    getLogger().info(`Auto-starting TUN mode on port ${config.tunProxyPort}...`);
+    const xrayManager = require('./core/xrayManager');
+    (async () => {
+      try {
+        const routeManager = require('./utils/routeManager');
+        const gatewayInfo = await routeManager.getDefaultGateway();
+        
+        const dns = require('dns').promises;
+        async function resolveHost(host) {
+          if (!host) return null;
+          const net = require('net');
+          if (net.isIP(host)) return host;
+          try {
+            const res = await dns.lookup(host);
+            return res.address;
+          } catch (e) {
+            return null;
+          }
+        }
+
+        if (gatewayInfo) {
+          const hostsToResolve = [];
+          if (config.mode === 'client' && config.client?.tunnelHost) {
+            hostsToResolve.push(config.client.tunnelHost);
+          }
+          if (config.proxyNodes) {
+            config.proxyNodes.forEach(node => {
+              if (node.host) hostsToResolve.push(node.host);
+            });
+          }
+
+          const ipSet = new Set();
+          for (const host of hostsToResolve) {
+            const ip = await resolveHost(host);
+            if (ip) ipSet.add(ip);
+          }
+
+          for (const ip of ipSet) {
+            await routeManager.addBypassRoute(ip, gatewayInfo);
+          }
+        }
+        await xrayManager.startTun(config.tunProxyPort);
+      } catch (err) {
+        getLogger().error(`Auto-start TUN mode failed: ${err.message}`);
+      }
+    })();
+  }
+
+  if (config.globalProxyEnabled && config.globalProxyPort) {
+    getLogger().info(`Auto-starting Global System Proxy on port ${config.globalProxyPort}...`);
+    const { enableSystemProxy } = require('./utils/systemProxy');
+    enableSystemProxy('127.0.0.1', config.globalProxyPort).catch(err => {
+      getLogger().error(`Auto-start Global System Proxy failed: ${err.message}`);
+    });
+  }
 }
 
 // Global unhandled rejections to prevent crash
@@ -164,11 +223,19 @@ process.on('uncaughtException', (err) => getLogger().error('Uncaught Exception: 
 process.on('unhandledRejection', (err) => getLogger().error('Unhandled Rejection: ' + err));
 
 // Handle graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   getLogger().info('\nShutting down gracefully...');
-  const { stopXray } = require('./core/xrayManager');
+  const { stopXray, stopTun } = require('./core/xrayManager');
+  const { disableSystemProxy } = require('./utils/systemProxy');
+  const routeManager = require('./utils/routeManager');
+
+  try { await disableSystemProxy(); } catch (e) {}
+  try { await routeManager.clearAllBypasses(); } catch (e) {}
+  
   stopXray();
-  process.exit(0);
+  stopTun().catch(() => {}).finally(() => {
+    process.exit(0);
+  });
 });
 
 init();

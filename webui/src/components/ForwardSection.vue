@@ -1,20 +1,8 @@
 <template>
   <div class="space-y-6">
-    <div v-if="mode === 'server'" class="flex justify-between items-center bt-section-status h-[56px] sticky top-[60px] z-10 bg-white dark:bg-gray-900 -mx-6 px-6 pt-4 -mt-4 pb-4">
-      <div class="flex items-center gap-3">
-        <el-tag :type="isRunning ? 'success' : 'info'" effect="dark" round size="large">
-          {{ title }}: {{ isRunning ? '运行中' : '已停止' }}
-        </el-tag>
-      </div>
-      <el-button v-if="!isRunning" type="primary" :icon="VideoPlay" @click="$emit('start')" shadow size="small">
-        启动{{ title }}
-      </el-button>
-      <el-button v-else type="danger" :icon="VideoPause" @click="$emit('stop')" shadow size="small">
-        停止{{ title }}
-      </el-button>
-    </div>
+    <!-- SERVER MODE: DESCRIPTION CARD WITH STATUS -->
     <el-card v-if="mode === 'server'" shadow="hover" class="bt-card mb-6">
-      <div class="flex items-center gap-3 w-full">
+      <div class="flex items-center gap-3 w-full mb-4">
         <el-icon :size="22" style="color: var(--bt-primary)"><Guide /></el-icon>
         <div>
           <div class="font-bold text-sm bt-text">服务端模式说明</div>
@@ -23,6 +11,17 @@
             通过「端口映射」将连接的客户端的服务暴露到本地，通过「客户端管理」查看在线状态。
           </div>
         </div>
+      </div>
+      <div class="flex justify-between items-center pt-3" style="border-top: 1px solid var(--bt-border);">
+        <el-tag :type="isRunning ? 'success' : 'info'" effect="dark" round size="large">
+          {{ title }}: {{ isRunning ? '运行中' : '已停止' }}
+        </el-tag>
+        <el-button v-if="!isRunning" type="primary" :icon="VideoPlay" @click="$emit('start')" shadow size="small">
+          启动{{ title }}
+        </el-button>
+        <el-button v-else type="danger" :icon="VideoPause" @click="$emit('stop')" shadow size="small">
+          停止{{ title }}
+        </el-button>
       </div>
     </el-card>
 
@@ -94,13 +93,8 @@
 
     <!-- CLIENT MODE: HEADER BANNER -->
     <template v-else>
-      <div class="bt-section-status flex items-center gap-3 h-[56px] sticky top-[60px] z-10 bg-white dark:bg-gray-900 -mx-6 px-6 pt-4 -mt-4 pb-4">
-        <el-tag type="primary" effect="dark" round size="large">
-          {{ title }}
-        </el-tag>
-      </div>
       <el-card shadow="hover" class="bt-card mb-6">
-        <div class="flex items-center gap-3 w-full">
+        <div class="flex items-center gap-3 w-full mb-4">
           <el-icon :size="22" style="color: var(--bt-primary)"><Guide /></el-icon>
           <div>
             <div class="font-bold text-sm bt-text">客户端模式说明</div>
@@ -109,6 +103,11 @@
               连接成功后可通过「端口映射」将远程端口转发到本地使用。
             </div>
           </div>
+        </div>
+        <div class="flex items-center pt-3" style="border-top: 1px solid var(--bt-border);">
+          <el-tag type="primary" effect="dark" round size="large">
+            {{ title }}
+          </el-tag>
         </div>
       </el-card>
     </template>

@@ -2,6 +2,8 @@
 
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ===== Theme Variables ===== */
 :root {
   --bt-bg: #f0f2f5;
@@ -323,6 +325,16 @@ html.dark {
   box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4) !important;
 }
 
+.bt-btn-primary:disabled,
+.bt-btn-primary.is-disabled {
+  background: var(--el-button-disabled-bg-color, #e4e7ed) !important;
+  border: 1px solid var(--el-button-disabled-border-color, #dcdfe6) !important;
+  color: var(--el-button-disabled-text-color, #a8abb2) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  cursor: not-allowed !important;
+}
+
 /* Danger button (stop service) */
 .bt-btn-danger {
   background: var(--bt-danger) !important;
@@ -389,6 +401,30 @@ html.dark {
 }
 
 .bt-theme-toggle:hover {
+  background: var(--bt-menu-active-bg);
+  color: var(--bt-primary);
+  border-color: var(--bt-primary-glow);
+}
+
+/* Locale toggle */
+.bt-locale-toggle {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--bt-surface);
+  border: 1px solid var(--bt-border);
+  color: var(--bt-text-secondary);
+  transition: all 0.25s ease;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.bt-locale-toggle:hover {
   background: var(--bt-menu-active-bg);
   color: var(--bt-primary);
   border-color: var(--bt-primary-glow);

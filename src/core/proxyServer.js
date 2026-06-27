@@ -224,8 +224,8 @@ class ProxyServer {
     let requireAuth = proxyConfig.useAuth;
     const clientIp = socket.remoteAddress;
     
-    // Auto-bypass auth for localhost if it's the active system proxy
-    if (requireAuth && proxyConfig.isSystemProxy && this.isLocalIp(clientIp)) {
+    // Auto-bypass auth for localhost / local machine interface IPs
+    if (requireAuth && this.isLocalIp(clientIp)) {
       requireAuth = false;
     }
 
@@ -296,8 +296,8 @@ class ProxyServer {
     let requireAuth = proxyConfig.useAuth;
     const clientIp = socket.remoteAddress;
     
-    // Auto-bypass auth for localhost if it's the active system proxy
-    if (requireAuth && proxyConfig.isSystemProxy && this.isLocalIp(clientIp)) {
+    // Auto-bypass auth for localhost / local machine interface IPs
+    if (requireAuth && this.isLocalIp(clientIp)) {
       requireAuth = false;
     }
 
@@ -390,11 +390,27 @@ class ProxyServer {
       return ['proxy_chain'];
     };
 
+    const globalConfig = configManager.getConfig();
+    const resolvedRules = (proxyConfig.proxyRules || []).map(r => {
+      const cardIds = r.ruleCardIds || (r.ruleCardId ? [r.ruleCardId] : []);
+      const patterns = [];
+      cardIds.forEach(id => {
+        const card = (globalConfig.ruleCards || []).find(c => c.id === id);
+        if (card && card.patterns) {
+          patterns.push(...card.patterns);
+        }
+      });
+      return {
+        pattern: patterns,
+        action: r.action
+      };
+    });
+
     let targetIpForAcl = host;
     try {
        ipaddr.process(host); // Throws if not IP
-       if (proxyConfig.proxyRules && proxyConfig.proxyRules.length > 0) {
-         const result = await Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
+       if (resolvedRules.length > 0) {
+         const result = await Router.evaluate(host, resolvedRules, proxyConfig.defaultRuleAction || getLegacyAction());
          actionResult = result.action;
          rulePattern = result.rulePattern;
        } else {
@@ -406,8 +422,8 @@ class ProxyServer {
          }
        }
     } catch(e) {
-       if (proxyConfig.proxyRules && proxyConfig.proxyRules.length > 0) {
-         const result = await Router.evaluate(host, proxyConfig.proxyRules, proxyConfig.defaultRuleAction || getLegacyAction());
+       if (resolvedRules.length > 0) {
+         const result = await Router.evaluate(host, resolvedRules, proxyConfig.defaultRuleAction || getLegacyAction());
          actionResult = result.action;
          rulePattern = result.rulePattern;
        } else {

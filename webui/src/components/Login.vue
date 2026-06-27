@@ -6,22 +6,22 @@
           <el-icon :size="24" color="#fff"><Connection /></el-icon>
         </div>
         <h2>Bi-Tunnel</h2>
-        <p>安全的高性能双向穿透控制台</p>
+        <p>{{ t('login.subtitle') }}</p>
       </div>
 
       <el-form @keyup.enter="handleLogin" :model="form" :rules="rules" ref="formRef" size="large">
         <el-form-item prop="username">
-          <el-input v-model="form.username" placeholder="请输入账号 (默认: admin)" :prefix-icon="User" />
+          <el-input v-model="form.username" :placeholder="t('login.usernamePlaceholder')" :prefix-icon="User" />
         </el-form-item>
         <el-form-item prop="password">
-          <el-input v-model="form.password" type="password" placeholder="请输入密码 (默认: password)" :prefix-icon="Lock" show-password />
+          <el-input v-model="form.password" type="password" :placeholder="t('login.passwordPlaceholder')" :prefix-icon="Lock" show-password />
         </el-form-item>
         <el-button type="primary" class="login-btn" :loading="loading" @click="handleLogin">
-          进入控制台
+          {{ t('login.submit') }}
         </el-button>
       </el-form>
       
-      <div class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
+      <div class="theme-toggle" @click="toggleTheme" :title="isDark ? t('login.themeDarkTitle') : t('login.themeLightTitle')">
         {{ isDark ? '☀️' : '🌙' }}
       </div>
     </div>
@@ -29,7 +29,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue';
+import { ref, reactive, inject, computed } from 'vue';
 import { User, Lock, Connection } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 
@@ -38,6 +38,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['update:isDark', 'login-success']);
+
+const t = inject('t', (key) => key);
 
 const toggleTheme = () => {
   emit('update:isDark', !props.isDark);
@@ -48,10 +50,12 @@ const form = reactive({
   username: '',
   password: ''
 });
-const rules = {
-  username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
-};
+
+const rules = computed(() => ({
+  username: [{ required: true, message: t('login.usernameRequired'), trigger: 'blur' }],
+  password: [{ required: true, message: t('login.passwordRequired'), trigger: 'blur' }]
+}));
+
 const loading = ref(false);
 
 const handleLogin = async () => {
@@ -67,13 +71,13 @@ const handleLogin = async () => {
         });
         const data = await res.json();
         if (data.success) {
-          ElMessage.success('登录成功');
+          ElMessage.success(t('login.success'));
           emit('login-success');
         } else {
-          ElMessage.error(data.message || '登录失败');
+          ElMessage.error(data.message || t('login.failed'));
         }
       } catch (err) {
-        ElMessage.error('网络错误: ' + err.message);
+        ElMessage.error(t('login.netError') + err.message);
       } finally {
         loading.value = false;
       }

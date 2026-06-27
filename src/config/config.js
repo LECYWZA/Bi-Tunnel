@@ -14,6 +14,7 @@ const DEFAULT_CONFIG = {
   },
   proxyNodes: [],
   proxyChains: [],
+  ruleCards: [],
   server: {
     autoStart: false,
     bindHost: '0.0.0.0',
@@ -44,6 +45,7 @@ function loadConfig() {
       if (!loaded.client) loaded.client = { ...DEFAULT_CONFIG.client };
       if (!loaded.proxyNodes) loaded.proxyNodes = [];
       if (!loaded.proxyChains) loaded.proxyChains = [];
+      if (!loaded.ruleCards) loaded.ruleCards = [];
       
       // Upgrade existing proxyChains to use nodeRefs
       if (loaded.proxyChains.length > 0) {
@@ -69,9 +71,11 @@ function loadConfig() {
       // Upgrade existing inline chainNodes to decoupled proxyChains if any exist
       if (loaded.server && loaded.server.proxies) {
         loaded.server.proxies.forEach(px => migrateInlineChain(px, loaded));
+        loaded.server.proxies.forEach(px => migrateProxyRulesToCards(px, loaded));
       }
       if (loaded.client && loaded.client.proxies) {
         loaded.client.proxies.forEach(px => migrateInlineChain(px, loaded));
+        loaded.client.proxies.forEach(px => migrateProxyRulesToCards(px, loaded));
       }
 
       currentConfig = { ...DEFAULT_CONFIG, ...loaded };
@@ -134,6 +138,38 @@ function migrateInlineChain(px, loaded) {
       px.defaultRuleAction = 'chain:' + chainId;
     }
     delete px.chainNodes;
+  }
+}
+
+function migrateProxyRulesToCards(px, loaded) {
+  if (px.proxyRules && Array.isArray(px.proxyRules)) {
+    if (!loaded.ruleCards) loaded.ruleCards = [];
+    px.proxyRules.forEach((rule, idx) => {
+      // Ensure action is an array
+      if (rule.action && !Array.isArray(rule.action)) {
+        rule.action = [rule.action];
+      }
+      
+      // Migrate pattern to a shared rule card
+      if (rule.pattern && !rule.ruleCardId && !rule.ruleCardIds) {
+        const cardId = 'rule_card_' + Math.random().toString(36).substr(2, 9);
+        const cardName = `${px.name || ('端口 ' + px.listenPort)} - 规则 ${idx + 1}`;
+        const patterns = Array.isArray(rule.pattern) ? rule.pattern : [rule.pattern];
+        loaded.ruleCards.push({
+          id: cardId,
+          name: cardName,
+          patterns: patterns
+        });
+        rule.ruleCardIds = [cardId];
+        delete rule.pattern;
+      } else if (rule.ruleCardId && !rule.ruleCardIds) {
+        rule.ruleCardIds = [rule.ruleCardId];
+        delete rule.ruleCardId;
+      }
+    });
+  }
+  if (px.defaultRuleAction && !Array.isArray(px.defaultRuleAction)) {
+    px.defaultRuleAction = [px.defaultRuleAction];
   }
 }
 
