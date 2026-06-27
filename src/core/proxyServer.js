@@ -406,11 +406,16 @@ class ProxyServer {
       };
     });
 
+    // 默认兜底动作：空数组视为未设置，回退到 legacy 动作，避免静默拒绝所有未匹配流量
+    const defaultAction = (Array.isArray(proxyConfig.defaultRuleAction) && proxyConfig.defaultRuleAction.length > 0)
+      ? proxyConfig.defaultRuleAction
+      : getLegacyAction();
+
     let targetIpForAcl = host;
     try {
        ipaddr.process(host); // Throws if not IP
        if (resolvedRules.length > 0) {
-         const result = await Router.evaluate(host, resolvedRules, proxyConfig.defaultRuleAction || getLegacyAction());
+         const result = await Router.evaluate(host, resolvedRules, defaultAction);
          actionResult = result.action;
          rulePattern = result.rulePattern;
        } else {
@@ -418,23 +423,25 @@ class ProxyServer {
            actionResult = ['block'];
            rulePattern = 'ACL 拒绝';
          } else {
-           actionResult = getLegacyAction();
+           actionResult = defaultAction;
          }
        }
     } catch(e) {
        if (resolvedRules.length > 0) {
-         const result = await Router.evaluate(host, resolvedRules, proxyConfig.defaultRuleAction || getLegacyAction());
+         const result = await Router.evaluate(host, resolvedRules, defaultAction);
          actionResult = result.action;
          rulePattern = result.rulePattern;
        } else {
-         actionResult = getLegacyAction();
+         actionResult = defaultAction;
        }
     }
 
     let actions = Array.isArray(actionResult) ? actionResult : [actionResult];
 
-    if (actions.length === 0 || actions[0] === 'block') {
-      getLogger().warn(`[Proxy] Denied access to ${host} due to routing rules / ACL`);
+    // 空动作列表直接拒绝（防御性检查，正常情况下 defaultAction 已保证非空）
+    // block 不再在此特判，统一交给下方故障切换循环处理，使 block 在任意位置都能正确生效
+    if (actions.length === 0) {
+      getLogger().warn(`[Proxy] Denied access to ${host} due to empty action list`);
       socket.destroy();
       return;
     }
@@ -463,6 +470,10 @@ class ProxyServer {
 
     const tryAction = (action) => {
       return new Promise((resolve, reject) => {
+        if (action === 'block') {
+          // block 视为必然失败的动作，参与故障切换：前面动作成功则不会触达，全部失败则拒绝
+          return reject(new Error('Blocked by routing rule'));
+        }
         if (action === 'proxy_chain') {
           const globalConfig = configManager.getConfig();
           const resolvedNodes = (proxyConfig.chainNodes || []).map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
@@ -586,7 +597,6 @@ class ProxyServer {
     const startTime = Date.now();
 
     for (const action of actions) {
-      if (action === 'block') continue;
       try {
         finalSocket = await tryAction(action);
         successfulAction = action;
