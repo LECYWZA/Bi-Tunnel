@@ -647,15 +647,43 @@ html:not(.dark) .el-button--info.is-plain:focus {
   color: #334155 !important;
 }
 
-/* Global Messages Positioning */
+/* Global Messages Positioning - 右侧中上显示，距离顶部 10% */
 .el-message {
-  top: 50% !important;
-  transform: translate(-50%, -50%) !important;
+  left: auto !important;
+  right: 24px !important;
+  top: 10% !important;
+  transform: none !important;
+  background-color: var(--bt-surface) !important;
+  border-color: var(--bt-border) !important;
+  color: var(--bt-text) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-.el-notification {
-  top: 50% !important;
-  transform: translateY(-50%) !important;
+/* 暗色模式：使用半透明深色背景 */
+html.dark .el-message {
+  background-color: rgba(26, 28, 38, 0.85) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--bt-text) !important;
+}
+
+/* 消息文字颜色跟随主题 */
+.el-message__content {
+  color: var(--bt-text) !important;
+}
+
+/* 各类型消息保留语义色作为边框/图标颜色 */
+.el-message--success {
+  border-left: 3px solid var(--bt-success) !important;
+}
+.el-message--warning {
+  border-left: 3px solid var(--bt-warning) !important;
+}
+.el-message--error {
+  border-left: 3px solid var(--bt-danger) !important;
+}
+.el-message--info {
+  border-left: 3px solid var(--bt-primary) !important;
 }
 
 html.dark .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {

@@ -152,7 +152,7 @@
       </div>
     </header>
     <!-- Main content -->
-    <main class="mx-auto w-full px-6 py-5" :style="{ maxWidth: $route.path === '/logs' ? '80%' : '1440px', paddingTop: '76px' }">
+    <main class="mx-auto w-full px-6 py-5" :style="{ maxWidth: $route.path === '/logs' ? '80%' : '1440px' }">
 
       <!-- Router View -->
       <router-view v-slot="slotProps">

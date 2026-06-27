@@ -484,7 +484,7 @@ const saveQuickAdd = () => {
 .traffic-logs-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 96px);
+  height: calc(100vh - 110px);
   background: var(--bt-surface);
   border: 1px solid var(--bt-border);
   border-radius: 8px;
