@@ -231,6 +231,26 @@ function init() {
       getLogger().error(`Auto-start Global System Proxy failed: ${err.message}`);
     });
   }
+
+  // Auto start router system if enabled
+  if (config.routerSystem && config.routerSystem.enabled) {
+    getLogger().info('Auto-starting router system...');
+    const routerManager = require('./core/routerManager');
+    routerManager.start(
+      config.routerSystem,
+      () => configManager.getConfig(),
+      (c) => configManager.saveConfig(c),
+      (type, payload) => {
+        if (webApp.locals.broadcastWsMessage) {
+          webApp.locals.broadcastWsMessage({ type: 'router_event', data: { type, payload } });
+          const reg = routerManager.getDeviceRegistry();
+          if (reg) {
+            webApp.locals.broadcastWsMessage({ type: 'router_devices', data: reg.listDevices() });
+          }
+        }
+      }
+    ).catch(err => getLogger().error(`Auto-start router system failed: ${err.message}`));
+  }
 }
 
 // Global unhandled rejections to prevent crash
@@ -248,7 +268,12 @@ process.on('SIGINT', async () => {
   try { trafficLogger.saveSync(); } catch (e) {}
   try { await disableSystemProxy(); } catch (e) {}
   try { await routeManager.clearAllBypasses(); } catch (e) {}
-  
+
+  try {
+    const routerManager = require('./core/routerManager');
+    await routerManager.stop();
+  } catch (e) {}
+
   stopXray();
   stopTun().catch(() => {}).finally(() => {
     process.exit(0);

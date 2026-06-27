@@ -15,6 +15,27 @@ const DEFAULT_CONFIG = {
   proxyNodes: [],
   proxyChains: [],
   ruleCards: [],
+  routerSystem: {
+    enabled: false,
+    name: 'bi-router',
+    interface: '',
+    subnetCidr: '192.168.88.1/24',
+    upstreamMode: 'direct', // direct | systemProxy | tun | proxy
+    upstreamProxyId: '',
+    dhcp: {
+      enabled: true,
+      rangeStart: '192.168.88.100',
+      rangeEnd: '192.168.88.200',
+      leaseTimeHours: 24,
+      gateway: '192.168.88.1'
+    },
+    macFilter: {
+      mode: 'disabled', // disabled | whitelist | blacklist
+      addresses: []
+    },
+    staticBindings: [],
+    devices: []
+  },
   server: {
     autoStart: false,
     bindHost: '0.0.0.0',
@@ -46,6 +67,22 @@ function loadConfig() {
       if (!loaded.proxyNodes) loaded.proxyNodes = [];
       if (!loaded.proxyChains) loaded.proxyChains = [];
       if (!loaded.ruleCards) loaded.ruleCards = [];
+      if (!loaded.routerSystem) loaded.routerSystem = { ...DEFAULT_CONFIG.routerSystem };
+      else {
+        // 补全字段
+        const def = DEFAULT_CONFIG.routerSystem;
+        const rs = loaded.routerSystem;
+        rs.enabled = !!rs.enabled;
+        rs.name = rs.name || def.name;
+        rs.interface = rs.interface || def.interface;
+        rs.subnetCidr = rs.subnetCidr || def.subnetCidr;
+        rs.upstreamMode = rs.upstreamMode || def.upstreamMode;
+        rs.upstreamProxyId = rs.upstreamProxyId || '';
+        rs.dhcp = Object.assign({}, def.dhcp, rs.dhcp || {});
+        rs.macFilter = Object.assign({}, def.macFilter, rs.macFilter || {});
+        if (!Array.isArray(rs.staticBindings)) rs.staticBindings = [];
+        if (!Array.isArray(rs.devices)) rs.devices = [];
+      }
       
       // Upgrade existing proxyChains to use nodeRefs
       if (loaded.proxyChains.length > 0) {

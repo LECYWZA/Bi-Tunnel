@@ -123,7 +123,7 @@ function createWebServer(statusCallback) {
     const os = require('os');
     const interfaces = os.networkInterfaces();
     const ips = ['0.0.0.0', '127.0.0.1'];
-    
+
     for (const name of Object.keys(interfaces)) {
       for (const iface of interfaces[name]) {
         // Skip internal/loopback since we already added 127.0.0.1
@@ -132,9 +132,161 @@ function createWebServer(statusCallback) {
         }
       }
     }
-    
+
     // Remove duplicates
     res.json(Array.from(new Set(ips)));
+  });
+
+  // 返回物理网卡列表（用于路由器选择）
+  app.get('/api/router/interfaces', (req, res) => {
+    const os = require('os');
+    const interfaces = os.networkInterfaces();
+    const list = [];
+    for (const name of Object.keys(interfaces)) {
+      // 跳过 TUN 虚拟网卡和 loopback
+      if (/^(lo|Loopback)/i.test(name)) continue;
+      if (/tun/i.test(name) && !/tun/i.test(req.query.includeTun || '')) continue;
+      const addrs = (interfaces[name] || []).filter(a => a.family === 'IPv4');
+      if (addrs.length === 0) continue;
+      list.push({
+        name,
+        address: addrs[0].address,
+        netmask: addrs[0].netmask,
+        mac: addrs[0].mac || (interfaces[name].find(a => a.mac) || {}).mac || '',
+        internal: addrs[0].internal
+      });
+    }
+    res.json({ success: true, interfaces: list });
+  });
+
+  // ============== 路由器系统 ==============
+  app.get('/api/router/config', (req, res) => {
+    const cfg = configManager.getConfig();
+    const rs = cfg.routerSystem || {};
+    const routerManager = require('../core/routerManager');
+    res.json({
+      success: true,
+      config: rs,
+      running: routerManager.isRunning()
+    });
+  });
+
+  app.post('/api/router/config', (req, res) => {
+    const currentConfig = configManager.getConfig();
+    const incoming = req.body || {};
+    if (!currentConfig.routerSystem) currentConfig.routerSystem = {};
+    const rs = currentConfig.routerSystem;
+    // 仅允许通过此接口更新配置字段，不直接覆盖 devices（避免前端误删）
+    Object.assign(rs, {
+      name: incoming.name,
+      interface: incoming.interface,
+      subnetCidr: incoming.subnetCidr,
+      upstreamMode: incoming.upstreamMode,
+      upstreamProxyId: incoming.upstreamProxyId
+    });
+    if (incoming.dhcp) {
+      rs.dhcp = Object.assign({}, rs.dhcp || {}, incoming.dhcp);
+    }
+    if (incoming.macFilter) {
+      rs.macFilter = Object.assign({}, rs.macFilter || {}, incoming.macFilter);
+    }
+    if (Array.isArray(incoming.staticBindings)) {
+      rs.staticBindings = incoming.staticBindings;
+    }
+    configManager.saveConfig(currentConfig);
+    getLogger().info('[API] router config saved');
+    res.json({ success: true });
+  });
+
+  app.post('/api/router/start', async (req, res) => {
+    const routerManager = require('../core/routerManager');
+    try {
+      const currentConfig = configManager.getConfig();
+      const rs = currentConfig.routerSystem || {};
+      if (!rs.interface) {
+        return res.json({ success: false, message: '请先选择网卡' });
+      }
+      if (!rs.subnetCidr) {
+        return res.json({ success: false, message: '请先配置网段' });
+      }
+      await routerManager.start(rs, () => configManager.getConfig(), (c) => configManager.saveConfig(c), (type, payload) => {
+        if (app.locals.broadcastWsMessage) {
+          app.locals.broadcastWsMessage({ type: 'router_event', data: { type, payload } });
+          // 同步推送设备列表
+          const reg = routerManager.getDeviceRegistry();
+          if (reg) {
+            app.locals.broadcastWsMessage({ type: 'router_devices', data: reg.listDevices() });
+          }
+        }
+      });
+      // 写入启用状态
+      rs.enabled = true;
+      configManager.saveConfig(currentConfig);
+      res.json({ success: true });
+    } catch (err) {
+      getLogger().error(`[API] router start failed: ${err.message}`);
+      res.json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/router/stop', async (req, res) => {
+    const routerManager = require('../core/routerManager');
+    try {
+      await routerManager.stop();
+      const currentConfig = configManager.getConfig();
+      if (currentConfig.routerSystem) {
+        currentConfig.routerSystem.enabled = false;
+        configManager.saveConfig(currentConfig);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      getLogger().error(`[API] router stop failed: ${err.message}`);
+      res.json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/router/devices', (req, res) => {
+    const routerManager = require('../core/routerManager');
+    const reg = routerManager.getDeviceRegistry();
+    if (!reg) {
+      const cfg = configManager.getConfig();
+      return res.json({ success: true, devices: cfg.routerSystem?.devices || [] });
+    }
+    res.json({ success: true, devices: reg.listDevices() });
+  });
+
+  app.post('/api/router/devices/:mac/toggle', (req, res) => {
+    const routerManager = require('../core/routerManager');
+    const reg = routerManager.getDeviceRegistry();
+    if (!reg) return res.json({ success: false, message: '路由器未启动' });
+    const enabled = req.body.enabled;
+    const ok = reg.setDeviceEnabled(req.params.mac, enabled);
+    if (ok && app.locals.broadcastWsMessage) {
+      app.locals.broadcastWsMessage({ type: 'router_devices', data: reg.listDevices() });
+    }
+    res.json({ success: ok });
+  });
+
+  app.post('/api/router/devices/:mac/kick', (req, res) => {
+    const routerManager = require('../core/routerManager');
+    const reg = routerManager.getDeviceRegistry();
+    if (!reg) return res.json({ success: false, message: '路由器未启动' });
+    const ok = reg.kickDevice(req.params.mac);
+    if (ok && app.locals.broadcastWsMessage) {
+      app.locals.broadcastWsMessage({ type: 'router_devices', data: reg.listDevices() });
+    }
+    res.json({ success: ok });
+  });
+
+  app.delete('/api/router/devices/:mac', (req, res) => {
+    const routerManager = require('../core/routerManager');
+    const reg = routerManager.getDeviceRegistry();
+    if (!reg) return res.json({ success: false, message: '路由器未启动' });
+    const ok = reg.deleteDevice(req.params.mac);
+    if (ok && app.locals.broadcastWsMessage) {
+      app.locals.broadcastWsMessage({ type: 'router_devices', data: reg.listDevices() });
+    }
+    res.json({ success: ok });
   });
   app.get('/api/traffic-logs', (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 100;

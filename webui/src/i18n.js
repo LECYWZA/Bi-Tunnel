@@ -42,6 +42,7 @@ export const messages = {
       nodes: '代理池',
       chains: '代理链',
       rules: '分流规则',
+      router: '路由系统',
       tester: '测试台',
       logs: '审计'
     },
@@ -131,6 +132,7 @@ export const messages = {
       nodes: 'Proxy Pools',
       chains: 'Proxy Chains',
       rules: 'Split Rules',
+      router: 'Router',
       tester: 'Tester',
       logs: 'Audit'
     },

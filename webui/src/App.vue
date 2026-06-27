@@ -105,6 +105,9 @@
           <el-menu-item index="/rules">
             <el-icon><Memo /></el-icon> {{ t('nav.rules') }}
           </el-menu-item>
+          <el-menu-item index="/router">
+            <el-icon><Share /></el-icon> {{ t('nav.router') }}
+          </el-menu-item>
           <el-menu-item index="/tester">
             <el-icon><Odometer /></el-icon> {{ t('nav.tester') }}
           </el-menu-item>
@@ -305,7 +308,7 @@
 import { ref, reactive, onMounted, computed, watch, onUnmounted, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
-import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank, Operation } from '@element-plus/icons-vue';
+import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank, Operation, Share } from '@element-plus/icons-vue';
 import Login from './components/Login.vue';
 import { t, locale, setLocale } from './i18n';
 
