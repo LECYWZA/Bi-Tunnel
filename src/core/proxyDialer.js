@@ -1,4 +1,5 @@
 const net = require('net');
+const tls = require('tls');
 const { getLogger } = require('../utils/logger');
 
 class ProxyDialer {
@@ -61,14 +62,35 @@ class ProxyDialer {
           });
           process.nextTick(() => onFirstConnected(socket));
         } else {
-          socket = new net.Socket();
-          socket.connect(connectPort, connectHost, () => {
-            socket.removeAllListeners('error');
-            onFirstConnected(socket);
-          });
-          socket.once('error', (err) => {
-            callback(new Error(`Failed to connect to first node ${connectHost}:${connectPort} - ${err.message}`));
-          });
+          // HTTP 代理服务器本身使用 TLS（HTTPS 代理）时，先建立 TCP 再升级为 TLS
+          // 其余情况（HTTP 明文 / SOCKS5 / v2ray 本地 SOCKS）使用普通 TCP
+          const useTls = firstNode.type === 'http' && firstNode.tls;
+          if (useTls) {
+            const sni = firstNode.sni || firstNode.host;
+            getLogger().info(`[ProxyChain] Establishing TLS to HTTPS proxy ${connectHost}:${connectPort} (SNI: ${sni})`);
+            socket = tls.connect({
+              host: connectHost,
+              port: connectPort,
+              servername: sni,
+              // 自签名证书也允许（用户负责验证）
+              rejectUnauthorized: false
+            }, () => {
+              socket.removeAllListeners('error');
+              onFirstConnected(socket);
+            });
+            socket.once('error', (err) => {
+              callback(new Error(`Failed to TLS-connect to first node ${connectHost}:${connectPort} - ${err.message}`));
+            });
+          } else {
+            socket = new net.Socket();
+            socket.connect(connectPort, connectHost, () => {
+              socket.removeAllListeners('error');
+              onFirstConnected(socket);
+            });
+            socket.once('error', (err) => {
+              callback(new Error(`Failed to connect to first node ${connectHost}:${connectPort} - ${err.message}`));
+            });
+          }
         }
       } catch (err) {
         callback(err);

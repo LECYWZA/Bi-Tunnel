@@ -4,6 +4,7 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const net = require('net');
+const tls = require('tls');
 const dns = require('dns');
 const fs = require('fs');
 const os = require('os');
@@ -788,12 +789,12 @@ function createWebServer(statusCallback) {
   });
 
   app.post('/api/test-proxy', (req, res) => {
-    const { type, host, port, username, password, targetUrl } = req.body;
+    const { type, host, port, username, password, targetUrl, tls: useTls, sni } = req.body;
     let logs = [];
     const log = (msg) => logs.push(`[${new Date().toISOString()}] ${msg}`);
-    
+
     log(`Starting proxy test...`);
-    log(`Proxy: ${type}://${host}:${port}`);
+    log(`Proxy: ${type}://${host}:${port}${useTls ? ' (TLS)' : ''}`);
     if (username) log(`Auth provided: Yes`);
     log(`Target: ${targetUrl}`);
 
@@ -801,13 +802,13 @@ function createWebServer(statusCallback) {
       const parsedUrl = new URL(targetUrl);
       const targetHost = parsedUrl.hostname;
       const targetPort = parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80);
-      
-      const socket = net.connect(port, host, () => {
-        log(`TCP connected to proxy at ${host}:${port}`);
-        
+
+      const onConnected = (socket) => {
+        log(`Connected to proxy at ${host}:${port}${useTls ? ' (TLS)' : ''}`);
+
         let responseData = Buffer.alloc(0);
         let completed = false;
-        
+
         // Timeout handler
         const timeout = setTimeout(() => {
           if (!completed) {
@@ -937,7 +938,27 @@ function createWebServer(statusCallback) {
           const methods = username ? Buffer.from([0x05, 0x02, 0x00, 0x02]) : Buffer.from([0x05, 0x01, 0x00]);
           socket.write(methods);
         }
-      });
+      };
+
+      // 建立连接：HTTP 代理服务器若启用 TLS，则用 tls.connect
+      if (useTls && type === 'http') {
+        const tlsSocket = tls.connect({
+          host,
+          port,
+          servername: sni || host,
+          rejectUnauthorized: false
+        }, () => onConnected(tlsSocket));
+        tlsSocket.on('error', (err) => {
+          log(`TLS Error: ${err.message}`);
+          res.json({ success: false, logs });
+        });
+      } else {
+        const socket = net.connect(port, host, () => onConnected(socket));
+        socket.on('error', (err) => {
+          log(`TCP Error: ${err.message}`);
+          res.json({ success: false, logs });
+        });
+      }
     } catch (err) {
       log(`Error preparing test: ${err.message}`);
       res.json({ success: false, logs });

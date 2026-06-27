@@ -60,13 +60,23 @@ export function parseProxyUrl(url) {
     // Standard HTTP/SOCKS5
     if (url.startsWith('http://') || url.startsWith('socks5://')) {
       const parsed = new URL(url);
-      return {
+      const result = {
         type: parsed.protocol.replace(':', ''),
         host: parsed.hostname,
         port: parseInt(parsed.port),
         user: parsed.username || '',
         pass: parsed.password || ''
       };
+      // HTTP 节点支持 tls=1 和 sni 查询参数（用于分享 HTTPS 代理）
+      if (result.type === 'http') {
+        const tlsParam = parsed.searchParams.get('tls');
+        if (tlsParam === '1' || tlsParam === 'true') {
+          result.tls = true;
+          const sni = parsed.searchParams.get('sni');
+          if (sni) result.sni = sni;
+        }
+      }
+      return result;
     }
 
     return null;

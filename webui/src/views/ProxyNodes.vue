@@ -205,6 +205,14 @@
             <el-form-item :label="t('nodes.passwordLabel')">
               <el-input v-model="manualForm.pass" type="password" show-password :placeholder="t('nodes.optionalPlaceholder')" />
             </el-form-item>
+            <el-form-item v-if="manualForm.type === 'http'" :label="t('nodes.tlsLabel')">
+              <el-switch v-model="manualForm.tls" />
+              <span class="text-xs text-gray-500 ml-2">{{ t('nodes.tlsHint') }}</span>
+            </el-form-item>
+            <el-form-item v-if="manualForm.type === 'http' && manualForm.tls" :label="t('nodes.sniLabel')">
+              <el-input v-model="manualForm.sni" :placeholder="t('nodes.sniPlaceholder')" />
+              <span class="text-xs text-gray-500 ml-2">{{ t('nodes.sniHint') }}</span>
+            </el-form-item>
             <el-form-item :label="t('nodes.groupLabel')">
               <el-select v-model="manualForm.group" allow-create filterable default-first-option :placeholder="t('nodes.groupPlaceholder')" class="w-full">
                 <el-option v-for="g in allGroups" :key="g" :label="g" :value="g" />
@@ -370,7 +378,7 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 const importDialogVisible = ref(false);
 const importTab = ref('text');
 const importText = ref('');
-const manualForm = ref({ displayName: '', type: 'socks5', host: '', port: 1080, user: '', pass: '', group: 'default' });
+const manualForm = ref({ displayName: '', type: 'socks5', host: '', port: 1080, user: '', pass: '', tls: false, sni: '', group: 'default' });
 const testingNode = ref(null);
 const testingSpeedNode = ref(null);
 const testingAllLatency = ref(false);
@@ -480,7 +488,15 @@ const getNodeUrl = (node) => {
   if (node.user) {
     auth = `${node.user}:${node.pass || ''}@`;
   }
-  return `${node.type}://${auth}${node.host}:${node.port}#${encodeURIComponent(node.displayName)}`;
+  // HTTP 节点启用 TLS 时，把 tls=1 和 sni 写进查询参数，便于分享
+  let query = '';
+  if (node.type === 'http' && node.tls) {
+    const params = new URLSearchParams();
+    params.set('tls', '1');
+    if (node.sni) params.set('sni', node.sni);
+    query = '?' + params.toString();
+  }
+  return `${node.type}://${auth}${node.host}:${node.port}${query}#${encodeURIComponent(node.displayName)}`;
 };
 
 const openShareDialog = (node) => {
@@ -623,7 +639,7 @@ const saveV2rayEditor = () => {
 
 const openImportDialog = () => {
   importText.value = '';
-  manualForm.value = { displayName: t('nodes.defaultManualName'), type: 'socks5', host: '', port: 1080, user: '', pass: '', group: 'default' };
+  manualForm.value = { displayName: t('nodes.defaultManualName'), type: 'socks5', host: '', port: 1080, user: '', pass: '', tls: false, sni: '', group: 'default' };
   importTab.value = 'text';
   subUrl.value = '';
   subName.value = '';
@@ -907,7 +923,9 @@ const doImportText = () => {
           host: parsed.host,
           port: parsed.port,
           user: parsed.user,
-          pass: parsed.pass
+          pass: parsed.pass,
+          tls: !!parsed.tls,
+          sni: parsed.sni || ''
         });
         imported++;
       }
