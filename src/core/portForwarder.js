@@ -67,9 +67,10 @@ class PortForwarder {
     const modeConfig = config[this.mode] || {};
     const desiredForwards = modeConfig.forwards || [];
 
-    // Stop removed forwards
+    // Stop removed or disabled forwards
     for (const [listenPort, server] of this.servers.entries()) {
-      if (!desiredForwards.find(f => f.listenPort === listenPort)) {
+      const fw = desiredForwards.find(f => f.listenPort === listenPort);
+      if (!fw || fw.enabled === false) {
         server.close();
         if (server._sockets) {
           for (const s of server._sockets) {
@@ -77,14 +78,14 @@ class PortForwarder {
           }
         }
         this.servers.delete(listenPort);
-        getLogger().info(`[Forward-${this.mode}] Stopped listening on port ${listenPort}`);
+        getLogger().info(`[Forward-${this.mode}] Stopped listening on port ${listenPort}${!fw ? ' (removed)' : ' (disabled)'}`);
       }
     }
 
-    // Start new forwards
+    // Start new enabled forwards
     const startPromises = [];
     for (const fw of desiredForwards) {
-      if (!this.servers.has(fw.listenPort)) {
+      if (fw.enabled !== false && !this.servers.has(fw.listenPort)) {
         startPromises.push(this.startForward(fw.listenPort));
       }
     }

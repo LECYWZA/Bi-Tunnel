@@ -409,10 +409,29 @@ const allProxies = computed(() => {
 
 const handleAddProxy = (mode) => {
   if (!props.config[mode].proxies) props.config[mode].proxies = [];
+
+  // 收集所有已占用的端口（服务端+客户端），避免端口冲突
+  const usedPorts = new Set();
+  if (props.config.server?.proxies) {
+    props.config.server.proxies.forEach(p => usedPorts.add(p.listenPort));
+  }
+  if (props.config.client?.proxies) {
+    props.config.client.proxies.forEach(p => usedPorts.add(p.listenPort));
+  }
+
+  // 从 1080 开始寻找未占用的端口
+  let newPort = 1080;
+  while (usedPorts.has(newPort)) newPort++;
+
+  // 统计当前模式下同名代理的数量，生成默认名称
+  const modeLabel = mode === 'server' ? '服务端' : '客户端';
+  const sameModeCount = props.config[mode].proxies.length + 1;
+  const defaultName = `${modeLabel}代理 ${sameModeCount}`;
+
   props.config[mode].proxies.push({
-    name: '',
-    enabled: true,
-    listenPort: 1080,
+    name: defaultName,
+    enabled: false,
+    listenPort: newPort,
     listenIp: '0.0.0.0',
     isSystemProxy: false,
     useAuth: false,

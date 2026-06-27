@@ -38,7 +38,7 @@
         >
           <el-option
             v-for="item in allProxies"
-            :key="item.port"
+            :key="`${item.type}-${item.port}`"
             :label="item.label"
             :value="item.port"
           />
@@ -710,6 +710,11 @@ const connectWebSocket = () => {
         if (trafficLogListeners.length > 0) {
           trafficLogListeners.forEach(fn => fn(msg.data));
         }
+      } else if (msg.type === 'forward_error') {
+        // Dispatch to registered forward error listeners
+        if (forwardErrorListeners.length > 0) {
+          forwardErrorListeners.forEach(fn => fn(msg.data));
+        }
       }
     } catch (e) {
       console.error("WS message parse error:", e);
@@ -743,6 +748,16 @@ provide('onTrafficLog', (fn) => {
   return () => {
     const idx = trafficLogListeners.indexOf(fn);
     if (idx !== -1) trafficLogListeners.splice(idx, 1);
+  };
+});
+
+// Forward error listener registry (for WS-pushed port-in-use errors)
+const forwardErrorListeners = [];
+provide('onForwardError', (fn) => {
+  forwardErrorListeners.push(fn);
+  return () => {
+    const idx = forwardErrorListeners.indexOf(fn);
+    if (idx !== -1) forwardErrorListeners.splice(idx, 1);
   };
 });
 

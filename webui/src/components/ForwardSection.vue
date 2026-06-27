@@ -131,7 +131,7 @@
           <div class="flex justify-between items-center mb-2">
             <span class="text-xs font-bold text-gray-500">映射规则 #{{ index + 1 }}</span>
             <div class="flex items-center gap-2">
-              <el-switch v-model="fw.enabled" inline-prompt active-text="已启用" inactive-text="已停用" />
+              <el-switch v-model="fw.enabled" inline-prompt active-text="已启用" inactive-text="已停用" @change="toggleForward(fw)" />
               <el-button type="danger" circle plain :icon="Delete" size="small" @click="sectionConfig.forwards.splice(index, 1)" />
             </div>
           </div>
@@ -139,7 +139,7 @@
           <div class="flex items-center gap-3 w-full">
             <el-tooltip content="本地监听端口" placement="top">
               <div class="w-28 flex-shrink-0">
-                <el-input-number v-model="fw.listenPort" :min="1" :max="65535" class="w-full" :controls="false" size="small" placeholder="本地端口" />
+                <el-input-number v-model="fw.listenPort" :min="1" :max="65535" class="w-full" :controls="false" size="small" placeholder="本地端口" @change="validatePortUnique(fw.listenPort, fw)" />
               </div>
             </el-tooltip>
             
@@ -199,9 +199,9 @@
           <el-table-column prop="id" label="客户端 ID" min-width="150" />
           <el-table-column label="状态" width="100">
             <template #default="scope">
-              <el-tag :type="scope.row.online ? 'success' : 'info'" size="small">
+              <span :class="['status-text', scope.row.online ? 'status-online' : 'status-offline']">
                 {{ scope.row.online ? '在线' : '离线' }}
-              </el-tag>
+              </span>
             </template>
           </el-table-column>
           <el-table-column label="最后连接时间" min-width="150">
@@ -298,7 +298,7 @@
 </template>
 
 <script setup>
-import { computed, ref, inject } from 'vue';
+import { computed, ref, inject, onMounted, onBeforeUnmount } from 'vue';
 import { ElMessage } from 'element-plus';
 import draggable from 'vuedraggable';
 import { Delete, Plus, User, Lock, Switch, HelpFilled, InfoFilled, Sort, Right, Setting, Guide, VideoPlay, VideoPause, Tools } from '@element-plus/icons-vue';
@@ -320,6 +320,86 @@ const sendWsMessage = inject('sendWsMessage', (msg) => {
   console.warn('sendWsMessage not provided, falling back to direct save');
   emit('save');
 });
+
+// 监听后端推送的端口冲突错误，回滚对应开关并提示
+const onForwardError = inject('onForwardError', null);
+let unregisterForwardError = null;
+onMounted(() => {
+  if (onForwardError) {
+    unregisterForwardError = onForwardError((data) => {
+      if (data.mode !== props.mode) return;
+      ElMessage.error(data.message || `端口 ${data.port} 已被占用，启动失败`);
+      // 回滚服务端 forwards 开关
+      if (sectionConfig.value.forwards) {
+        const fw = sectionConfig.value.forwards.find(f => f.listenPort === data.port);
+        if (fw) {
+          fw.enabled = false;
+          sendWsMessage({ type: props.mode + '_forward_toggle', listenPort: data.port, enabled: false });
+          return;
+        }
+      }
+      // 回滚客户端 connections 开关（客户端的本地端口由后端反向建立，端口冲突时也回滚）
+      if (sectionConfig.value.connections) {
+        const conn = sectionConfig.value.connections.find(c => c.listenPort === data.port);
+        if (conn) {
+          conn.enabled = false;
+          sendWsMessage({ type: 'client_connection_toggle', id: conn.id, enabled: false });
+        }
+      }
+    });
+  }
+});
+onBeforeUnmount(() => {
+  if (unregisterForwardError) unregisterForwardError();
+});
+
+// 收集所有模式（server+client）中已占用的本地端口，用于即时冲突预检
+// onlyEnabled=true 时只收集已启用的规则端口（用于启用前严格预检）
+const getUsedPorts = (excludeObj, onlyEnabled = false) => {
+  const used = new Map(); // port -> label
+  const isOccupied = (item) => onlyEnabled ? (item.enabled !== false && item.listenPort) : item.listenPort;
+  const collect = (modeCfg, modeLabel) => {
+    if (!modeCfg) return;
+    if (modeCfg.forwards) {
+      modeCfg.forwards.forEach((f, i) => {
+        if (f !== excludeObj && isOccupied(f)) {
+          used.set(f.listenPort, `${modeLabel}映射#${i + 1}`);
+        }
+      });
+    }
+    if (modeCfg.connections) {
+      modeCfg.connections.forEach((c, i) => {
+        if (c !== excludeObj && isOccupied(c)) {
+          used.set(c.listenPort, `${modeLabel}连接#${i + 1}(${c.alias || c.id})`);
+        }
+      });
+    }
+  };
+  collect(props.config.server, '服务端');
+  collect(props.config.client, '客户端');
+  // 还要考虑代理端口
+  const collectProxies = (modeCfg, modeLabel) => {
+    if (modeCfg && modeCfg.proxies) {
+      modeCfg.proxies.forEach((p, i) => {
+        if (p !== excludeObj && isOccupied(p)) {
+          used.set(p.listenPort, `${modeLabel}代理#${i + 1}(${p.name || ''})`);
+        }
+      });
+    }
+  };
+  collectProxies(props.config.server, '服务端');
+  collectProxies(props.config.client, '客户端');
+  return used;
+};
+
+// 端口输入即时校验
+const validatePortUnique = (port, currentObj) => {
+  if (!port) return;
+  const used = getUsedPorts(currentObj);
+  if (used.has(port)) {
+    ElMessage.warning(`端口 ${port} 已被 ${used.get(port)} 占用，可能冲突`);
+  }
+};
 
 const getConnectionStatus = (id) => {
   if (!props.status || !props.status.clientConnections) return { type: 'info', text: '未知' };
@@ -344,7 +424,11 @@ const isRunning = computed(() => {
 const addForward = () => {
   if (!sectionConfig.value.forwards) sectionConfig.value.forwards = [];
   const defaultTargetClient = props.mode === 'server' ? '' : (sectionConfig.value.connections?.[0]?.id || 'default');
-  sectionConfig.value.forwards.push({ listenPort: 8080, targetHost: '127.0.0.1', targetPort: 80, targetClientId: defaultTargetClient, enabled: true });
+  // 自动寻找未占用的端口
+  const used = getUsedPorts(null);
+  let newPort = 8080;
+  while (used.has(newPort)) newPort++;
+  sectionConfig.value.forwards.push({ listenPort: newPort, targetHost: '127.0.0.1', targetPort: 80, targetClientId: defaultTargetClient, enabled: false });
 };
 
 const addClientConnection = () => {
@@ -362,6 +446,21 @@ const addClientConnection = () => {
 
 const toggleConnection = (connId, enabled) => {
   sendWsMessage({ type: 'client_connection_toggle', id: connId, enabled });
+};
+
+// 服务端/客户端 forwards 开关切换：启用前预检端口冲突，冲突则阻止并回滚
+const toggleForward = (fw) => {
+  if (fw.enabled) {
+    // 启用前严格预检：只检查其他已启用规则的端口
+    const used = getUsedPorts(fw, true);
+    if (used.has(fw.listenPort)) {
+      ElMessage.error(`端口 ${fw.listenPort} 已被 ${used.get(fw.listenPort)} 占用，无法启用`);
+      // 回滚开关为禁用
+      fw.enabled = false;
+      return;
+    }
+  }
+  sendWsMessage({ type: props.mode + '_forward_toggle', listenPort: fw.listenPort, enabled: fw.enabled });
 };
 
 const deleteClientConnection = (index) => {
@@ -412,5 +511,17 @@ const openClientTraffic = async (client) => {
 :deep(.el-input__wrapper) {
   box-shadow: none !important;
   background: transparent !important;
+}
+
+/* 客户端状态纯文字颜色区分 */
+.status-text {
+  font-size: 12px;
+  font-weight: 600;
+}
+.status-online {
+  color: var(--bt-success);
+}
+.status-offline {
+  color: var(--bt-text-muted);
 }
 </style>

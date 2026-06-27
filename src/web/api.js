@@ -889,6 +889,16 @@ function createWebServer(statusCallback) {
   };
   app.locals.broadcastConnectionsUpdate = broadcastConnectionsUpdate;
 
+  // 通用 WS 消息广播（用于后端向前端推送错误/状态等）
+  app.locals.broadcastWsMessage = (payload) => {
+    const msg = JSON.stringify(payload);
+    [wss, wssHttp].forEach(ws => {
+      ws.clients.forEach(c => {
+        if (c.readyState === 1) c.send(msg);
+      });
+    });
+  };
+
   // Broadcast new traffic logs to subscribed WS clients
   const broadcastTrafficLog = (logEntry) => {
     const msg = JSON.stringify({ type: 'traffic_log', data: logEntry });
@@ -940,6 +950,18 @@ function createWebServer(statusCallback) {
               c => tunnelServer.sessions && tunnelServer.sessions.has(c.id)
             );
             changed = true;
+          }
+          break;
+        }
+        case 'server_forward_toggle':
+        case 'client_forward_toggle': {
+          const mode = msg.type.split('_')[0]; // 'server' or 'client'
+          if (currentConfig[mode]?.forwards) {
+            const fw = currentConfig[mode].forwards.find(f => f.listenPort === msg.listenPort);
+            if (fw) {
+              fw.enabled = msg.enabled;
+              changed = true;
+            }
           }
           break;
         }

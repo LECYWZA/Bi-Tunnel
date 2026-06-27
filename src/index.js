@@ -127,13 +127,28 @@ function init() {
       stopTunnel('server');
       startTunnel('server');
     }
-    serverForwarder.applyConfig().catch(err => getLogger().error('[Forward-server] applyConfig error: ' + JSON.stringify(err)));
+
+    // 广播端口映射启动错误给前端（携带 mode + port 以便前端回滚对应开关）
+    const broadcastForwardError = (mode, err) => {
+      if (err && err.code === 'PORT_IN_USE') {
+        getLogger().error(`[Forward-${mode}] Port ${err.port} already in use`);
+        if (webApp.locals.broadcastWsMessage) {
+          webApp.locals.broadcastWsMessage({
+            type: 'forward_error',
+            data: { mode, port: err.port, message: `端口 ${err.port} 已被占用，端口映射启动失败` }
+          });
+        }
+      } else {
+        getLogger().error(`[Forward-${mode}] applyConfig error: ` + (err && err.message ? err.message : JSON.stringify(err)));
+      }
+    };
+    serverForwarder.applyConfig().catch(err => broadcastForwardError('server', err));
     serverProxy.applyConfig().catch(err => getLogger().error('[Proxy-server] applyConfig error: ' + JSON.stringify(err)));
 
     if (tunnelClient && typeof tunnelClient.applyConfig === 'function') {
       tunnelClient.applyConfig();
     }
-    clientForwarder.applyConfig().catch(err => getLogger().error('[Forward-client] applyConfig error: ' + JSON.stringify(err)));
+    clientForwarder.applyConfig().catch(err => broadcastForwardError('client', err));
     clientProxy.applyConfig().catch(err => getLogger().error('[Proxy-client] applyConfig error: ' + JSON.stringify(err)));
     
     lastConfigStr = newConfigStr;
