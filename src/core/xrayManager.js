@@ -16,6 +16,17 @@ let currentTunProcess = null;
 let currentTunPort = 0;
 let currentTunError = null;
 
+// 启动时清理 bin 目录下的残留 xray 配置文件（进程被强杀时会留下 config-*.json / tun-config.json）
+try {
+  if (fs.existsSync(BIN_DIR)) {
+    for (const f of fs.readdirSync(BIN_DIR)) {
+      if (/^config-\d+\.json$/.test(f) || f === 'tun-config.json') {
+        try { fs.unlinkSync(path.join(BIN_DIR, f)); } catch (e) {}
+      }
+    }
+  }
+} catch (e) {}
+
 async function getFreePort() {
   return new Promise((resolve) => {
     const srv = net.createServer();
