@@ -23,12 +23,17 @@ async function downloadXray() {
   // Try extracting from pkg snapshot if we are missing xray
   const pkgBinDir = path.join(__dirname, '../../bin');
   const pkgXray = path.join(pkgBinDir, isLinux ? 'xray' : 'xray.exe');
-  
+
   if (fs.existsSync(pkgXray)) {
     getLogger().info('[Xray] Extracting bundled xray-core from package...');
     try {
+      // 仅释放必要的运行时文件，跳过 *.json 配置文件以防止敏感配置泄露
+      const allowedFiles = isLinux
+        ? ['xray', 'geoip.dat', 'geosite.dat']
+        : ['xray.exe', 'geoip.dat', 'geosite.dat', 'wintun.dll'];
       const files = fs.readdirSync(pkgBinDir);
       for (const file of files) {
+        if (!allowedFiles.includes(file)) continue;
         fs.copyFileSync(path.join(pkgBinDir, file), path.join(BIN_DIR, file));
       }
       if (isLinux) {

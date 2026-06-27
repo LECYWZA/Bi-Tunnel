@@ -17,7 +17,11 @@
     "scripts": "src/**/*.js",
     "assets": [
       "src/web/public/**/*",
-      "bin/**/*"
+      "bin/xray.exe",
+      "bin/xray",
+      "bin/geoip.dat",
+      "bin/geosite.dat",
+      "bin/wintun.dll"
     ],
     "targets": [
       "node16-win-x64",

@@ -110,6 +110,7 @@ class TunnelClientManager extends EventEmitter {
     let connections = config.client?.connections || [];
     
     // Legacy migration dynamically handled
+    // 默认禁用：服务端尚未启动，用户需手动启用连接
     if (connections.length === 0 && config.client?.tunnelHost) {
       connections.push({
         id: 'default',
@@ -118,7 +119,7 @@ class TunnelClientManager extends EventEmitter {
         tunnelPort: config.client.tunnelPort,
         password: config.client.password,
         clientId: config.client.clientId || 'client-1',
-        enabled: true
+        enabled: false
       });
       if (!config.client) config.client = {};
       config.client.connections = connections;
