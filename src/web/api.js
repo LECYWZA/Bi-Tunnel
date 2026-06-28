@@ -1064,10 +1064,15 @@ function createWebServer(statusCallback) {
       const { disableSystemProxy } = require('../utils/systemProxy');
       const xrayManager = require('../core/xrayManager');
       const routeManager = require('../utils/routeManager');
+      const routerManager = require('../core/routerManager');
 
       try { await disableSystemProxy(); } catch (e) {}
       try { await xrayManager.stopTun(); } catch (e) {}
       try { await routeManager.clearAllBypasses(); } catch (e) {}
+      // 关闭路由系统：回滚注册表 IPEnableRouter、网卡 secondary IP、路由表、DHCP 状态
+      try { await routerManager.stop(); } catch (e) {
+        getLogger().error(`[Service] routerManager.stop failed: ${e.message}`);
+      }
 
       const { stopXray } = require('../core/xrayManager');
       stopXray();
@@ -1088,10 +1093,15 @@ function createWebServer(statusCallback) {
       const { disableSystemProxy } = require('../utils/systemProxy');
       const xrayManager = require('../core/xrayManager');
       const routeManager = require('../utils/routeManager');
+      const routerManager = require('../core/routerManager');
 
       try { await disableSystemProxy(); } catch (e) {}
       try { await xrayManager.stopTun(); } catch (e) {}
       try { await routeManager.clearAllBypasses(); } catch (e) {}
+      // 关闭路由系统：回滚注册表 IPEnableRouter、网卡 secondary IP、路由表、DHCP 状态
+      try { await routerManager.stop(); } catch (e) {
+        getLogger().error(`[Service] routerManager.stop failed: ${e.message}`);
+      }
 
       // 停止所有隧道和转发（释放所有端口）
       if (app.locals.stopTunnel) {
