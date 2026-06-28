@@ -165,7 +165,10 @@ flowchart LR
 
 1. 下载 `bi-tunnel-win.exe`
 2. **右键 → 以管理员身份运行**（TUN 模式必须，其他模式可选）
-3. 浏览器访问 `http://127.0.0.1:8899`
+3. 浏览器访问控制面板（协议取决于 `config.json` 中 `webProtocol` 设置，默认 `https`）：
+   - `https://127.0.0.1:8899`（默认，自签名证书，浏览器会提示"不安全"属正常现象）
+   - 或 `http://127.0.0.1:<httpPort>`（次端口，默认 8898）
+   - 若将 `webProtocol` 改为 `http`，则主端口 8899 走 HTTP，次端口走 HTTPS
 4. 默认账号：`admin` / 密码：`password`
 5. 配置自动保存在 exe 同目录下的 `config.json`
 
