@@ -12,12 +12,12 @@ class PortForwarder {
 
   setSession(session, clientId) {
     this.sessions.set(clientId, session);
-    
+
     // Listen for incoming channel requests from remote
     session.on('channel', (channel) => {
       const { meta } = channel;
       if (meta && meta.type === 'forward') {
-        this.handleIncomingForward(channel, meta.host, meta.port, socket => socket.remoteAddress);
+        this.handleIncomingForward(channel, meta.host, meta.port, clientId, session);
       }
     });
   }
@@ -30,15 +30,16 @@ class PortForwarder {
     this.sessions.clear();
   }
 
-  handleIncomingForward(channel, host, port, getSourceIp) {
-    getLogger().info(`[Forward-${this.mode}] Received forward request to ${host}:${port}, attempting connection...`);
+  handleIncomingForward(channel, host, port, clientId, session) {
+    getLogger().info(`[Forward-${this.mode}] Received forward request to ${host}:${port} from client ${clientId}, attempting connection...`);
+    const startTime = Date.now();
     const socket = new net.Socket();
     socket.connect(port, host, () => {
       getLogger().info(`[Forward-${this.mode}] Accepted incoming connection to ${host}:${port}`);
       channel.pipe(socket);
       socket.pipe(channel);
     });
-    
+
     socket.on('error', (err) => {
       getLogger().error(`[Forward-${this.mode}] Failed to connect to ${host}:${port}: ${err.message}`);
       channel.end();
@@ -49,10 +50,13 @@ class PortForwarder {
       logTraffic(`Forward Incoming (${this.mode})`, `to ${host}:${port}`, bytes);
       trafficLogger.addLog({
         module: `Forward Incoming (${this.mode})`,
+        sourceIp: session.socket?.remoteAddress || 'Remote',
         target: `${host}:${port}`,
         action: 'reverse_forward',
         bytesTransferred: bytes,
-        status: 'success'
+        durationMs: Date.now() - startTime,
+        status: 'success',
+        clientId: clientId || ''
       });
     });
 
@@ -105,18 +109,25 @@ class PortForwarder {
         return;
       }
       const { targetHost, targetPort, targetClientId } = currentConfig;
-      
+
       let targetSession;
+      let resolvedClientId = '';
       if (this.mode === 'server') {
         const clientId = targetClientId || 'client-1';
         targetSession = this.sessions.get(clientId);
-        if (!targetSession && this.sessions.size === 1) {
+        if (targetSession) {
+          resolvedClientId = clientId;
+        } else if (this.sessions.size === 1) {
+          resolvedClientId = this.sessions.keys().next().value;
           targetSession = this.sessions.values().next().value;
         }
       } else {
         const serverConnId = targetClientId || 'default';
         targetSession = this.sessions.get(serverConnId);
-        if (!targetSession && this.sessions.size === 1) {
+        if (targetSession) {
+          resolvedClientId = serverConnId;
+        } else if (this.sessions.size === 1) {
+          resolvedClientId = this.sessions.keys().next().value;
           targetSession = this.sessions.values().next().value;
         }
       }
@@ -126,10 +137,10 @@ class PortForwarder {
         socket.destroy();
         return;
       }
-      
-      getLogger().info(`[Forward-${this.mode}] New connection on local port ${listenPort}, tunneling to ${targetHost}:${targetPort}`);
+
+      getLogger().info(`[Forward-${this.mode}] New connection on local port ${listenPort}, tunneling to ${targetHost}:${targetPort} via client ${resolvedClientId}`);
       const startTime = Date.now();
-      
+
       const channel = targetSession.createChannel({
         type: 'forward',
         host: targetHost,
@@ -141,7 +152,7 @@ class PortForwarder {
 
       socket.on('error', () => channel.end());
       channel.on('error', () => socket.destroy());
-      
+
       socket.on('close', () => {
         const bytes = socket.bytesRead + socket.bytesWritten;
         logTraffic(`Forward Outgoing (${this.mode})`, `to ${targetHost}:${targetPort}`, bytes);
@@ -152,7 +163,8 @@ class PortForwarder {
           action: 'forward',
           bytesTransferred: bytes,
           durationMs: Date.now() - startTime,
-          status: 'success'
+          status: 'success',
+          clientId: resolvedClientId
         });
       });
     });

@@ -55,6 +55,22 @@
             </el-col>
           </el-row>
 
+          <el-row :gutter="20" v-if="profile.type === 'http'">
+            <el-col :xs="24" :sm="12">
+              <el-form-item :label="t('nodes.tlsLabel')">
+                <div class="flex items-center gap-2">
+                  <el-switch v-model="profile.tls" @change="saveProfiles" />
+                  <span class="text-xs bt-text-muted">{{ t('nodes.tlsHint') }}</span>
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" v-if="profile.tls">
+              <el-form-item :label="t('nodes.sniLabel')">
+                <el-input v-model="profile.sni" :placeholder="t('nodes.sniPlaceholder')" @change="saveProfiles" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
           <div class="p-4 rounded-lg mb-4" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
             <el-row :gutter="20">
               <el-col :xs="24" :sm="12">
@@ -145,6 +161,8 @@ const loadProfiles = () => {
       // Re-inject transient properties
       profiles.value = parsed.map(p => ({
         ...p,
+        tls: !!p.tls,
+        sni: p.sni || '',
         testing: false,
         logs: [],
         testResult: null
@@ -181,6 +199,8 @@ const addProfile = () => {
     port: 1080,
     username: '',
     password: '',
+    tls: false,
+    sni: '',
     targetUrl: 'https://cn.bing.com',
     testing: false,
     logs: [],
@@ -213,6 +233,14 @@ const copyProxyUrl = async (profile) => {
       url += `${encodeURIComponent(profile.username)}@`;
     }
     url += `${profile.host}:${profile.port}`;
+
+    // HTTP 代理启用 TLS 时附加 ?tls=1&sni=xxx
+    if (profile.type === 'http' && profile.tls) {
+      const params = new URLSearchParams();
+      params.set('tls', '1');
+      if (profile.sni) params.set('sni', profile.sni);
+      url += '?' + params.toString();
+    }
 
     await navigator.clipboard.writeText(url);
     ElMessage.success(t('tester.copySuccess'));
@@ -260,6 +288,8 @@ const runTest = async (profile) => {
         port: profile.port,
         username: profile.username,
         password: profile.password,
+        tls: !!profile.tls,
+        sni: profile.sni || '',
         targetUrl: profile.targetUrl
       })
     });

@@ -191,6 +191,10 @@
               <el-radio-group v-model="manualForm.type">
                 <el-radio-button value="socks5">SOCKS5</el-radio-button>
                 <el-radio-button value="http">HTTP</el-radio-button>
+                <el-radio-button value="vmess">VMess</el-radio-button>
+                <el-radio-button value="vless">VLESS</el-radio-button>
+                <el-radio-button value="trojan">Trojan</el-radio-button>
+                <el-radio-button value="shadowsocks">SS</el-radio-button>
               </el-radio-group>
             </el-form-item>
             <el-form-item :label="t('nodes.serverLabel')">
@@ -199,20 +203,52 @@
             <el-form-item :label="t('nodes.portLabel')">
               <el-input-number v-model="manualForm.port" :min="1" :max="65535" class="w-full" />
             </el-form-item>
-            <el-form-item :label="t('nodes.usernameLabel')">
-              <el-input v-model="manualForm.user" :placeholder="t('nodes.optionalPlaceholder')" />
-            </el-form-item>
-            <el-form-item :label="t('nodes.passwordLabel')">
-              <el-input v-model="manualForm.pass" type="password" show-password :placeholder="t('nodes.optionalPlaceholder')" />
-            </el-form-item>
-            <el-form-item v-if="manualForm.type === 'http'" :label="t('nodes.tlsLabel')">
-              <el-switch v-model="manualForm.tls" />
-              <span class="text-xs text-gray-500 ml-2">{{ t('nodes.tlsHint') }}</span>
-            </el-form-item>
-            <el-form-item v-if="manualForm.type === 'http' && manualForm.tls" :label="t('nodes.sniLabel')">
-              <el-input v-model="manualForm.sni" :placeholder="t('nodes.sniPlaceholder')" />
-              <span class="text-xs text-gray-500 ml-2">{{ t('nodes.sniHint') }}</span>
-            </el-form-item>
+
+            <!-- SOCKS5 / HTTP 字段 -->
+            <template v-if="manualForm.type === 'socks5' || manualForm.type === 'http'">
+              <el-form-item :label="t('nodes.usernameLabel')">
+                <el-input v-model="manualForm.user" :placeholder="t('nodes.optionalPlaceholder')" />
+              </el-form-item>
+              <el-form-item :label="t('nodes.passwordLabel')">
+                <el-input v-model="manualForm.pass" type="password" show-password :placeholder="t('nodes.optionalPlaceholder')" />
+              </el-form-item>
+              <el-form-item v-if="manualForm.type === 'http'" :label="t('nodes.tlsLabel')">
+                <el-switch v-model="manualForm.tls" />
+                <span class="text-xs text-gray-500 ml-2">{{ t('nodes.tlsHint') }}</span>
+              </el-form-item>
+              <el-form-item v-if="manualForm.type === 'http' && manualForm.tls" :label="t('nodes.sniLabel')">
+                <el-input v-model="manualForm.sni" :placeholder="t('nodes.sniPlaceholder')" />
+                <span class="text-xs text-gray-500 ml-2">{{ t('nodes.sniHint') }}</span>
+              </el-form-item>
+            </template>
+
+            <!-- v2ray 字段（VMess / VLESS / Trojan / SS） -->
+            <template v-else>
+              <el-form-item :label="t('nodes.uuidLabel')">
+                <el-input v-model="manualForm.uuid" :placeholder="t('nodes.uuidPlaceholder')" />
+              </el-form-item>
+              <el-form-item :label="t('nodes.transportLabel')">
+                <el-select v-model="manualForm.network" class="w-full">
+                  <el-option label="TCP" value="tcp" />
+                  <el-option label="WebSocket (WS)" value="ws" />
+                  <el-option label="gRPC" value="grpc" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="manualForm.network !== 'tcp'" :label="t('nodes.pathLabel')">
+                <el-input v-model="manualForm.path" :placeholder="t('nodes.pathPlaceholder')" />
+              </el-form-item>
+              <el-form-item :label="t('nodes.securityConfig')">
+                <el-select v-model="manualForm.v2rayTls" class="w-full">
+                  <el-option :label="t('nodes.securityNone')" value="none" />
+                  <el-option :label="t('nodes.securityTls')" value="tls" />
+                  <el-option :label="t('nodes.securityReality')" value="reality" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="manualForm.v2rayTls !== 'none'" :label="t('nodes.sniLabel')">
+                <el-input v-model="manualForm.sni" :placeholder="t('nodes.sniPlaceholder')" />
+              </el-form-item>
+            </template>
+
             <el-form-item :label="t('nodes.groupLabel')">
               <el-select v-model="manualForm.group" allow-create filterable default-first-option :placeholder="t('nodes.groupPlaceholder')" class="w-full">
                 <el-option v-for="g in allGroups" :key="g" :label="g" :value="g" />
@@ -378,7 +414,7 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 const importDialogVisible = ref(false);
 const importTab = ref('text');
 const importText = ref('');
-const manualForm = ref({ displayName: '', type: 'socks5', host: '', port: 1080, user: '', pass: '', tls: false, sni: '', group: 'default' });
+const manualForm = ref({ displayName: '', type: 'socks5', host: '', port: 1080, user: '', pass: '', tls: false, sni: '', uuid: '', network: 'tcp', path: '', v2rayTls: 'none', group: 'default' });
 const testingNode = ref(null);
 const testingSpeedNode = ref(null);
 const testingAllLatency = ref(false);
@@ -639,7 +675,7 @@ const saveV2rayEditor = () => {
 
 const openImportDialog = () => {
   importText.value = '';
-  manualForm.value = { displayName: t('nodes.defaultManualName'), type: 'socks5', host: '', port: 1080, user: '', pass: '', tls: false, sni: '', group: 'default' };
+  manualForm.value = { displayName: t('nodes.defaultManualName'), type: 'socks5', host: '', port: 1080, user: '', pass: '', tls: false, sni: '', uuid: '', network: 'tcp', path: '', v2rayTls: 'none', group: 'default' };
   importTab.value = 'text';
   subUrl.value = '';
   subName.value = '';
@@ -945,11 +981,48 @@ const doAddManual = () => {
     ElMessage.warning(t('nodes.hostPortRequired'));
     return;
   }
+  const f = manualForm.value;
+  const isV2ray = ['vmess', 'vless', 'trojan', 'shadowsocks'].includes(f.type);
+
   if (!props.config.proxyNodes) props.config.proxyNodes = [];
-  props.config.proxyNodes.push({
-    id: 'node_' + generateId(),
-    ...manualForm.value
-  });
+
+  if (isV2ray) {
+    // v2ray 节点必须有 UUID
+    if (!f.uuid) {
+      ElMessage.warning(t('nodes.uuidRequired'));
+      return;
+    }
+    // 通过 encodeV2RayUrl 生成 rawUrl，与订阅/文本导入保持一致
+    const rawUrl = encodeV2RayUrl({
+      v2rayType: f.type,
+      displayName: f.displayName || `${f.type.toUpperCase()} ${f.host}:${f.port}`,
+      host: f.host,
+      port: f.port,
+      uuid: f.uuid,
+      network: f.network || 'tcp',
+      path: f.path || '',
+      tls: f.v2rayTls || 'none',
+      sni: f.sni || ''
+    });
+    if (!rawUrl) {
+      ElMessage.error(t('nodes.v2rayGenerateError'));
+      return;
+    }
+    props.config.proxyNodes.push({
+      id: 'node_' + generateId(),
+      displayName: f.displayName || `${f.type.toUpperCase()} ${f.host}:${f.port}`,
+      group: f.group || 'default',
+      type: 'v2ray',
+      v2rayType: f.type,
+      rawUrl
+    });
+  } else {
+    // SOCKS5 / HTTP 直接平铺字段
+    props.config.proxyNodes.push({
+      id: 'node_' + generateId(),
+      ...f
+    });
+  }
   ElMessage.success(t('nodes.nodeAdded'));
   importDialogVisible.value = false;
 };
