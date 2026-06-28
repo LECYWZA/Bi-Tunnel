@@ -11,7 +11,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://127.0.0.1:8899',
+        target: 'https://127.0.0.1:8888',
         changeOrigin: true,
         secure: false, // Ignore self-signed certs
       }
