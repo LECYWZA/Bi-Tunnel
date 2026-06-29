@@ -264,10 +264,10 @@
                         <el-option :label="t('rules.actionBlock')" value="block" :disabled="rule.action?.includes('block')" />
                       </el-option-group>
                       <el-option-group :label="t('chains.title')" v-if="config.proxyChains && config.proxyChains.length">
-                        <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="t('rules.viaChain', { name: chain.name })" :value="`chain:${chain.id}`" :disabled="rule.action?.includes(`chain:${chain.id}`)" />
+                        <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="chain.name" :value="`chain:${chain.id}`" :disabled="rule.action?.includes(`chain:${chain.id}`)" />
                       </el-option-group>
                       <el-option-group :label="t('nodes.title')" v-if="config.proxyNodes && config.proxyNodes.length">
-                        <el-option v-for="node in config.proxyNodes" :key="node.id" :label="t('rules.viaNode', { name: node.displayName })" :value="`node:${node.id}`" :disabled="rule.action?.includes(`node:${node.id}`)" />
+                        <el-option v-for="node in config.proxyNodes" :key="node.id" :label="node.displayName" :value="`node:${node.id}`" :disabled="rule.action?.includes(`node:${node.id}`)" />
                       </el-option-group>
                     </el-select>
                   </div>
@@ -317,10 +317,10 @@
                 <el-option :label="t('rules.actionBlock')" value="block" :disabled="currentProxy.defaultRuleAction?.includes('block')" />
               </el-option-group>
               <el-option-group :label="t('chains.title')" v-if="config.proxyChains && config.proxyChains.length">
-                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="t('rules.viaChain', { name: chain.name })" :value="`chain:${chain.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}`)" />
+                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="chain.name" :value="`chain:${chain.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}`)" />
               </el-option-group>
               <el-option-group :label="t('nodes.title')" v-if="config.proxyNodes && config.proxyNodes.length">
-                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="t('rules.viaNode', { name: node.displayName })" :value="`node:${node.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}`)" />
+                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="node.displayName" :value="`node:${node.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}`)" />
               </el-option-group>
             </el-select>
           </div>
@@ -619,12 +619,12 @@ const getActionName = (act) => {
   if (act.startsWith('chain:')) {
     const chainId = act.substring(6);
     const chain = (props.config.proxyChains || []).find(c => c.id === chainId);
-    return chain ? t('rules.viaChain', { name: chain.name }) : t('rules.chainLabel', { id: chainId });
+    return chain ? chain.name : t('rules.chainLabel', { id: chainId });
   }
   if (act.startsWith('node:')) {
     const nodeId = act.substring(5);
     const node = (props.config.proxyNodes || []).find(n => n.id === nodeId);
-    return node ? t('rules.viaNode', { name: node.displayName }) : t('rules.nodeLabel', { id: nodeId });
+    return node ? node.displayName : t('rules.nodeLabel', { id: nodeId });
   }
   return act;
 };
