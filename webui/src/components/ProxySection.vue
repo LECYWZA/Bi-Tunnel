@@ -83,61 +83,6 @@
                   />
                 </el-form-item>
               </el-col>
-              <el-col :span="24">
-                <el-form-item class="mb-2">
-                  <template #label>
-                    <div class="flex items-center gap-1">
-                      <span>{{ t('proxies.egressNetwork') }}</span>
-                      <el-tooltip placement="top">
-                        <template #content>
-                          <span v-html="t('proxies.egressNetworkTooltipRemote')"></span>
-                          <span v-html="t('proxies.egressNetworkTooltipLocal')"></span>
-                        </template>
-                        <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
-                      </el-tooltip>
-                    </div>
-                  </template>
-                  <el-select v-model="item._ref.useRemoteNetwork" class="w-full">
-                    <el-option :label="t('proxies.useRemoteNetwork')" :value="true" />
-                    <el-option :label="t('proxies.useLocalNetwork')" :value="false" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-              <el-col :span="24" v-if="item._mode === 'server' && item._ref.useRemoteNetwork">
-                <el-form-item class="mb-2">
-                  <template #label>
-                    <div class="flex items-center gap-1">
-                      <span class="text-blue-600">{{ t('proxies.targetClientId') }}</span>
-                      <el-tooltip :content="t('proxies.targetClientIdTooltip')" placement="top">
-                        <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
-                      </el-tooltip>
-                    </div>
-                  </template>
-                  <el-autocomplete
-                    v-model="item._ref.targetClientId"
-                    :fetch-suggestions="(q, cb) => cb((config.server.knownClients || []).map(c => ({ value: c.id })))"
-                    :placeholder="t('proxies.targetClientIdPlaceholder')"
-                    class="w-full"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :span="24" v-if="item._mode === 'client' && item._ref.useRemoteNetwork">
-                <el-form-item class="mb-2">
-                  <template #label>
-                    <div class="flex items-center gap-1">
-                      <span class="text-blue-600">{{ t('proxies.carrierServer') }}</span>
-                      <el-tooltip :content="t('proxies.carrierServerTooltip')" placement="top">
-                        <el-icon class="text-gray-400 cursor-pointer"><InfoFilled /></el-icon>
-                      </el-tooltip>
-                    </div>
-                  </template>
-                  <el-select v-model="item._ref.targetClientId" :placeholder="t('proxies.carrierServerPlaceholder')" class="w-full">
-                    <el-option v-for="c in (config.client.connections || [])" :key="c.id" :label="c.alias" :value="c.id" />
-                    <!-- Legacy fallback -->
-                    <el-option v-if="!(config.client.connections || []).some(c => c.id === item._ref.targetClientId)" :label="item._ref.targetClientId" :value="item._ref.targetClientId" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
             </el-row>
 
             <div class="p-3 rounded my-3" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
@@ -173,8 +118,8 @@
                 <span>{{ t('proxies.advancedPolicy') }}</span>
               </div>
               <div class="flex gap-2">
-                <el-button type="primary" plain :icon="Setting" size="small" @click="openRoutingDialog(item._ref)">{{ t('proxies.routingRules') }}</el-button>
-                <el-button type="warning" plain :icon="Setting" size="small" @click="openAclDialog(item._ref)">{{ t('proxies.acl') }}</el-button>
+                <el-button type="primary" plain :icon="Setting" size="small" @click="openRoutingDialog(item._ref, item._mode)">{{ t('proxies.routingRules') }}</el-button>
+                <el-button type="warning" plain :icon="Setting" size="small" @click="openAclDialog(item._ref, item._mode)">{{ t('proxies.acl') }}</el-button>
               </div>
             </div>
           </el-form>
@@ -209,7 +154,7 @@
             <div class="flex items-center gap-3 p-3 mb-3 rounded-md relative group" style="background: var(--bt-input-bg); border: 1px solid var(--bt-border);">
               <el-icon class="drag-handle cursor-move bt-text-secondary hover:text-blue-500 transition-colors" :size="20"><Sort /></el-icon>
 
-              <div class="flex-1 grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
+              <div class="flex-1 grid grid-cols-[1fr_auto_auto_1fr] gap-4 items-start">
                 <!-- Rule Cards Selector and List -->
                 <div class="flex flex-col gap-2 p-2 rounded" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
                   <div class="flex flex-col gap-1.5 mb-1">
@@ -245,6 +190,28 @@
                   </div>
                 </div>
 
+                <!-- Network Mode Selector (本地/远端网络) -->
+                <div class="flex flex-col gap-2 p-2 rounded min-w-[140px]" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
+                  <div class="flex flex-col gap-1.5">
+                    <span class="text-xs font-bold bt-text-secondary whitespace-nowrap">{{ t('rules.networkMode') }}</span>
+                    <el-select v-model="rule.networkMode" size="small" class="w-full" @change="(val) => { if (val !== 'remote') rule.targetClientId = ''; }">
+                      <el-option :label="t('rules.networkLocal')" value="local" />
+                      <el-option :label="t('rules.networkRemote')" value="remote" />
+                    </el-select>
+                  </div>
+                  <div v-if="rule.networkMode === 'remote'" class="flex flex-col gap-1.5">
+                    <span class="text-xs font-bold bt-text-secondary whitespace-nowrap">
+                      {{ currentProxyMode === 'server' ? t('proxies.targetClientId') : t('proxies.carrierServer') }}
+                    </span>
+                    <el-select v-if="currentProxyMode === 'client'" v-model="rule.targetClientId" :placeholder="t('proxies.carrierServerPlaceholder')" size="small" class="w-full" filterable>
+                      <el-option v-for="c in (config.client.connections || [])" :key="c.id" :label="c.alias" :value="c.id" />
+                    </el-select>
+                    <el-select v-else v-model="rule.targetClientId" :placeholder="t('proxies.targetClientIdPlaceholder')" size="small" class="w-full" filterable>
+                      <el-option v-for="c in (config.server.knownClients || [])" :key="c.id" :label="`${c.id}${c.online ? ' (' + t('proxies.clientOnline') + ')' : ''}`" :value="c.id" />
+                    </el-select>
+                  </div>
+                </div>
+
                 <el-icon class="text-gray-400 mt-3"><Right /></el-icon>
 
                 <!-- Route Action Selector and List -->
@@ -264,16 +231,10 @@
                         <el-option :label="t('rules.actionBlock')" value="block" :disabled="rule.action?.includes('block')" />
                       </el-option-group>
                       <el-option-group :label="t('chains.title')" v-if="config.proxyChains && config.proxyChains.length">
-                        <template v-for="chain in config.proxyChains" :key="chain.id">
-                          <el-option :label="`${chain.name} (${t('rules.networkLocal')})`" :value="`chain:${chain.id}@local`" :disabled="rule.action?.includes(`chain:${chain.id}@local`)" />
-                          <el-option :label="`${chain.name} (${t('rules.networkRemote')})`" :value="`chain:${chain.id}@remote`" :disabled="rule.action?.includes(`chain:${chain.id}@remote`)" />
-                        </template>
+                        <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="chain.name" :value="`chain:${chain.id}`" :disabled="rule.action?.includes(`chain:${chain.id}`)" />
                       </el-option-group>
                       <el-option-group :label="t('nodes.title')" v-if="config.proxyNodes && config.proxyNodes.length">
-                        <template v-for="node in config.proxyNodes" :key="node.id">
-                          <el-option :label="`${node.displayName} (${t('rules.networkLocal')})`" :value="`node:${node.id}@local`" :disabled="rule.action?.includes(`node:${node.id}@local`)" />
-                          <el-option :label="`${node.displayName} (${t('rules.networkRemote')})`" :value="`node:${node.id}@remote`" :disabled="rule.action?.includes(`node:${node.id}@remote`)" />
-                        </template>
+                        <el-option v-for="node in config.proxyNodes" :key="node.id" :label="node.displayName" :value="`node:${node.id}`" :disabled="rule.action?.includes(`node:${node.id}`)" />
                       </el-option-group>
                     </el-select>
                   </div>
@@ -318,35 +279,43 @@
               @change="(val) => addDefaultAction(currentProxy, val)"
             >
               <el-option-group :label="t('proxies.builtinActions')">
-                <el-option :label="t('rules.actionDirectLocal')" value="direct_local" :disabled="currentProxy.defaultRuleAction?.includes('direct_local')" />
-                <el-option :label="t('rules.actionDirectRemote')" value="direct_remote" :disabled="currentProxy.defaultRuleAction?.includes('direct_remote')" />
-                <el-option :label="t('rules.actionBlock')" value="block" :disabled="currentProxy.defaultRuleAction?.includes('block')" />
+                <el-option :label="t('rules.actionDirectLocal')" value="direct_local" :disabled="currentProxy.defaultRuleActions?.some(it => it.action === 'direct_local')" />
+                <el-option :label="t('rules.actionDirectRemote')" value="direct_remote" :disabled="currentProxy.defaultRuleActions?.some(it => it.action === 'direct_remote')" />
+                <el-option :label="t('rules.actionBlock')" value="block" :disabled="currentProxy.defaultRuleActions?.some(it => it.action === 'block')" />
               </el-option-group>
               <el-option-group :label="t('chains.title')" v-if="config.proxyChains && config.proxyChains.length">
-                <template v-for="chain in config.proxyChains" :key="chain.id">
-                  <el-option :label="`${chain.name} (${t('rules.networkLocal')})`" :value="`chain:${chain.id}@local`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}@local`)" />
-                  <el-option :label="`${chain.name} (${t('rules.networkRemote')})`" :value="`chain:${chain.id}@remote`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}@remote`)" />
-                </template>
+                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="chain.name" :value="`chain:${chain.id}`" :disabled="currentProxy.defaultRuleActions?.some(it => it.action === `chain:${chain.id}`)" />
               </el-option-group>
               <el-option-group :label="t('nodes.title')" v-if="config.proxyNodes && config.proxyNodes.length">
-                <template v-for="node in config.proxyNodes" :key="node.id">
-                  <el-option :label="`${node.displayName} (${t('rules.networkLocal')})`" :value="`node:${node.id}@local`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}@local`)" />
-                  <el-option :label="`${node.displayName} (${t('rules.networkRemote')})`" :value="`node:${node.id}@remote`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}@remote`)" />
-                </template>
+                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="node.displayName" :value="`node:${node.id}`" :disabled="currentProxy.defaultRuleActions?.some(it => it.action === `node:${node.id}`)" />
               </el-option-group>
             </el-select>
           </div>
 
-          <draggable v-model="currentProxy.defaultRuleAction" item-key="this" handle=".default-action-drag" animation="200" ghost-class="ghost" class="flex flex-wrap gap-2">
-            <template #item="{ element: act, index: dIdx }">
-              <div class="flex items-center gap-1.5 p-1.5 rounded text-xs" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
+          <draggable v-model="currentProxy.defaultRuleActions" item-key="action" handle=".default-action-drag" animation="200" ghost-class="ghost" class="flex flex-col gap-2">
+            <template #item="{ element: item, index: dIdx }">
+              <div class="flex items-center gap-2 p-1.5 rounded text-xs flex-wrap" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
                 <el-icon class="default-action-drag cursor-move bt-text-secondary" :size="14"><Sort /></el-icon>
-                <el-tag size="small" :type="getActionTagType(act)" effect="dark">{{ getActionName(act) }}</el-tag>
-                <el-button type="danger" link :icon="Delete" size="small" @click="currentProxy.defaultRuleAction.splice(dIdx, 1)" />
+                <el-tag size="small" :type="getActionTagType(item.action)" effect="dark">{{ getActionName(item.action) }}</el-tag>
+                <template v-if="actionNeedsNetworkMode(item.action)">
+                  <el-select v-model="item.networkMode" size="small" style="width: 110px;" @change="(val) => { if (val !== 'remote') item.targetClientId = ''; }">
+                    <el-option :label="t('rules.networkLocal')" value="local" />
+                    <el-option :label="t('rules.networkRemote')" value="remote" />
+                  </el-select>
+                  <template v-if="item.networkMode === 'remote'">
+                    <el-select v-if="currentProxyMode === 'client'" v-model="item.targetClientId" :placeholder="t('proxies.carrierServerPlaceholder')" size="small" style="width: 140px;" filterable>
+                      <el-option v-for="c in (config.client.connections || [])" :key="c.id" :label="c.alias" :value="c.id" />
+                    </el-select>
+                    <el-select v-else v-model="item.targetClientId" :placeholder="t('proxies.targetClientIdPlaceholder')" size="small" style="width: 140px;" filterable>
+                      <el-option v-for="c in (config.server.knownClients || [])" :key="c.id" :label="`${c.id}${c.online ? ' (' + t('proxies.clientOnline') + ')' : ''}`" :value="c.id" />
+                    </el-select>
+                  </template>
+                </template>
+                <el-button type="danger" link :icon="Delete" size="small" @click="currentProxy.defaultRuleActions.splice(dIdx, 1)" />
               </div>
             </template>
           </draggable>
-          <div v-if="!currentProxy.defaultRuleAction || currentProxy.defaultRuleAction.length === 0" class="text-center text-xs bt-text-muted py-1">
+          <div v-if="!currentProxy.defaultRuleActions || currentProxy.defaultRuleActions.length === 0" class="text-center text-xs bt-text-muted py-1">
             {{ t('proxies.noFallbackAction') }}
           </div>
         </div>
@@ -402,6 +371,7 @@ const props = defineProps({
 const routingDialogVisible = ref(false);
 const aclDialogVisible = ref(false);
 const currentProxy = ref(null);
+const currentProxyMode = ref('server');
 
 const allProxies = computed(() => {
   const arr = [];
@@ -500,14 +470,13 @@ const handleAddProxy = (mode) => {
     isSystemProxy: false,
     useAuth: false,
     users: [{ user: '', pass: '' }],
-    useRemoteNetwork: true,
     _allowIps: '',
     _denyIps: '',
     _targetAllowIps: '',
     _targetDenyIps: '',
     proxyRules: [],
     chainNodes: [],
-    defaultRuleAction: ['direct_local']
+    defaultRuleActions: [{ action: 'direct_local', networkMode: 'local', targetClientId: '' }]
   });
 };
 
@@ -576,13 +545,15 @@ const ensureUsers = (px) => {
   }
 };
 
-const openRoutingDialog = (px) => {
+const openRoutingDialog = (px, mode) => {
   currentProxy.value = px;
+  currentProxyMode.value = mode || 'server';
   routingDialogVisible.value = true;
 };
 
-const openAclDialog = (px) => {
+const openAclDialog = (px, mode) => {
   currentProxy.value = px;
+  currentProxyMode.value = mode || 'server';
   aclDialogVisible.value = true;
 };
 
@@ -593,7 +564,7 @@ const addRule = (px) => {
   }
   if (!px.proxyRules) px.proxyRules = [];
   const defaultCardId = props.config.ruleCards[0].id;
-  px.proxyRules.push({ id: Math.random().toString(36).substr(2, 9), ruleCardIds: [defaultCardId], action: ['direct_local'] });
+  px.proxyRules.push({ id: Math.random().toString(36).substr(2, 9), ruleCardIds: [defaultCardId], action: ['direct_local'], networkMode: 'local', targetClientId: '' });
 };
 
 const getAvailableRuleCards = (rule) => {
@@ -629,28 +600,14 @@ const getActionName = (act) => {
   if (act === 'direct_remote') return t('rules.actionDirectRemote');
   if (act === 'block') return t('rules.actionBlock');
   if (act.startsWith('chain:')) {
-    let rest = act.substring(6);
-    let networkMode = null;
-    const atIdx = rest.lastIndexOf('@');
-    if (atIdx > 0 && (rest.substring(atIdx + 1) === 'local' || rest.substring(atIdx + 1) === 'remote')) {
-      networkMode = rest.substring(atIdx + 1);
-      rest = rest.substring(0, atIdx);
-    }
-    const chain = (props.config.proxyChains || []).find(c => c.id === rest);
-    const name = chain ? chain.name : t('rules.chainLabel', { id: rest });
-    return networkMode ? `${name} (${networkMode === 'local' ? t('rules.networkLocal') : t('rules.networkRemote')})` : name;
+    const chainId = act.substring(6);
+    const chain = (props.config.proxyChains || []).find(c => c.id === chainId);
+    return chain ? chain.name : t('rules.chainLabel', { id: chainId });
   }
   if (act.startsWith('node:')) {
-    let rest = act.substring(5);
-    let networkMode = null;
-    const atIdx = rest.lastIndexOf('@');
-    if (atIdx > 0 && (rest.substring(atIdx + 1) === 'local' || rest.substring(atIdx + 1) === 'remote')) {
-      networkMode = rest.substring(atIdx + 1);
-      rest = rest.substring(0, atIdx);
-    }
-    const node = (props.config.proxyNodes || []).find(n => n.id === rest);
-    const name = node ? node.displayName : t('rules.nodeLabel', { id: rest });
-    return networkMode ? `${name} (${networkMode === 'local' ? t('rules.networkLocal') : t('rules.networkRemote')})` : name;
+    const nodeId = act.substring(5);
+    const node = (props.config.proxyNodes || []).find(n => n.id === nodeId);
+    return node ? node.displayName : t('rules.nodeLabel', { id: nodeId });
   }
   return act;
 };
@@ -665,12 +622,18 @@ const getActionTagType = (act) => {
 };
 
 const addDefaultAction = (proxy, val) => {
-  if (!proxy.defaultRuleAction) {
-    proxy.defaultRuleAction = [];
+  if (!proxy.defaultRuleActions) {
+    proxy.defaultRuleActions = [];
   }
-  if (!proxy.defaultRuleAction.includes(val)) {
-    proxy.defaultRuleAction.push(val);
+  // 已存在同 action 的项则不重复添加
+  if (!proxy.defaultRuleActions.some(it => it.action === val)) {
+    proxy.defaultRuleActions.push({ action: val, networkMode: 'local', targetClientId: '' });
   }
+};
+
+// 判断动作是否需要网络模式选择(代理链/节点需要;直连/拦截不需要,因为 direct_local/direct_remote/block 本身已定义网络行为)
+const actionNeedsNetworkMode = (act) => {
+  return act.startsWith('chain:') || act.startsWith('node:') || act === 'proxy_chain';
 };
 </script>
 

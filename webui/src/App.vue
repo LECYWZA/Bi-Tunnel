@@ -8,8 +8,8 @@
   </div>
   <div v-else class="min-h-screen" :style="{ background: 'var(--bt-bg)' }">
     <!-- Header -->
-    <header class="bt-header px-6 py-0 flex items-center justify-between fixed top-0 left-0 right-0 z-50" style="height: 60px;">
-      <div class="flex items-center gap-5 flex-1">
+    <header class="bt-header px-6 py-0 flex items-center justify-between flex-wrap gap-y-2 sticky top-0 z-50">
+      <div class="flex items-center gap-5 flex-1 min-w-0">
         <!-- Logo -->
         <div class="flex items-center gap-3">
           <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: var(--bt-gradient);">
@@ -32,7 +32,7 @@
           v-model="config.activeProxyId"
           :placeholder="t('header.activeProxy')"
           size="default"
-          style="width: 200px; margin-left: 10px;"
+          class="bt-active-proxy-select"
           :disabled="allProxies.length === 0"
           @change="handleActiveProxyChange"
         >
@@ -90,7 +90,7 @@
       </div>
 
       <!-- Navigation in center -->
-      <div class="flex justify-center flex-1 min-w-[600px]">
+      <div class="flex justify-center flex-1 min-w-0">
         <el-menu :default-active="$route.path" router mode="horizontal" class="bt-nav-header" :ellipsis="false">
           <el-menu-item index="/config">
             <el-icon><Setting /></el-icon> {{ t('nav.tunnel') }}
@@ -119,7 +119,7 @@
         </el-menu>
       </div>
 
-      <div class="flex items-center justify-end gap-3 flex-1">
+      <div class="flex items-center justify-end gap-3 flex-1 min-w-0">
         <!-- Unsaved indicator -->
         <div v-if="hasUnsavedChanges" class="bt-unsaved">
           <el-icon><InfoFilled /></el-icon>
@@ -136,30 +136,23 @@
           {{ locale === 'zh' ? 'EN' : 'ZH' }}
         </div>
 
-        <!-- HTTP/HTTPS Toggle -->
-        <el-tooltip :content="isHttps ? '切换到 HTTP 访问' : '切换到 HTTPS 访问'" placement="bottom">
-          <el-button class="bt-btn-protocol" size="default" circle @click="toggleProtocol" :loading="switchingProtocol">
-            <span style="font-size: 12px; font-weight: bold;">{{ isHttps ? 'HTTPS' : 'HTTP' }}</span>
-          </el-button>
-        </el-tooltip>
-
-        <!-- Stop Service -->
-        <el-tooltip :content="t('header.stopService')" placement="bottom">
-          <el-button class="bt-btn-danger" size="default" :icon="SwitchButton" circle @click="stopService" />
-        </el-tooltip>
-
-        <!-- Restart Service -->
-        <el-tooltip :content="t('header.restartService')" placement="bottom">
-          <el-button class="bt-btn-warning" size="default" :icon="RefreshRight" circle @click="restartService" />
-        </el-tooltip>
-
-        <!-- DNS Config button -->
-        <el-tooltip content="DNS 配置" placement="bottom">
-          <el-button class="bt-btn-default" size="default" :icon="Connection" circle @click="dnsDialogVisible = true" />
-        </el-tooltip>
+        <!-- Settings Dropdown: 收纳 DNS / HTTPS / 重启 / 停止 等低频操作 -->
+        <el-dropdown trigger="click" @command="(cmd) => handleSettingCmd(cmd)" placement="bottom-end">
+          <el-button class="bt-btn-default" size="default" :icon="Operation" circle />
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="dns" :icon="Connection">DNS {{ locale === 'zh' ? '配置' : 'Config' }}</el-dropdown-item>
+              <el-dropdown-item command="protocol" :icon="Link">
+                {{ isHttps ? 'HTTP' : 'HTTPS' }}
+              </el-dropdown-item>
+              <el-dropdown-item command="restart" :icon="RefreshRight">{{ t('header.restartService') }}</el-dropdown-item>
+              <el-dropdown-item command="stop" :icon="SwitchButton" divided>{{ t('header.stopService') }}</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
 
         <!-- Save button -->
-        <el-button class="bt-btn-primary" size="default" :icon="Check" :disabled="!hasUnsavedChanges" @click="saveConfig(false)" style="margin-left: 8px;">
+        <el-button class="bt-btn-primary" size="default" :icon="Check" :disabled="!hasUnsavedChanges" @click="saveConfig(false)">
           {{ t('header.applyConfig') }}
         </el-button>
       </div>
@@ -826,7 +819,17 @@ const fetchConfig = async () => {
     // Format arrays for textareas
     if (data.server && data.server.proxies) {
       data.server.proxies.forEach(p => {
-        if (p.defaultRuleAction && !Array.isArray(p.defaultRuleAction)) p.defaultRuleAction = [p.defaultRuleAction];
+        // 默认动作迁移为对象数组 defaultRuleActions;兼容旧 defaultRuleAction 字符串数组
+        if (!p.defaultRuleActions) {
+          const old = Array.isArray(p.defaultRuleAction) ? p.defaultRuleAction : (p.defaultRuleAction ? [p.defaultRuleAction] : ['direct_local']);
+          p.defaultRuleActions = old.map(act => ({ action: act, networkMode: 'local', targetClientId: '' }));
+          delete p.defaultRuleAction;
+        } else {
+          p.defaultRuleActions.forEach(it => {
+            if (!it.networkMode) it.networkMode = 'local';
+            if (!it.targetClientId) it.targetClientId = '';
+          });
+        }
         if (p.proxyRules) p.proxyRules.forEach(r => {
           if (r.action && !Array.isArray(r.action)) r.action = [r.action];
           if (r.pattern && !Array.isArray(r.pattern)) r.pattern = [r.pattern];
@@ -834,6 +837,8 @@ const fetchConfig = async () => {
             r.ruleCardIds = r.ruleCardId ? [r.ruleCardId] : [];
           }
           if (!r.id) r.id = Math.random().toString(36).substr(2, 9);
+          if (!r.networkMode) r.networkMode = 'local';
+          if (!r.targetClientId) r.targetClientId = '';
         });
         // 为旧数据补全唯一代理 ID
         if (!p.id) p.id = `proxy_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
@@ -845,7 +850,17 @@ const fetchConfig = async () => {
     }
     if (data.client && data.client.proxies) {
       data.client.proxies.forEach(p => {
-        if (p.defaultRuleAction && !Array.isArray(p.defaultRuleAction)) p.defaultRuleAction = [p.defaultRuleAction];
+        // 默认动作迁移为对象数组 defaultRuleActions;兼容旧 defaultRuleAction 字符串数组
+        if (!p.defaultRuleActions) {
+          const old = Array.isArray(p.defaultRuleAction) ? p.defaultRuleAction : (p.defaultRuleAction ? [p.defaultRuleAction] : ['direct_local']);
+          p.defaultRuleActions = old.map(act => ({ action: act, networkMode: 'local', targetClientId: '' }));
+          delete p.defaultRuleAction;
+        } else {
+          p.defaultRuleActions.forEach(it => {
+            if (!it.networkMode) it.networkMode = 'local';
+            if (!it.targetClientId) it.targetClientId = '';
+          });
+        }
         if (p.proxyRules) p.proxyRules.forEach(r => {
           if (r.action && !Array.isArray(r.action)) r.action = [r.action];
           if (r.pattern && !Array.isArray(r.pattern)) r.pattern = [r.pattern];
@@ -853,6 +868,8 @@ const fetchConfig = async () => {
             r.ruleCardIds = r.ruleCardId ? [r.ruleCardId] : [];
           }
           if (!r.id) r.id = Math.random().toString(36).substr(2, 9);
+          if (!r.networkMode) r.networkMode = 'local';
+          if (!r.targetClientId) r.targetClientId = '';
         });
         // 为旧数据补全唯一代理 ID
         if (!p.id) p.id = `proxy_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
@@ -1150,6 +1167,14 @@ const restartService = async () => {
   } catch (e) {
     // 用户取消
   }
+};
+
+// 顶部设置下拉菜单命令分发
+const handleSettingCmd = (cmd) => {
+  if (cmd === 'dns') dnsDialogVisible.value = true;
+  else if (cmd === 'protocol') toggleProtocol();
+  else if (cmd === 'restart') restartService();
+  else if (cmd === 'stop') stopService();
 };
 
 onUnmounted(() => {

@@ -7,27 +7,6 @@ const Router = require('./router');
 const ProxyDialer = require('./proxyDialer');
 const trafficLogger = require('../utils/trafficLogger');
 
-/**
- * 解析动作字符串，支持网络模式后缀: chain:<id>@<local|remote> / node:<id>@<local|remote>
- * 不带 @ 后缀的旧值向后兼容，networkMode 返回 null (由调用方回退到代理级配置)
- * @returns {{type:string, id:string|null, networkMode:'local'|'remote'|null}}
- */
-function parseAction(action) {
-  let core = action;
-  let networkMode = null;
-  const atIdx = action.lastIndexOf('@');
-  if (atIdx > 0) {
-    const suffix = action.substring(atIdx + 1);
-    if (suffix === 'local' || suffix === 'remote') {
-      networkMode = suffix;
-      core = action.substring(0, atIdx);
-    }
-  }
-  if (core.startsWith('chain:')) return { type: 'chain', id: core.substring(6), networkMode };
-  if (core.startsWith('node:')) return { type: 'node', id: core.substring(5), networkMode };
-  return { type: core, id: null, networkMode };
-}
-
 // A simple parser to sniff protocol
 class ProxyServer {
   constructor(mode) {
@@ -79,7 +58,15 @@ class ProxyServer {
     const startPromises = [];
     for (const p of desiredProxies) {
       if (!this.servers.has(p.listenPort)) {
-        startPromises.push(this.startProxy(p.listenPort));
+        startPromises.push(this.startProxy(p.listenPort).catch(err => {
+          // 单个代理启动失败不应阻断其他代理:记录错误并继续
+          if (err && err.code === 'PORT_IN_USE') {
+            getLogger().error(`[Proxy] 端口 ${err.port} 已被占用,该代理启动失败,其他代理不受影响`);
+          } else {
+            getLogger().error(`[Proxy] 代理启动失败 (端口 ${p.listenPort}): ${err && err.message ? err.message : JSON.stringify(err)}`);
+          }
+          return { failed: true, port: p.listenPort, err };
+        }));
       }
     }
     return Promise.all(startPromises);
@@ -401,15 +388,8 @@ class ProxyServer {
   async processTarget(socket, host, port, proxyConfig, onConnected) {
     let actionResult = ['direct_local'];
     let rulePattern = '默认策略 (无规则)';
-
-    // Helper to get fallback legacy action
-    const getLegacyAction = () => {
-      const isDirect = !proxyConfig.chainNodes || proxyConfig.chainNodes.length === 0;
-      if (isDirect) {
-        return [proxyConfig.useRemoteNetwork ? 'direct_remote' : 'direct_local'];
-      }
-      return ['proxy_chain'];
-    };
+    let effectiveNetworkMode = 'local';
+    let effectiveTargetClientId = '';
 
     const globalConfig = configManager.getConfig();
     const resolvedRules = (proxyConfig.proxyRules || []).map(r => {
@@ -423,22 +403,29 @@ class ProxyServer {
       });
       return {
         pattern: patterns,
-        action: r.action
+        action: r.action,
+        networkMode: r.networkMode || 'local',
+        targetClientId: r.targetClientId || ''
       };
     });
 
-    // 默认兜底动作：空数组视为未设置，回退到 legacy 动作，避免静默拒绝所有未匹配流量
-    const defaultAction = (Array.isArray(proxyConfig.defaultRuleAction) && proxyConfig.defaultRuleAction.length > 0)
-      ? proxyConfig.defaultRuleAction
-      : getLegacyAction();
+    // 默认兜底动作:新格式 defaultRuleActions (对象数组),旧格式 defaultRuleAction (字符串数组)兼容
+    const defaultActionItems = Array.isArray(proxyConfig.defaultRuleActions) && proxyConfig.defaultRuleActions.length > 0
+      ? proxyConfig.defaultRuleActions
+      : null;
+    const defaultAction = defaultActionItems
+      ? defaultActionItems.map(it => it.action)
+      : ['direct_local'];
 
     let targetIpForAcl = host;
+    let matchedRule = null;
     try {
        ipaddr.process(host); // Throws if not IP
        if (resolvedRules.length > 0) {
          const result = await Router.evaluate(host, resolvedRules, defaultAction);
          actionResult = result.action;
          rulePattern = result.rulePattern;
+         matchedRule = result.matchedRule;
        } else {
          if (!this.checkAcl(targetIpForAcl, proxyConfig.targetAllowIps, proxyConfig.targetDenyIps)) {
            actionResult = ['block'];
@@ -452,44 +439,83 @@ class ProxyServer {
          const result = await Router.evaluate(host, resolvedRules, defaultAction);
          actionResult = result.action;
          rulePattern = result.rulePattern;
+         matchedRule = result.matchedRule;
        } else {
          actionResult = defaultAction;
        }
     }
 
+    // 确定本条请求的网络模式与目标服务
+    // 命中规则:用规则级的 networkMode/targetClientId
+    // 未命中(走默认动作):用第一个默认动作项的 networkMode/targetClientId
+    if (matchedRule) {
+      effectiveNetworkMode = matchedRule.networkMode || 'local';
+      effectiveTargetClientId = matchedRule.targetClientId || '';
+    } else if (defaultActionItems && defaultActionItems.length > 0) {
+      effectiveNetworkMode = defaultActionItems[0].networkMode || 'local';
+      effectiveTargetClientId = defaultActionItems[0].targetClientId || '';
+    }
+
     let actions = Array.isArray(actionResult) ? actionResult : [actionResult];
 
-    // 空动作列表直接拒绝（防御性检查，正常情况下 defaultAction 已保证非空）
-    // block 不再在此特判，统一交给下方故障切换循环处理，使 block 在任意位置都能正确生效
+    // 空动作列表直接拒绝(防御性检查,正常情况下 defaultAction 已保证非空)
+    // block 不再在此特判,统一交给下方故障切换循环处理,使 block 在任意位置都能正确生效
     if (actions.length === 0) {
       getLogger().warn(`[Proxy] Denied access to ${host} due to empty action list`);
       socket.destroy();
       return;
     }
 
-    let targetSession = null;
-    let resolvedClientId = '';
-    if (this.mode === 'server') {
-      const clientId = proxyConfig.targetClientId || 'client-1';
-      targetSession = this.sessions.get(clientId);
-      if (targetSession) {
-        resolvedClientId = clientId;
-      } else if (this.sessions.size === 1) {
-        resolvedClientId = this.sessions.keys().next().value;
-        targetSession = this.sessions.values().next().value;
+    // 解析 targetSession:根据 networkMode 和 targetClientId 查找会话
+    const resolveSession = (networkMode, targetClientId) => {
+      if (networkMode !== 'remote') return { session: null, clientId: '' };
+      if (this.mode === 'server') {
+        const clientId = targetClientId || 'client-1';
+        let session = this.sessions.get(clientId);
+        let resolvedId = clientId;
+        if (!session && this.sessions.size === 1) {
+          resolvedId = this.sessions.keys().next().value;
+          session = this.sessions.values().next().value;
+        }
+        return { session, clientId: resolvedId };
+      } else {
+        const serverConnId = targetClientId || 'default';
+        let session = this.sessions.get(serverConnId);
+        let resolvedId = serverConnId;
+        if (!session && this.sessions.size === 1) {
+          resolvedId = this.sessions.keys().next().value;
+          session = this.sessions.values().next().value;
+        }
+        return { session, clientId: resolvedId };
+      }
+    };
+
+    // 构建带元数据的动作列表:命中规则时所有动作共用规则的网络模式;默认动作时每项用自己的
+    // actionItems: [{ action, networkMode, targetClientId }]
+    let actionItems;
+    if (matchedRule) {
+      actionItems = actions.map(a => ({ action: a, networkMode: effectiveNetworkMode, targetClientId: effectiveTargetClientId }));
+    } else if (defaultActionItems && defaultActionItems.length > 0) {
+      // 默认动作:每项带自己的网络模式(动作顺序与 defaultActionItems 一致)
+      actionItems = defaultActionItems.map(it => ({ action: it.action, networkMode: it.networkMode || 'local', targetClientId: it.targetClientId || '' }));
+      // 但 actionResult 可能被 ACL 改成 ['block'],此时只取 block
+      if (actions.length === 1 && actions[0] === 'block') {
+        actionItems = [{ action: 'block', networkMode: 'local', targetClientId: '' }];
       }
     } else {
-      const serverConnId = proxyConfig.targetClientId || 'default';
-      targetSession = this.sessions.get(serverConnId);
-      if (targetSession) {
-        resolvedClientId = serverConnId;
-      } else if (this.sessions.size === 1) {
-        resolvedClientId = this.sessions.keys().next().value;
-        targetSession = this.sessions.values().next().value;
-      }
+      actionItems = actions.map(a => ({ action: a, networkMode: effectiveNetworkMode, targetClientId: effectiveTargetClientId }));
     }
 
-    const tryAction = (action) => {
+    let targetSession = null;
+    let resolvedClientId = '';
+    const firstItem = actionItems[0] || { networkMode: 'local', targetClientId: '' };
+    if (firstItem.networkMode === 'remote') {
+      const s = resolveSession(firstItem.networkMode, firstItem.targetClientId);
+      targetSession = s.session;
+      resolvedClientId = s.clientId;
+    }
+
+    const tryAction = (action, useRemote, session) => {
       return new Promise((resolve, reject) => {
         if (action === 'block') {
           // block 视为必然失败的动作，参与故障切换：前面动作成功则不会触达，全部失败则拒绝
@@ -499,40 +525,36 @@ class ProxyServer {
           const globalConfig = configManager.getConfig();
           const resolvedNodes = (proxyConfig.chainNodes || []).map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
           if (resolvedNodes.length === 0) return reject(new Error('Proxy chain is empty or has no valid resolved nodes'));
-          ProxyDialer.dialChain(resolvedNodes, host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
+          ProxyDialer.dialChain(resolvedNodes, host, port, useRemote, session, (err, finalSocket) => {
             if (err) return reject(err);
             resolve(finalSocket);
           });
         } else if (action.startsWith('chain:')) {
-          const parsed = parseAction(action);
-          const chainId = parsed.id;
-          const useRemote = parsed.networkMode === 'remote' ? true : parsed.networkMode === 'local' ? false : proxyConfig.useRemoteNetwork;
+          const chainId = action.substring(6);
           const globalConfig = configManager.getConfig();
           const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
           if (!chain || !chain.nodes || chain.nodes.length === 0) return reject(new Error(`Proxy chain ${chainId} not found or empty`));
-          
+
           const resolvedNodes = chain.nodes.map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
           if (resolvedNodes.length === 0) return reject(new Error(`Proxy chain ${chainId} has no valid resolved nodes`));
-          
-          ProxyDialer.dialChain(resolvedNodes, host, port, useRemote, targetSession, (err, finalSocket) => {
+
+          ProxyDialer.dialChain(resolvedNodes, host, port, useRemote, session, (err, finalSocket) => {
             if (err) return reject(err);
             resolve(finalSocket);
           });
         } else if (action.startsWith('node:')) {
-          const parsed = parseAction(action);
-          const nodeId = parsed.id;
-          const useRemote = parsed.networkMode === 'remote' ? true : parsed.networkMode === 'local' ? false : proxyConfig.useRemoteNetwork;
+          const nodeId = action.substring(5);
           const globalConfig = configManager.getConfig();
           const node = globalConfig.proxyNodes?.find(n => n.id === nodeId);
           if (!node) return reject(new Error(`Proxy node ${nodeId} not found`));
-          
-          ProxyDialer.dialChain([node], host, port, useRemote, targetSession, (err, finalSocket) => {
+
+          ProxyDialer.dialChain([node], host, port, useRemote, session, (err, finalSocket) => {
             if (err) return reject(err);
             resolve(finalSocket);
           });
         } else if (action === 'direct_remote') {
-          if (!targetSession) return reject(new Error(`direct_remote failed: targetSession not found`));
-          const channel = targetSession.createChannel({ type: 'forward', host: host, port: port });
+          if (!session) return reject(new Error(`direct_remote failed: targetSession not found`));
+          const channel = session.createChannel({ type: 'forward', host: host, port: port });
           let resolved = false;
           channel.once('error', (err) => {
             if (!resolved) { resolved = true; reject(err); }
@@ -558,7 +580,7 @@ class ProxyServer {
       const globalConfig = configManager.getConfig();
       
       if (action.startsWith('chain:')) {
-        const chainId = parseAction(action).id;
+        const chainId = action.substring(6);
         const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
         if (chain && chain.nodes) {
           for (const ref of chain.nodes) {
@@ -569,7 +591,7 @@ class ProxyServer {
           path.push(`链:${chainId}`);
         }
       } else if (action.startsWith('node:')) {
-        const nodeId = parseAction(action).id;
+        const nodeId = action.substring(5);
         const node = globalConfig.proxyNodes?.find(n => n.id === nodeId);
         path.push(node ? (node.displayName || node.name || node.host) : nodeId);
       } else if (action === 'proxy_chain') {
@@ -621,20 +643,33 @@ class ProxyServer {
     let finalSocket = null;
     const startTime = Date.now();
 
-    for (const action of actions) {
+    for (const item of actionItems) {
+      // 每项动作按自己的网络模式解析 session
+      let itemSession = null;
+      let itemClientId = resolvedClientId;
+      if (item.networkMode === 'remote') {
+        const s = resolveSession(item.networkMode, item.targetClientId);
+        itemSession = s.session;
+        itemClientId = s.clientId;
+        if (successfulAction === null) {
+          // 首次 remote 项,记录其 clientId 用于日志
+          resolvedClientId = itemClientId;
+        }
+      }
       try {
-        finalSocket = await tryAction(action);
-        successfulAction = action;
+        finalSocket = await tryAction(item.action, item.networkMode === 'remote', itemSession);
+        successfulAction = item.action;
+        resolvedClientId = itemClientId;
         break;
       } catch (err) {
-        getLogger().warn(`[Proxy] Action ${action} to ${host}:${port} failed: ${err.message}. Trying next...`);
+        getLogger().warn(`[Proxy] Action ${item.action} to ${host}:${port} failed: ${err.message}. Trying next...`);
       }
     }
 
     if (!finalSocket) {
       getLogger().error(`[Proxy] All actions failed for ${host}:${port}`);
       socket.destroy();
-      
+
       // Log connection failure
       trafficLogger.addLog({
         module: getModuleName(proxyConfig.listenPort),
@@ -653,7 +688,7 @@ class ProxyServer {
     }
 
     getLogger().info(`[Proxy] Routing ${host}:${port} via ${successfulAction} (Rule: ${rulePattern})`);
-    
+
     // Add early log entry
     const logEntry = trafficLogger.addLog({
       module: getModuleName(proxyConfig.listenPort),

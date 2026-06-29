@@ -7,6 +7,21 @@
           <span class="font-bold text-lg bt-text">{{ t('chains.headerTitle') }}</span>
         </div>
         <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2 px-2 py-1 rounded" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
+            <span class="text-xs font-bold bt-text-secondary whitespace-nowrap">{{ t('rules.networkMode') }}</span>
+            <el-select v-model="testNetworkMode" size="small" style="width: 100px;" @change="(val) => { if (val !== 'remote') testTargetClientId = ''; }">
+              <el-option :label="t('rules.networkLocal')" value="local" />
+              <el-option :label="t('rules.networkRemote')" value="remote" />
+            </el-select>
+            <el-select v-if="testNetworkMode === 'remote'" v-model="testTargetClientId" size="small" style="width: 150px;" filterable :placeholder="props.config.mode === 'server' ? t('proxies.targetClientIdPlaceholder') : t('proxies.carrierServerPlaceholder')">
+              <template v-if="props.config.mode === 'server'">
+                <el-option v-for="c in (props.config.server?.knownClients || [])" :key="c.id" :label="`${c.id}${c.online ? ' (' + t('proxies.clientOnline') + ')' : ''}`" :value="c.id" />
+              </template>
+              <template v-else>
+                <el-option v-for="c in (props.config.client?.connections || [])" :key="c.id" :label="c.alias" :value="c.id" />
+              </template>
+            </el-select>
+          </div>
           <div class="flex items-center gap-2">
             <el-input v-model="testTargetLatency" :placeholder="t('chains.testLatencyTarget')" class="w-48" size="small" />
             <el-button type="warning" plain :icon="Connection" size="small" @click="testAllLatency">{{ testingAllLatency ? t('common.cancel') : t('chains.testAllLatency') }}</el-button>
@@ -182,6 +197,9 @@ const testingAllSpeed = ref(false);
 const selectedNodeToAdd = ref('');
 const testTargetLatency = ref('www.bing.com:443');
 const testTargetSpeed = ref('speed.cloudflare.com:443');
+// 测速/测延迟公共网络出口
+const testNetworkMode = ref('local');
+const testTargetClientId = ref('');
 
 const getLatencyColor = (latency) => {
   if (!latency) return 'text-gray-400';
@@ -250,7 +268,7 @@ const testChain = async (chainId, silent = false) => {
     const res = await fetch('/api/test-latency', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'chain', id: chainId, targetHost, targetPort }),
+      body: JSON.stringify({ type: 'chain', id: chainId, targetHost, targetPort, networkMode: testNetworkMode.value, targetClientId: testTargetClientId.value }),
       signal: controller.signal
     });
     const data = await res.json();
@@ -294,7 +312,7 @@ const testSpeedChain = async (chainId, silent = false) => {
     const res = await fetch('/api/test-speed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'chain', id: chainId, targetHost, targetPort }),
+      body: JSON.stringify({ type: 'chain', id: chainId, targetHost, targetPort, networkMode: testNetworkMode.value, targetClientId: testTargetClientId.value }),
       signal: controller.signal
     });
     const data = await res.json();

@@ -750,7 +750,23 @@ function createWebServer(statusCallback) {
         const targetHost = req.body.targetHost || '8.8.8.8';
         const targetPort = parseInt(req.body.targetPort) || 443;
 
-        ProxyDialer.dialChain(nodesToDial, targetHost, targetPort, false, null, (err, socket) => {
+        // 解析测速网络出口:remote 时通过对端隧道转发到第一个节点
+        let useRemote = false;
+        let session = null;
+        if (req.body.networkMode === 'remote') {
+            const cfg = configManager.getConfig();
+            const targetClientId = req.body.targetClientId;
+            if (cfg.mode === 'server') {
+                const tunnelServer = require('../core/tunnelServer');
+                session = tunnelServer.sessions && (tunnelServer.sessions.get(targetClientId) || (tunnelServer.sessions.size === 1 ? tunnelServer.sessions.values().next().value : null));
+            } else if (cfg.mode === 'client') {
+                const tunnelClient = require('../core/tunnelClient');
+                session = tunnelClient.getSession(targetClientId);
+            }
+            if (session) useRemote = true;
+        }
+
+        ProxyDialer.dialChain(nodesToDial, targetHost, targetPort, useRemote, session, (err, socket) => {
             if (err) {
                 return res.json({ success: false, message: err.message, latency: 0 });
             }
@@ -1187,7 +1203,23 @@ function createWebServer(statusCallback) {
         const DOWNLOAD_BYTES = 5 * 1024 * 1024;
         const SPEED_TEST_TIMEOUT_MS = 15000;
 
-        ProxyDialer.dialChain(nodesToDial, tHost, tPort, false, null, (err, socket) => {
+        // 解析测速网络出口:remote 时通过对端隧道转发到第一个节点
+        let useRemote = false;
+        let session = null;
+        if (req.body.networkMode === 'remote') {
+            const cfg = configManager.getConfig();
+            const targetClientId = req.body.targetClientId;
+            if (cfg.mode === 'server') {
+                const tunnelServer = require('../core/tunnelServer');
+                session = tunnelServer.sessions && (tunnelServer.sessions.get(targetClientId) || (tunnelServer.sessions.size === 1 ? tunnelServer.sessions.values().next().value : null));
+            } else if (cfg.mode === 'client') {
+                const tunnelClient = require('../core/tunnelClient');
+                session = tunnelClient.getSession(targetClientId);
+            }
+            if (session) useRemote = true;
+        }
+
+        ProxyDialer.dialChain(nodesToDial, tHost, tPort, useRemote, session, (err, socket) => {
             if (err) {
                 return res.json({ success: false, message: err.message });
             }

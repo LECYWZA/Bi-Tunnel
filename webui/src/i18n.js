@@ -146,6 +146,7 @@ export const messages = {
       targetClientId: '目标客户端 ID',
       targetClientIdTooltip: '指定该代理出网时应通过哪个客户端的网络。',
       targetClientIdPlaceholder: '目标客户端 ID',
+      clientOnline: '在线',
       carrierServer: '承载服务端',
       carrierServerTooltip: '指定该代理出网时应通过哪条服务端隧道。',
       carrierServerPlaceholder: '请选择承载服务端',
@@ -580,7 +581,8 @@ export const messages = {
       chainLabel: '代理链 #{id}',
       nodeLabel: '节点 #{id}',
       networkLocal: '本地网络',
-      networkRemote: '远端网络'
+      networkRemote: '远端网络',
+      networkMode: '网络出口'
     },
     router: {
       title: '路由系统',
@@ -901,6 +903,7 @@ export const messages = {
       targetClientId: 'Target Client ID',
       targetClientIdTooltip: 'Specifies which client\'s network should be used for this proxy\'s egress.',
       targetClientIdPlaceholder: 'Target Client ID',
+      clientOnline: 'Online',
       carrierServer: 'Carrier Server',
       carrierServerTooltip: 'Specifies which server tunnel should be used for this proxy\'s egress.',
       carrierServerPlaceholder: 'Select carrier server',
@@ -1334,7 +1337,8 @@ export const messages = {
       chainLabel: 'Chain #{id}',
       nodeLabel: 'Node #{id}',
       networkLocal: 'Local Network',
-      networkRemote: 'Remote Network'
+      networkRemote: 'Remote Network',
+      networkMode: 'Egress Network'
     },
     router: {
       title: 'Router System',

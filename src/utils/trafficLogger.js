@@ -91,12 +91,7 @@ class TrafficLogger extends EventEmitter {
     }
 
     if (action.startsWith('chain:')) {
-      // 兼容网络模式后缀 chain:<id>@<local|remote>
-      let chainId = action.substring(6);
-      const atIdx = chainId.lastIndexOf('@');
-      if (atIdx > 0 && (chainId.substring(atIdx + 1) === 'local' || chainId.substring(atIdx + 1) === 'remote')) {
-        chainId = chainId.substring(0, atIdx);
-      }
+      const chainId = action.substring(6);
       if (globalConfig) {
         const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
         if (chain && chain.nodes) {
@@ -111,12 +106,7 @@ class TrafficLogger extends EventEmitter {
         pathArr.push(`链:${chainId}`);
       }
     } else if (action.startsWith('node:')) {
-      // 兼容网络模式后缀 node:<id>@<local|remote>
-      let nodeId = action.substring(5);
-      const atIdx = nodeId.lastIndexOf('@');
-      if (atIdx > 0 && (nodeId.substring(atIdx + 1) === 'local' || nodeId.substring(atIdx + 1) === 'remote')) {
-        nodeId = nodeId.substring(0, atIdx);
-      }
+      const nodeId = action.substring(5);
       if (globalConfig) {
         const node = globalConfig.proxyNodes?.find(n => n.id === nodeId);
         pathArr.push(node ? (node.displayName || node.name || node.host) : nodeId);

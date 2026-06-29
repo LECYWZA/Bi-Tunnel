@@ -186,7 +186,7 @@ function migrateProxyRulesToCards(px, loaded) {
       if (rule.action && !Array.isArray(rule.action)) {
         rule.action = [rule.action];
       }
-      
+
       // Migrate pattern to a shared rule card
       if (rule.pattern && !rule.ruleCardId && !rule.ruleCardIds) {
         const cardId = 'rule_card_' + Math.random().toString(36).substr(2, 9);
@@ -203,10 +203,31 @@ function migrateProxyRulesToCards(px, loaded) {
         rule.ruleCardIds = [rule.ruleCardId];
         delete rule.ruleCardId;
       }
+
+      // 规则级网络模式:未设置则默认 'local'
+      if (!rule.networkMode) rule.networkMode = 'local';
+      if (!rule.targetClientId) rule.targetClientId = '';
     });
   }
   if (px.defaultRuleAction && !Array.isArray(px.defaultRuleAction)) {
     px.defaultRuleAction = [px.defaultRuleAction];
+  }
+  // 默认动作升级为对象数组,支持每项单独配置网络模式与目标服务
+  // 旧格式: defaultRuleAction: ['chain:xxx', 'direct_local']
+  // 新格式: defaultRuleActions: [{ action: 'chain:xxx', networkMode: 'local', targetClientId: '' }, ...]
+  if (Array.isArray(px.defaultRuleAction) && !px.defaultRuleActions) {
+    px.defaultRuleActions = px.defaultRuleAction.map(act => ({
+      action: act,
+      networkMode: 'local',
+      targetClientId: ''
+    }));
+    delete px.defaultRuleAction;
+  } else if (px.defaultRuleActions) {
+    // 确保每个对象字段完整
+    px.defaultRuleActions.forEach(item => {
+      if (!item.networkMode) item.networkMode = 'local';
+      if (!item.targetClientId) item.targetClientId = '';
+    });
   }
 }
 

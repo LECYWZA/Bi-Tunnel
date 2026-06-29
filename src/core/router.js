@@ -6,12 +6,12 @@ class Router {
   /**
    * Evaluates routing rules to determine the action for a given host
    * @param {string} host Target hostname or IP
-   * @param {Array} rules Array of rules: { pattern: string, action: 'direct'|'proxy'|'block' }
+   * @param {Array} rules Array of rules: { pattern: string, action, networkMode?, targetClientId? }
    * @param {string} defaultAction Action if no rules match
-   * @returns {Promise<{action: string, rulePattern: string}>} result
+   * @returns {Promise<{action: string, rulePattern: string, matchedRule: object|null}>} result
    */
   static async evaluate(host, rules, defaultAction = 'proxy') {
-    if (!rules || !Array.isArray(rules)) return { action: defaultAction, rulePattern: '默认策略 (无规则)' };
+    if (!rules || !Array.isArray(rules)) return { action: defaultAction, rulePattern: '默认策略 (无规则)', matchedRule: null };
 
     let resolvedIp = null;
     let ipResolved = false;
@@ -37,34 +37,34 @@ class Router {
       let patterns = rule.pattern;
       if (!patterns) continue;
       if (!Array.isArray(patterns)) patterns = [patterns];
-      
+
       for (const p of patterns) {
         const pattern = (p || '').trim().toLowerCase();
-        
+
         if (pattern.startsWith('geoip:')) {
           await resolveIpIfNeeded();
           if (resolvedIp) {
             const expectedCountry = pattern.substring(6).toUpperCase();
             const invert = expectedCountry.startsWith('!');
             const countryCode = invert ? expectedCountry.substring(1) : expectedCountry;
-            
+
             const geo = geoip.lookup(resolvedIp);
             const actualCountry = geo ? geo.country : null;
-            
+
             if (invert) {
-              if (actualCountry !== countryCode) return { action: rule.action, rulePattern: pattern };
+              if (actualCountry !== countryCode) return { action: rule.action, rulePattern: pattern, matchedRule: rule };
             } else {
-              if (actualCountry === countryCode) return { action: rule.action, rulePattern: pattern };
+              if (actualCountry === countryCode) return { action: rule.action, rulePattern: pattern, matchedRule: rule };
             }
           }
         } else {
           if (this.match(host, pattern)) {
-            return { action: rule.action, rulePattern: pattern };
+            return { action: rule.action, rulePattern: pattern, matchedRule: rule };
           }
         }
       }
     }
-    return { action: defaultAction, rulePattern: '未匹配任何规则 (兜底)' };
+    return { action: defaultAction, rulePattern: '未匹配任何规则 (兜底)', matchedRule: null };
   }
 
   /**
