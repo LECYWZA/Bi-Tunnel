@@ -264,10 +264,16 @@
                         <el-option :label="t('rules.actionBlock')" value="block" :disabled="rule.action?.includes('block')" />
                       </el-option-group>
                       <el-option-group :label="t('chains.title')" v-if="config.proxyChains && config.proxyChains.length">
-                        <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="chain.name" :value="`chain:${chain.id}`" :disabled="rule.action?.includes(`chain:${chain.id}`)" />
+                        <template v-for="chain in config.proxyChains" :key="chain.id">
+                          <el-option :label="`${chain.name} (${t('rules.networkLocal')})`" :value="`chain:${chain.id}@local`" :disabled="rule.action?.includes(`chain:${chain.id}@local`)" />
+                          <el-option :label="`${chain.name} (${t('rules.networkRemote')})`" :value="`chain:${chain.id}@remote`" :disabled="rule.action?.includes(`chain:${chain.id}@remote`)" />
+                        </template>
                       </el-option-group>
                       <el-option-group :label="t('nodes.title')" v-if="config.proxyNodes && config.proxyNodes.length">
-                        <el-option v-for="node in config.proxyNodes" :key="node.id" :label="node.displayName" :value="`node:${node.id}`" :disabled="rule.action?.includes(`node:${node.id}`)" />
+                        <template v-for="node in config.proxyNodes" :key="node.id">
+                          <el-option :label="`${node.displayName} (${t('rules.networkLocal')})`" :value="`node:${node.id}@local`" :disabled="rule.action?.includes(`node:${node.id}@local`)" />
+                          <el-option :label="`${node.displayName} (${t('rules.networkRemote')})`" :value="`node:${node.id}@remote`" :disabled="rule.action?.includes(`node:${node.id}@remote`)" />
+                        </template>
                       </el-option-group>
                     </el-select>
                   </div>
@@ -317,10 +323,16 @@
                 <el-option :label="t('rules.actionBlock')" value="block" :disabled="currentProxy.defaultRuleAction?.includes('block')" />
               </el-option-group>
               <el-option-group :label="t('chains.title')" v-if="config.proxyChains && config.proxyChains.length">
-                <el-option v-for="chain in config.proxyChains" :key="chain.id" :label="chain.name" :value="`chain:${chain.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}`)" />
+                <template v-for="chain in config.proxyChains" :key="chain.id">
+                  <el-option :label="`${chain.name} (${t('rules.networkLocal')})`" :value="`chain:${chain.id}@local`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}@local`)" />
+                  <el-option :label="`${chain.name} (${t('rules.networkRemote')})`" :value="`chain:${chain.id}@remote`" :disabled="currentProxy.defaultRuleAction?.includes(`chain:${chain.id}@remote`)" />
+                </template>
               </el-option-group>
               <el-option-group :label="t('nodes.title')" v-if="config.proxyNodes && config.proxyNodes.length">
-                <el-option v-for="node in config.proxyNodes" :key="node.id" :label="node.displayName" :value="`node:${node.id}`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}`)" />
+                <template v-for="node in config.proxyNodes" :key="node.id">
+                  <el-option :label="`${node.displayName} (${t('rules.networkLocal')})`" :value="`node:${node.id}@local`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}@local`)" />
+                  <el-option :label="`${node.displayName} (${t('rules.networkRemote')})`" :value="`node:${node.id}@remote`" :disabled="currentProxy.defaultRuleAction?.includes(`node:${node.id}@remote`)" />
+                </template>
               </el-option-group>
             </el-select>
           </div>
@@ -617,14 +629,28 @@ const getActionName = (act) => {
   if (act === 'direct_remote') return t('rules.actionDirectRemote');
   if (act === 'block') return t('rules.actionBlock');
   if (act.startsWith('chain:')) {
-    const chainId = act.substring(6);
-    const chain = (props.config.proxyChains || []).find(c => c.id === chainId);
-    return chain ? chain.name : t('rules.chainLabel', { id: chainId });
+    let rest = act.substring(6);
+    let networkMode = null;
+    const atIdx = rest.lastIndexOf('@');
+    if (atIdx > 0 && (rest.substring(atIdx + 1) === 'local' || rest.substring(atIdx + 1) === 'remote')) {
+      networkMode = rest.substring(atIdx + 1);
+      rest = rest.substring(0, atIdx);
+    }
+    const chain = (props.config.proxyChains || []).find(c => c.id === rest);
+    const name = chain ? chain.name : t('rules.chainLabel', { id: rest });
+    return networkMode ? `${name} (${networkMode === 'local' ? t('rules.networkLocal') : t('rules.networkRemote')})` : name;
   }
   if (act.startsWith('node:')) {
-    const nodeId = act.substring(5);
-    const node = (props.config.proxyNodes || []).find(n => n.id === nodeId);
-    return node ? node.displayName : t('rules.nodeLabel', { id: nodeId });
+    let rest = act.substring(5);
+    let networkMode = null;
+    const atIdx = rest.lastIndexOf('@');
+    if (atIdx > 0 && (rest.substring(atIdx + 1) === 'local' || rest.substring(atIdx + 1) === 'remote')) {
+      networkMode = rest.substring(atIdx + 1);
+      rest = rest.substring(0, atIdx);
+    }
+    const node = (props.config.proxyNodes || []).find(n => n.id === rest);
+    const name = node ? node.displayName : t('rules.nodeLabel', { id: rest });
+    return networkMode ? `${name} (${networkMode === 'local' ? t('rules.networkLocal') : t('rules.networkRemote')})` : name;
   }
   return act;
 };

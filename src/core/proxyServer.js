@@ -7,6 +7,27 @@ const Router = require('./router');
 const ProxyDialer = require('./proxyDialer');
 const trafficLogger = require('../utils/trafficLogger');
 
+/**
+ * 解析动作字符串，支持网络模式后缀: chain:<id>@<local|remote> / node:<id>@<local|remote>
+ * 不带 @ 后缀的旧值向后兼容，networkMode 返回 null (由调用方回退到代理级配置)
+ * @returns {{type:string, id:string|null, networkMode:'local'|'remote'|null}}
+ */
+function parseAction(action) {
+  let core = action;
+  let networkMode = null;
+  const atIdx = action.lastIndexOf('@');
+  if (atIdx > 0) {
+    const suffix = action.substring(atIdx + 1);
+    if (suffix === 'local' || suffix === 'remote') {
+      networkMode = suffix;
+      core = action.substring(0, atIdx);
+    }
+  }
+  if (core.startsWith('chain:')) return { type: 'chain', id: core.substring(6), networkMode };
+  if (core.startsWith('node:')) return { type: 'node', id: core.substring(5), networkMode };
+  return { type: core, id: null, networkMode };
+}
+
 // A simple parser to sniff protocol
 class ProxyServer {
   constructor(mode) {
@@ -483,7 +504,9 @@ class ProxyServer {
             resolve(finalSocket);
           });
         } else if (action.startsWith('chain:')) {
-          const chainId = action.substring(6);
+          const parsed = parseAction(action);
+          const chainId = parsed.id;
+          const useRemote = parsed.networkMode === 'remote' ? true : parsed.networkMode === 'local' ? false : proxyConfig.useRemoteNetwork;
           const globalConfig = configManager.getConfig();
           const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
           if (!chain || !chain.nodes || chain.nodes.length === 0) return reject(new Error(`Proxy chain ${chainId} not found or empty`));
@@ -491,17 +514,19 @@ class ProxyServer {
           const resolvedNodes = chain.nodes.map(ref => globalConfig.proxyNodes?.find(n => n.id === ref)).filter(Boolean);
           if (resolvedNodes.length === 0) return reject(new Error(`Proxy chain ${chainId} has no valid resolved nodes`));
           
-          ProxyDialer.dialChain(resolvedNodes, host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
+          ProxyDialer.dialChain(resolvedNodes, host, port, useRemote, targetSession, (err, finalSocket) => {
             if (err) return reject(err);
             resolve(finalSocket);
           });
         } else if (action.startsWith('node:')) {
-          const nodeId = action.substring(5);
+          const parsed = parseAction(action);
+          const nodeId = parsed.id;
+          const useRemote = parsed.networkMode === 'remote' ? true : parsed.networkMode === 'local' ? false : proxyConfig.useRemoteNetwork;
           const globalConfig = configManager.getConfig();
           const node = globalConfig.proxyNodes?.find(n => n.id === nodeId);
           if (!node) return reject(new Error(`Proxy node ${nodeId} not found`));
           
-          ProxyDialer.dialChain([node], host, port, proxyConfig.useRemoteNetwork, targetSession, (err, finalSocket) => {
+          ProxyDialer.dialChain([node], host, port, useRemote, targetSession, (err, finalSocket) => {
             if (err) return reject(err);
             resolve(finalSocket);
           });
@@ -533,7 +558,7 @@ class ProxyServer {
       const globalConfig = configManager.getConfig();
       
       if (action.startsWith('chain:')) {
-        const chainId = action.substring(6);
+        const chainId = parseAction(action).id;
         const chain = globalConfig.proxyChains?.find(c => c.id === chainId);
         if (chain && chain.nodes) {
           for (const ref of chain.nodes) {
@@ -544,7 +569,7 @@ class ProxyServer {
           path.push(`链:${chainId}`);
         }
       } else if (action.startsWith('node:')) {
-        const nodeId = action.substring(5);
+        const nodeId = parseAction(action).id;
         const node = globalConfig.proxyNodes?.find(n => n.id === nodeId);
         path.push(node ? (node.displayName || node.name || node.host) : nodeId);
       } else if (action === 'proxy_chain') {

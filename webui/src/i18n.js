@@ -578,7 +578,9 @@ export const messages = {
       actionDirectRemote: '直连 (远端隧道)',
       actionBlock: '拒绝连接',
       chainLabel: '代理链 #{id}',
-      nodeLabel: '节点 #{id}'
+      nodeLabel: '节点 #{id}',
+      networkLocal: '本地网络',
+      networkRemote: '远端网络'
     },
     router: {
       title: '路由系统',
@@ -1330,7 +1332,9 @@ export const messages = {
       actionDirectRemote: 'Direct (Remote Tunnel)',
       actionBlock: 'Block Connection',
       chainLabel: 'Chain #{id}',
-      nodeLabel: 'Node #{id}'
+      nodeLabel: 'Node #{id}',
+      networkLocal: 'Local Network',
+      networkRemote: 'Remote Network'
     },
     router: {
       title: 'Router System',
