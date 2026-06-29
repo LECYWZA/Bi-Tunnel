@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "bin": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "npm run build:webui && node src/index.js",
     "build:css": "npx tailwindcss -i ./src/web/public/input.css -o ./src/web/public/tailwind.css --minify",
     "build:webui": "cd webui && npm run build",
     "build:app": "npx pkg . --out-path dist",
