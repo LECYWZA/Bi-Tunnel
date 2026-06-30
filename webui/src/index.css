@@ -69,6 +69,18 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.bt-app-shell {
+  min-width: 1024px;
+}
+
+.bt-main {
+  max-width: min(1760px, calc(100vw - 48px));
+}
+
+.bt-main-logs {
+  max-width: min(2200px, calc(100vw - 48px));
+}
+
 /* ===== Element Plus Dark Mode Overrides ===== */
 html.dark {
   /* Core colors */
@@ -151,6 +163,7 @@ html.dark {
   top: 0;
   z-index: 100;
   transition: background 0.3s ease;
+  min-height: 64px;
 }
 
 .bt-header::after {
@@ -188,6 +201,7 @@ html.dark {
   background: transparent !important;
   height: 60px;
   flex-wrap: nowrap;
+  max-width: 100%;
 }
 .bt-nav-header .el-menu-item {
   height: 60px !important;
@@ -197,6 +211,7 @@ html.dark {
   border-bottom: 2px solid transparent !important;
   transition: color 0.3s !important;
   padding: 0 14px !important;
+  white-space: nowrap;
 }
 .bt-nav-header .el-menu-item.is-active {
   color: var(--bt-primary) !important;
@@ -230,7 +245,7 @@ html.dark {
   }
 }
 .bt-active-proxy-select {
-  width: 200px;
+  width: clamp(150px, 12vw, 240px);
   margin-left: 10px;
 }
 
@@ -279,6 +294,48 @@ html.dark {
 
 .bt-card .el-card__body {
   padding: 20px !important;
+}
+
+.bt-main .grid.xl\:grid-cols-3 {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+}
+
+.bt-main .grid.xl\:grid-cols-2 {
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+}
+
+@media (min-width: 1920px) {
+  .bt-main .grid.xl\:grid-cols-3 {
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  }
+}
+
+@media (min-width: 2560px) {
+  .bt-main {
+    max-width: min(2360px, calc(100vw - 72px));
+  }
+
+  .bt-main-logs {
+    max-width: min(3000px, calc(100vw - 72px));
+  }
+
+  .bt-main .grid.xl\:grid-cols-3 {
+    grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+  }
+}
+
+@media (max-width: 1280px) {
+  .bt-header {
+    align-items: flex-start !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+
+  .bt-main {
+    max-width: calc(100vw - 32px);
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
 }
 
 /* Status badge */

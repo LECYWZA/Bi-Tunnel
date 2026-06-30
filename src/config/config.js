@@ -54,7 +54,25 @@ const DEFAULT_CONFIG = {
   }
 };
 
-let currentConfig = { ...DEFAULT_CONFIG };
+function mergeDefaults(defaultValue, loadedValue) {
+  if (Array.isArray(defaultValue)) {
+    return Array.isArray(loadedValue) ? loadedValue : [...defaultValue];
+  }
+  if (defaultValue && typeof defaultValue === 'object') {
+    const result = { ...defaultValue };
+    if (loadedValue && typeof loadedValue === 'object' && !Array.isArray(loadedValue)) {
+      for (const key of Object.keys(loadedValue)) {
+        result[key] = key in defaultValue
+          ? mergeDefaults(defaultValue[key], loadedValue[key])
+          : loadedValue[key];
+      }
+    }
+    return result;
+  }
+  return loadedValue === undefined ? defaultValue : loadedValue;
+}
+
+let currentConfig = mergeDefaults(DEFAULT_CONFIG, {});
 
 function loadConfig() {
   try {
@@ -115,7 +133,7 @@ function loadConfig() {
         loaded.client.proxies.forEach(px => migrateProxyRulesToCards(px, loaded));
       }
 
-      currentConfig = { ...DEFAULT_CONFIG, ...loaded };
+      currentConfig = mergeDefaults(DEFAULT_CONFIG, loaded);
       // Delete old flat properties if present
       delete currentConfig.tunnelPort;
       delete currentConfig.bindHost;
@@ -134,7 +152,7 @@ function loadConfig() {
 function saveConfig(newConfig) {
   try {
     if (newConfig) {
-      currentConfig = { ...currentConfig, ...newConfig };
+      currentConfig = mergeDefaults(currentConfig, newConfig);
     }
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(currentConfig, null, 2), 'utf8');
   } catch (err) {

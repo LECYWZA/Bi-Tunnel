@@ -1,7 +1,7 @@
 <template>
   <div>
     <el-row :gutter="24">
-      <el-col :span="12">
+      <el-col :xs="24" :xl="12">
         <ForwardSection
           mode="server"
           :title="t('forward.serverConfigTitle')"
@@ -13,7 +13,7 @@
           @save="$emit('save')"
         />
       </el-col>
-      <el-col :span="12">
+      <el-col :xs="24" :xl="12">
         <ForwardSection
           mode="client"
           :title="t('forward.clientConfigTitle')"

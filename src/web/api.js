@@ -22,6 +22,24 @@ let getStatus = () => ({});
 
 let currentAuthToken = '';
 
+function getCookieValue(cookieHeader, name) {
+    const cookies = cookieHeader || '';
+    return cookies.split(';')
+        .map(part => part.trim())
+        .find(row => row.startsWith(`${name}=`))
+        ?.slice(name.length + 1);
+}
+
+function isAllowedCorsOrigin(origin) {
+    if (!origin) return true;
+    try {
+        const { hostname } = new URL(origin);
+        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    } catch (e) {
+        return false;
+    }
+}
+
 function createWebServer(statusCallback) {
     const config = configManager.getConfig();
     if (!config.secretToken) {
@@ -33,7 +51,12 @@ function createWebServer(statusCallback) {
     getStatus = statusCallback || (() => ({}));
     const app = express();
 
-    app.use(cors());
+    app.use(cors({
+        origin(origin, callback) {
+            callback(null, isAllowedCorsOrigin(origin));
+        },
+        credentials: true
+    }));
     app.use(express.json({ limit: '10mb' }));
     app.use(express.static(path.join(__dirname, 'public')));
 
@@ -43,8 +66,7 @@ function createWebServer(statusCallback) {
             return next();
         }
 
-        const cookies = req.headers.cookie || '';
-        const token = cookies.split('; ').find(row => row.startsWith('bt_token='))?.split('=')[1];
+        const token = getCookieValue(req.headers.cookie, 'bt_token');
 
         if (token && token === currentAuthToken) {
             return next();
@@ -1412,7 +1434,13 @@ function createWebServer(statusCallback) {
     trafficLogger.on('new_log', broadcastTrafficLog);
     app.locals.broadcastTrafficLog = broadcastTrafficLog;
 
-    const handleWsConnection = (ws) => {
+    const handleWsConnection = (ws, req) => {
+        const token = getCookieValue(req.headers.cookie, 'bt_token');
+        if (!token || token !== currentAuthToken) {
+            ws.close(1008, 'Unauthorized');
+            return;
+        }
+
         broadcastClientsUpdate();
         broadcastConnectionsUpdate();
 

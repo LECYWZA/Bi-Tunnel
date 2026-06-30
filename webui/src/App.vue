@@ -6,7 +6,7 @@
   <div v-else-if="!isLoggedIn">
     <Login v-model:isDark="isDark" @login-success="onLoginSuccess" />
   </div>
-  <div v-else class="min-h-screen" :style="{ background: 'var(--bt-bg)' }">
+  <div v-else class="bt-app-shell min-h-screen" :style="{ background: 'var(--bt-bg)' }">
     <!-- Header -->
     <header class="bt-header px-6 py-0 flex items-center justify-between flex-wrap gap-y-2 sticky top-0 z-50">
       <div class="flex items-center gap-5 flex-1 min-w-0">
@@ -278,7 +278,7 @@
     </el-dialog>
 
     <!-- Main content -->
-    <main class="mx-auto w-full px-6 py-5" :style="{ maxWidth: $route.path === '/logs' ? '80%' : '1440px' }">
+    <main class="bt-main mx-auto w-full px-6 py-5" :class="{ 'bt-main-logs': $route.path === '/logs' }">
 
       <!-- Router View -->
       <router-view v-slot="slotProps">
@@ -318,6 +318,8 @@ const toggleLocale = () => {
 provide('t', t);
 provide('locale', locale);
 let statusTimer = null;
+let autoSaveTimer = null;
+let stopConfigAutoSaveWatch = null;
 
 const onLoginSuccess = () => {
   isLoggedIn.value = true;
@@ -911,15 +913,16 @@ const fetchConfig = async () => {
     if (!Array.isArray(config.dnsConfig.servers)) config.dnsConfig.servers = [];
     if (config.dnsConfig.includeSystemDns === undefined) config.dnsConfig.includeSystemDns = true;
     
-    // Watch config to show "Unsaved Changes" indicator and auto-save
-    let autoSaveTimer = null;
-    watch(config, () => {
-      hasUnsavedChanges.value = true;
-      if (autoSaveTimer) clearTimeout(autoSaveTimer);
-      autoSaveTimer = setTimeout(() => {
-        saveConfig(true);
-      }, 1000);
-    }, { deep: true });
+    // Watch config once to show "Unsaved Changes" indicator and auto-save.
+    if (!stopConfigAutoSaveWatch) {
+      stopConfigAutoSaveWatch = watch(config, () => {
+        hasUnsavedChanges.value = true;
+        if (autoSaveTimer) clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(() => {
+          saveConfig(true);
+        }, 1000);
+      }, { deep: true });
+    }
     
     setTimeout(() => { hasUnsavedChanges.value = false; }, 100);
   } catch (e) {
@@ -1179,6 +1182,8 @@ const handleSettingCmd = (cmd) => {
 
 onUnmounted(() => {
   if (statusTimer) clearInterval(statusTimer);
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  if (stopConfigAutoSaveWatch) stopConfigAutoSaveWatch();
   if (ws) ws.close();
 });
 </script>

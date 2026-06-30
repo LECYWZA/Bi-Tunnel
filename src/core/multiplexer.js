@@ -6,6 +6,7 @@ const TYPE_CREATE = 2;
 const TYPE_CLOSE = 3;
 const TYPE_AUTH = 4;
 const TYPE_AUTH_RES = 5;
+const MAX_FRAME_SIZE = 16 * 1024 * 1024;
 
 class MuxChannel extends Duplex {
   constructor(session, id, meta) {
@@ -20,8 +21,7 @@ class MuxChannel extends Duplex {
   }
 
   _write(chunk, encoding, callback) {
-    this.session.sendFrame(TYPE_DATA, this.id, chunk);
-    callback();
+    this.session.sendFrame(TYPE_DATA, this.id, chunk, callback);
   }
 
   _final(callback) {
@@ -62,6 +62,12 @@ class MuxSession extends EventEmitter {
       const type = this.buffer.readUInt8(0);
       const id = this.buffer.readUInt32BE(1);
       const len = this.buffer.readUInt32BE(5);
+
+      if (len > MAX_FRAME_SIZE) {
+        this.emit('error', new Error(`Mux frame too large: ${len}`));
+        this.close();
+        return;
+      }
 
       if (this.buffer.length < 9 + len) {
         break; // Not enough data for payload
@@ -117,12 +123,24 @@ class MuxSession extends EventEmitter {
     }
   }
 
-  sendFrame(type, id, payload) {
+  sendFrame(type, id, payload, callback) {
+    if (!payload) payload = Buffer.alloc(0);
+    if (!this.socket || this.socket.destroyed) {
+      if (callback) callback(new Error('Mux socket is closed'));
+      return false;
+    }
+    if (payload.length > MAX_FRAME_SIZE) {
+      const err = new Error(`Mux payload too large: ${payload.length}`);
+      if (callback) callback(err);
+      else this.emit('error', err);
+      return false;
+    }
     const header = Buffer.alloc(9);
     header.writeUInt8(type, 0);
     header.writeUInt32BE(id, 1);
     header.writeUInt32BE(payload.length, 5);
-    this.socket.write(Buffer.concat([header, payload]));
+    const ok = this.socket.write(Buffer.concat([header, payload]), callback);
+    return ok;
   }
 
   createChannel(meta) {
