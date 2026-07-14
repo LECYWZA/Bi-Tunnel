@@ -148,7 +148,7 @@ import { ElMessage } from 'element-plus';
 import { Odometer, User, Lock, VideoPlay, Monitor, Plus, Delete, CopyDocument, CircleClose } from '@element-plus/icons-vue';
 import { t } from '../i18n';
 
-const STORAGE_KEY = 'bi_tunnel_tester_profiles';
+const STORAGE_KEY = 'nb_plus_tester_profiles';
 
 const profiles = ref([]);
 const activeTab = ref('');

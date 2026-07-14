@@ -441,6 +441,6 @@ function _findProxyPort(config, proxyId) {
   return proxy ? proxy.listenPort : null;
 }
 
-const CHAIN_TAG = 'bi-tunnel-router';
+const CHAIN_TAG = 'nb-plus-router';
 
 module.exports = { start, stop, isRunning, getDeviceRegistry };

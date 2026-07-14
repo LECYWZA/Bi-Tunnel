@@ -5,7 +5,7 @@
         <div class="logo-box">
           <el-icon :size="24" color="#fff"><Connection /></el-icon>
         </div>
-        <h2>Bi-Tunnel</h2>
+        <h2>NB-PLUS</h2>
         <p>{{ t('login.subtitle') }}</p>
       </div>
 

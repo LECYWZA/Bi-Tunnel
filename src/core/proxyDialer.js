@@ -8,8 +8,8 @@ class ProxyDialer {
    * @param {Array} nodes Array of proxy configs: { type: 'socks5'|'http', host, port, user, pass }
    * @param {string} targetHost Final destination host
    * @param {number} targetPort Final destination port
-   * @param {boolean} useRemoteNetwork Whether the first hop should go through Bi-Tunnel session
-   * @param {Object} session The Bi-Tunnel session (if useRemoteNetwork is true)
+   * @param {boolean} useRemoteNetwork Whether the first hop should go through NB-PLUS session
+   * @param {Object} session The NB-PLUS session (if useRemoteNetwork is true)
    * @param {Function} callback (err, socket)
    */
   static dialChain(nodes, targetHost, targetPort, useRemoteNetwork, session, callback) {

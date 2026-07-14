@@ -1,7 +1,7 @@
 {
-  "name": "bi-tunnel",
+  "name": "nb-plus",
   "version": "1.0.0",
-  "description": "Bi-directional tunnel and proxy",
+  "description": "NB-PLUS tunnel and proxy",
   "main": "src/index.js",
   "bin": "src/index.js",
   "scripts": {

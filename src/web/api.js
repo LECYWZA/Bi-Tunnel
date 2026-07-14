@@ -93,6 +93,21 @@ function createWebServer(statusCallback) {
         res.json({ success: true });
     });
 
+    app.post('/api/change-password', (req, res) => {
+        const { currentPassword, newPassword } = req.body;
+        const config = configManager.getConfig();
+        const validPass = config.webPassword || 'password';
+        if (currentPassword !== validPass) {
+            return res.status(403).json({ success: false, message: '当前密码错误' });
+        }
+        if (!newPassword || newPassword.length < 4) {
+            return res.status(400).json({ success: false, message: '新密码长度至少 4 位' });
+        }
+        config.webPassword = newPassword;
+        configManager.saveConfig(config);
+        res.json({ success: true, message: '密码已修改，下次登录生效' });
+    });
+
     app.get('/api/config', (req, res) => {
         const config = configManager.getConfig();
         const tunnelServer = require('../core/tunnelServer');
@@ -1019,7 +1034,7 @@ function createWebServer(statusCallback) {
 
                 const client = targetUrl.startsWith('https') ? https : http;
                 try {
-                    const reqOpts = { headers: { 'User-Agent': 'Bi-Tunnel-Client/1.0' } };
+                    const reqOpts = { headers: { 'User-Agent': 'NB-PLUS-Client/1.0' } };
                     client.get(targetUrl, reqOpts, (resp) => {
                         if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
                             let nextUrl = resp.headers.location;
@@ -1174,12 +1189,12 @@ function createWebServer(statusCallback) {
             const cwd = process.cwd();
             let restartScript, runCmd;
             if (os.platform() === 'win32') {
-                restartScript = join(os.tmpdir(), 'bi-tunnel-restart.bat');
+                restartScript = join(os.tmpdir(), 'nb-plus-restart.bat');
                 writeFileSync(restartScript, `@echo off\r\ntimeout /t 3 /nobreak > nul\r\ncd /d "${cwd}"\r\nnpm start\r\n`);
                 // 用 cmd /c start 在新窗口启动，完全脱离当前进程
                 runCmd = `cmd /c start "" "${restartScript}"`;
             } else {
-                restartScript = join(os.tmpdir(), 'bi-tunnel-restart.sh');
+                restartScript = join(os.tmpdir(), 'nb-plus-restart.sh');
                 writeFileSync(restartScript, `#!/bin/bash\nsleep 3\ncd "${cwd}"\nnpm start\n`);
                 require('fs').chmodSync(restartScript, '755');
                 runCmd = `bash "${restartScript}"`;
@@ -1326,11 +1341,11 @@ function createWebServer(statusCallback) {
             const cwd = process.cwd();
             let restartScript, runCmd;
             if (process.platform === 'win32') {
-                restartScript = join(os.tmpdir(), 'bi-tunnel-restart.bat');
+                restartScript = join(os.tmpdir(), 'nb-plus-restart.bat');
                 writeFileSync(restartScript, `@echo off\r\ntimeout /t 3 /nobreak > nul\r\ncd /d "${cwd}"\r\nnpm start\r\n`);
                 runCmd = `cmd /c start "" "${restartScript}"`;
             } else {
-                restartScript = join(os.tmpdir(), 'bi-tunnel-restart.sh');
+                restartScript = join(os.tmpdir(), 'nb-plus-restart.sh');
                 writeFileSync(restartScript, `#!/bin/bash\nsleep 3\ncd "${cwd}"\nnpm start\n`);
                 require('fs').chmodSync(restartScript, '755');
                 runCmd = `bash "${restartScript}"`;

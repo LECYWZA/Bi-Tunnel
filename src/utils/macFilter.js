@@ -22,10 +22,10 @@ function execPromise(cmd) {
  *  - Windows: 原生不支持 MAC 过滤，依赖 DHCP 层拒绝。
  *           本模块提供 noop 实现，调用方需配合 dhcpServer 的 isMacAllowed() 拒绝续约。
  *
- * 所有规则以 "bi-tunnel-router" 作为注释标记，便于清理。
+ * 所有规则以 "nb-plus-router" 作为注释标记，便于清理。
  */
 
-const CHAIN_TAG = 'bi-tunnel-router';
+const CHAIN_TAG = 'nb-plus-router';
 
 async function applyFilter(mode, addresses, iface) {
   // 先清理已有标记

@@ -11,7 +11,7 @@ const { getLogger } = require('./utils/logger');
 
 function init() {
     const logger = getLogger();
-    logger.info('Starting Bi-Tunnel Application...');
+    logger.info('Starting NB-PLUS Application...');
 
     // Download Xray-core in the background
     downloadXray().catch(e => getLogger().error('Xray download error: ' + e.message));

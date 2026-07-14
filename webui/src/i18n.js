@@ -42,8 +42,8 @@ export const messages = {
       tunMode: '虚拟网卡',
       tunModeDesc: '全局 TUN 流量转发',
       applyConfig: '立即应用配置',
-      restartService: '重启 Bi-Tunnel 服务',
-      stopService: '停止整个 Bi-Tunnel 服务',
+      restartService: '重启 NB-PLUS 服务',
+      stopService: '停止整个 NB-PLUS 服务',
       unsavedChanges: '有未保存的更改'
     },
     nav: {
@@ -108,7 +108,7 @@ export const messages = {
       clearSuccess: '日志已清空'
     },
     login: {
-      title: 'Bi-Tunnel 管理面板',
+      title: 'NB-PLUS 管理面板',
       subtitle: '安全的高性能双向穿透控制台',
       usernamePlaceholder: '请输入账号 (默认: admin)',
       passwordPlaceholder: '请输入密码 (默认: password)',
@@ -139,7 +139,7 @@ export const messages = {
       listenIp: '监听 IP',
       listenIpTooltip: '允许哪些设备连接到此代理。0.0.0.0 允许局域网/公网所有设备连接，127.0.0.1 仅允许本机连接。',
       egressNetwork: '出网网络',
-      egressNetworkTooltipRemote: '<b>使用对端网络出网：</b> 您的请求将穿透 Bi-Tunnel 隧道，以远端服务器的身份访问目标网站。<br/>',
+      egressNetworkTooltipRemote: '<b>使用对端网络出网：</b> 您的请求将穿透 NB-PLUS 隧道，以远端服务器的身份访问目标网站。<br/>',
       egressNetworkTooltipLocal: '<b>使用本地网络出网：</b> 不穿透隧道，直接用您当前电脑的网络访问目标网站。',
       useRemoteNetwork: '使用对端网络出网',
       useLocalNetwork: '使用本地网络出网',
@@ -799,8 +799,8 @@ export const messages = {
       tunMode: 'TUN Mode',
       tunModeDesc: 'Global TUN Routing',
       applyConfig: 'Apply Config',
-      restartService: 'Restart Bi-Tunnel Service',
-      stopService: 'Stop Bi-Tunnel Service',
+      restartService: 'Restart NB-PLUS Service',
+      stopService: 'Stop NB-PLUS Service',
       unsavedChanges: 'Unsaved Changes'
     },
     nav: {
@@ -865,7 +865,7 @@ export const messages = {
       clearSuccess: 'Logs cleared'
     },
     login: {
-      title: 'Bi-Tunnel Admin Panel',
+      title: 'NB-PLUS Admin Panel',
       subtitle: 'Secure High-Performance Reverse Proxy Console',
       usernamePlaceholder: 'Enter username (default: admin)',
       passwordPlaceholder: 'Enter password (default: password)',
@@ -896,7 +896,7 @@ export const messages = {
       listenIp: 'Listen IP',
       listenIpTooltip: 'Which devices are allowed to connect to this proxy. 0.0.0.0 allows all LAN/public devices, 127.0.0.1 only allows local connections.',
       egressNetwork: 'Egress Network',
-      egressNetworkTooltipRemote: '<b>Use peer network:</b> Your requests will tunnel through Bi-Tunnel and access target websites with the remote server\'s identity.<br/>',
+      egressNetworkTooltipRemote: '<b>Use peer network:</b> Your requests will tunnel through NB-PLUS and access target websites with the remote server\'s identity.<br/>',
       egressNetworkTooltipLocal: '<b>Use local network:</b> No tunneling, directly access target websites with your local computer\'s network.',
       useRemoteNetwork: 'Use peer network',
       useLocalNetwork: 'Use local network',

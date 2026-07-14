@@ -14,7 +14,7 @@ function execPromise(cmd) {
   });
 }
 
-const CHAIN_TAG = 'bi-tunnel-router';
+const CHAIN_TAG = 'nb-plus-router';
 
 /**
  * 透明代理工具：把路由器网段的流量重定向到指定的混合代理端口（Xray 透明代理入站口）。

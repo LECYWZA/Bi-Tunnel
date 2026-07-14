@@ -15,7 +15,7 @@
           <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: var(--bt-gradient);">
             <el-icon :size="18" color="#fff"><Connection /></el-icon>
           </div>
-          <span class="bt-logo">Bi-Tunnel</span>
+          <span class="bt-logo">NB-PLUS</span>
         </div>
 
         <!-- Xray Status -->
@@ -145,8 +145,10 @@
               <el-dropdown-item command="protocol" :icon="Link">
                 {{ isHttps ? 'HTTP' : 'HTTPS' }}
               </el-dropdown-item>
+              <el-dropdown-item command="password" :icon="Lock" divided>{{ locale === 'zh' ? '修改密码' : 'Change Password' }}</el-dropdown-item>
               <el-dropdown-item command="restart" :icon="RefreshRight">{{ t('header.restartService') }}</el-dropdown-item>
               <el-dropdown-item command="stop" :icon="SwitchButton" divided>{{ t('header.stopService') }}</el-dropdown-item>
+              <el-dropdown-item command="logout" :icon="CircleClose" divided>{{ locale === 'zh' ? '退出登录' : 'Logout' }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -277,6 +279,31 @@
       </template>
     </el-dialog>
 
+    <!-- 修改密码弹窗 -->
+    <el-dialog
+      v-model="passwordDialogVisible"
+      title="修改密码"
+      width="400px"
+      :close-on-click-modal="false"
+      append-to-body
+    >
+      <el-form label-width="100px" label-position="right" @keyup.enter="submitChangePassword">
+        <el-form-item label="当前密码">
+          <el-input v-model="passwordForm.current" type="password" show-password placeholder="输入当前密码" />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="passwordForm.newPass" type="password" show-password placeholder="输入新密码（至少4位）" />
+        </el-form-item>
+        <el-form-item label="确认密码">
+          <el-input v-model="passwordForm.confirm" type="password" show-password placeholder="再次输入新密码" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="passwordLoading" @click="submitChangePassword">确认修改</el-button>
+      </template>
+    </el-dialog>
+
     <!-- Main content -->
     <main class="bt-main mx-auto w-full px-6 py-5" :class="{ 'bt-main-logs': $route.path === '/logs' }">
 
@@ -303,7 +330,7 @@
 import { ref, reactive, onMounted, computed, watch, onUnmounted, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
-import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank, Operation, Share } from '@element-plus/icons-vue';
+import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank, Operation, Share, Lock, CircleClose } from '@element-plus/icons-vue';
 import Login from './components/Login.vue';
 import { t, locale, setLocale } from './i18n';
 
@@ -515,6 +542,51 @@ watch(tunConfigDialogVisible, (v) => {
     tunConfigTemp.mtu = config.tunConfig?.mtu || 1500;
   }
 });
+
+// ============ 修改密码弹窗 ============
+const passwordDialogVisible = ref(false);
+const passwordLoading = ref(false);
+const passwordForm = reactive({
+  current: '',
+  newPass: '',
+  confirm: ''
+});
+
+watch(passwordDialogVisible, (v) => {
+  if (!v) {
+    passwordForm.current = '';
+    passwordForm.newPass = '';
+    passwordForm.confirm = '';
+  }
+});
+
+const submitChangePassword = async () => {
+  if (!passwordForm.current) { ElMessage.error('请输入当前密码'); return; }
+  if (!passwordForm.newPass || passwordForm.newPass.length < 4) { ElMessage.error('新密码至少 4 位'); return; }
+  if (passwordForm.newPass !== passwordForm.confirm) { ElMessage.error('两次输入的新密码不一致'); return; }
+  passwordLoading.value = true;
+  try {
+    const res = await fetch('/api/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        currentPassword: passwordForm.current,
+        newPassword: passwordForm.newPass
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      ElMessage.success(data.message || '密码已修改');
+      passwordDialogVisible.value = false;
+    } else {
+      ElMessage.error(data.message || '修改失败');
+    }
+  } catch (e) {
+    ElMessage.error('请求失败: ' + e.message);
+  } finally {
+    passwordLoading.value = false;
+  }
+};
 
 const applyTunConfig = () => {
   // 简单校验
@@ -1115,7 +1187,7 @@ provide('onForwardError', (fn) => {
 const stopService = async () => {
   try {
     await ElMessageBox.confirm(
-      '确定要停止整个 Bi-Tunnel 服务吗？停止后所有隧道和代理将立即断开。',
+      '确定要停止整个 NB-PLUS 服务吗？停止后所有隧道和代理将立即断开。',
       '停止服务确认',
       {
         confirmButtonText: '确定停止',
@@ -1138,7 +1210,7 @@ const stopService = async () => {
 const restartService = async () => {
   try {
     await ElMessageBox.confirm(
-      '确定要重启 Bi-Tunnel 服务吗？重启过程中所有连接将暂时中断。',
+      '确定要重启 NB-PLUS 服务吗？重启过程中所有连接将暂时中断。',
       '重启服务确认',
       {
         confirmButtonText: '确定重启',
@@ -1172,12 +1244,20 @@ const restartService = async () => {
   }
 };
 
+// 退出登录
+const logout = async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  isLoggedIn.value = false;
+};
+
 // 顶部设置下拉菜单命令分发
 const handleSettingCmd = (cmd) => {
   if (cmd === 'dns') dnsDialogVisible.value = true;
   else if (cmd === 'protocol') toggleProtocol();
+  else if (cmd === 'password') passwordDialogVisible.value = true;
   else if (cmd === 'restart') restartService();
   else if (cmd === 'stop') stopService();
+  else if (cmd === 'logout') logout();
 };
 
 onUnmounted(() => {
