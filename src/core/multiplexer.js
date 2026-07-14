@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { Duplex } = require('stream');
 
@@ -7,6 +8,10 @@ const TYPE_CLOSE = 3;
 const TYPE_AUTH = 4;
 const TYPE_AUTH_RES = 5;
 const MAX_FRAME_SIZE = 16 * 1024 * 1024;
+
+const AES_ALG = 'aes-256-gcm';
+const AES_IV_LEN = 12;
+const AES_TAG_LEN = 16;
 
 class MuxChannel extends Duplex {
   constructor(session, id, meta) {
@@ -41,10 +46,11 @@ class MuxChannel extends Duplex {
 }
 
 class MuxSession extends EventEmitter {
-  constructor(socket, isServer) {
+  constructor(socket, isServer, encryptionKey) {
     super();
     this.socket = socket;
     this.isServer = isServer;
+    this.encryptionKey = encryptionKey || null;
     this.channels = new Map();
     this.nextChannelId = isServer ? 2 : 1; // Server uses even, client uses odd
     this.buffer = Buffer.alloc(0);
@@ -55,6 +61,25 @@ class MuxSession extends EventEmitter {
     this.socket.on('error', (err) => this.emit('error', err));
   }
 
+  _encrypt(plaintext) {
+    if (!this.encryptionKey) return plaintext;
+    const iv = crypto.randomBytes(AES_IV_LEN);
+    const cipher = crypto.createCipheriv(AES_ALG, this.encryptionKey, iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return Buffer.concat([iv, encrypted, tag]);
+  }
+
+  _decrypt(data) {
+    if (!this.encryptionKey) return data;
+    const iv = data.subarray(0, AES_IV_LEN);
+    const tag = data.subarray(data.length - AES_TAG_LEN);
+    const encrypted = data.subarray(AES_IV_LEN, data.length - AES_TAG_LEN);
+    const decipher = crypto.createDecipheriv(AES_ALG, this.encryptionKey, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  }
+
   _onData(data) {
     this.buffer = Buffer.concat([this.buffer, data]);
 
@@ -63,7 +88,7 @@ class MuxSession extends EventEmitter {
       const id = this.buffer.readUInt32BE(1);
       const len = this.buffer.readUInt32BE(5);
 
-      if (len > MAX_FRAME_SIZE) {
+      if (len > MAX_FRAME_SIZE + AES_IV_LEN + AES_TAG_LEN) {
         this.emit('error', new Error(`Mux frame too large: ${len}`));
         this.close();
         return;
@@ -75,7 +100,15 @@ class MuxSession extends EventEmitter {
 
       const payload = this.buffer.slice(9, 9 + len);
       this.buffer = this.buffer.slice(9 + len);
-      this._handleFrame(type, id, payload);
+      let decrypted;
+      try {
+        decrypted = this._decrypt(payload);
+      } catch (e) {
+        this.emit('error', new Error(`Frame decryption failed: ${e.message}`));
+        this.close();
+        return;
+      }
+      this._handleFrame(type, id, decrypted);
     }
   }
 
@@ -135,11 +168,12 @@ class MuxSession extends EventEmitter {
       else this.emit('error', err);
       return false;
     }
+    const encrypted = this._encrypt(payload);
     const header = Buffer.alloc(9);
     header.writeUInt8(type, 0);
     header.writeUInt32BE(id, 1);
-    header.writeUInt32BE(payload.length, 5);
-    const ok = this.socket.write(Buffer.concat([header, payload]), callback);
+    header.writeUInt32BE(encrypted.length, 5);
+    const ok = this.socket.write(Buffer.concat([header, encrypted]), callback);
     return ok;
   }
 

@@ -1,8 +1,13 @@
+const crypto = require('crypto');
 const tls = require('tls');
 const { EventEmitter } = require('events');
 const { MuxSession } = require('./multiplexer');
 const configManager = require('../config/config');
 const { getLogger } = require('../utils/logger');
+
+function deriveKey(password) {
+  return crypto.createHash('sha256').update(password).digest();
+}
 
 class SingleTunnelClient extends EventEmitter {
   constructor(connConfig) {
@@ -40,10 +45,12 @@ class SingleTunnelClient extends EventEmitter {
     this.status = 'connecting';
     
     const socket = tls.connect(clientConfig.tunnelPort, clientConfig.tunnelHost, {
-      rejectUnauthorized: false // We use self-signed certs
+      rejectUnauthorized: false, // We use self-signed certs
+      servername: clientConfig.sni || 'mail.qq.com'
     }, () => {
       getLogger().info(`[TLS] [${clientConfig.alias}] Secure connection established, authenticating...`);
-      const session = new MuxSession(socket, false);
+      const encryptionKey = deriveKey(clientConfig.password);
+      const session = new MuxSession(socket, false, encryptionKey);
       this.session = session;
       
       const authPayload = JSON.stringify({

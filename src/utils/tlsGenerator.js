@@ -6,7 +6,7 @@ const { getLogger } = require('./logger');
 const CERT_PATH = path.join(process.cwd(), 'cert.pem');
 const KEY_PATH = path.join(process.cwd(), 'key.pem');
 
-function generateCertificates() {
+function generateCertificates(cn) {
   const logger = getLogger();
   
   if (fs.existsSync(CERT_PATH) && fs.existsSync(KEY_PATH)) {
@@ -16,47 +16,43 @@ function generateCertificates() {
 
   logger.info('No TLS Certificates found. Generating new 1000-year self-signed certificates...');
   
-  // Generate keypair
+  const commonName = cn || 'mail.qq.com';
+  
   const keys = forge.pki.rsa.generateKeyPair(2048);
   
-  // Create certificate
   const cert = forge.pki.createCertificate();
   cert.publicKey = keys.publicKey;
   cert.serialNumber = '01';
   cert.validity.notBefore = new Date();
   
-  // Valid for 1000 years
   const notAfter = new Date();
   notAfter.setFullYear(notAfter.getFullYear() + 1000);
   cert.validity.notAfter = notAfter;
   
   const attrs = [{
     name: 'commonName',
-    value: 'Bi-Tunnel-Self-Signed'
+    value: commonName
   }, {
     name: 'organizationName',
-    value: 'Bi-Tunnel Secure'
+    value: 'IT Department'
   }];
   cert.setSubject(attrs);
   cert.setIssuer(attrs);
   
-  // Self-sign certificate
   cert.sign(keys.privateKey);
   
-  // Convert to PEM
   const pemCert = forge.pki.certificateToPem(cert);
   const pemKey = forge.pki.privateKeyToPem(keys.privateKey);
   
-  // Save to disk
   fs.writeFileSync(CERT_PATH, pemCert);
   fs.writeFileSync(KEY_PATH, pemKey);
   
   logger.info('Certificates successfully generated and saved.');
 }
 
-function getCertificates() {
+function getCertificates(cn) {
   if (!fs.existsSync(CERT_PATH) || !fs.existsSync(KEY_PATH)) {
-    generateCertificates();
+    generateCertificates(cn);
   }
   return {
     cert: fs.readFileSync(CERT_PATH),

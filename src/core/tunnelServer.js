@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const tls = require('tls');
 const { EventEmitter } = require('events');
 const { MuxSession } = require('./multiplexer');
@@ -17,7 +18,10 @@ class TunnelServer extends EventEmitter {
     return new Promise((resolve, reject) => {
       const config = configManager.getConfig();
       const serverConfig = config.server || {};
-      const certs = getCertificates();
+      const certs = getCertificates(serverConfig.tlsCommonName || 'mail.qq.com');
+      const encryptionKey = serverConfig.password
+        ? crypto.createHash('sha256').update(serverConfig.password).digest()
+        : null;
 
     this.server = tls.createServer({
       key: certs.key,
@@ -25,7 +29,7 @@ class TunnelServer extends EventEmitter {
     }, (socket) => {
       getLogger().info(`[TLS] Client connected from ${socket.remoteAddress}`);
       
-      const session = new MuxSession(socket, true);
+      const session = new MuxSession(socket, true, encryptionKey);
       let sessionClientId = null;
       
       session.on('auth', (authData) => {
