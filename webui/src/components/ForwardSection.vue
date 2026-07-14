@@ -130,7 +130,7 @@
             <span class="text-xs font-bold text-gray-500">{{ t('forward.forwardRule') }} #{{ index + 1 }}</span>
             <div class="flex items-center gap-2">
               <el-switch v-model="fw.enabled" inline-prompt :active-text="t('common.enabled')" :inactive-text="t('forward.stopped')" @change="toggleForward(fw)" />
-              <el-button type="danger" circle plain :icon="Delete" size="small" @click="sectionConfig.forwards.splice(index, 1)" />
+              <el-button type="danger" circle plain :icon="Delete" size="small" @click="removeForward(index)" />
             </div>
           </div>
 
@@ -428,6 +428,7 @@ const addForward = () => {
   let newPort = 8080;
   while (used.has(newPort)) newPort++;
   sectionConfig.value.forwards.push({ listenPort: newPort, targetHost: '127.0.0.1', targetPort: 80, targetClientId: defaultTargetClient, enabled: false });
+  emit('save');
 };
 
 const addClientConnection = () => {
@@ -441,6 +442,11 @@ const addClientConnection = () => {
     enabled: false
   };
   sendWsMessage({ type: 'client_connection_add', connection: newConn });
+};
+
+const removeForward = (index) => {
+  sectionConfig.value.forwards.splice(index, 1);
+  emit('save');
 };
 
 const toggleConnection = (connId, enabled) => {
@@ -460,6 +466,7 @@ const toggleForward = (fw) => {
     }
   }
   sendWsMessage({ type: props.mode + '_forward_toggle', listenPort: fw.listenPort, enabled: fw.enabled });
+  emit('save');
 };
 
 const deleteClientConnection = (index) => {

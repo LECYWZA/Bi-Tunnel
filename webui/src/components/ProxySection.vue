@@ -297,7 +297,15 @@
               <div class="flex items-center gap-2 p-1.5 rounded text-xs flex-wrap" style="background: var(--bt-surface); border: 1px solid var(--bt-border);">
                 <el-icon class="default-action-drag cursor-move bt-text-secondary" :size="14"><Sort /></el-icon>
                 <el-tag size="small" :type="getActionTagType(item.action)" effect="dark">{{ getActionName(item.action) }}</el-tag>
-                <template v-if="actionNeedsNetworkMode(item.action)">
+                <template v-if="item.action === 'direct_remote'">
+                  <el-select v-if="currentProxyMode === 'client'" v-model="item.targetClientId" :placeholder="t('proxies.carrierServerPlaceholder')" size="small" style="width: 140px;" filterable>
+                    <el-option v-for="c in (config.client.connections || [])" :key="c.id" :label="c.alias" :value="c.id" />
+                  </el-select>
+                  <el-select v-else v-model="item.targetClientId" :placeholder="t('proxies.targetClientIdPlaceholder')" size="small" style="width: 140px;" filterable>
+                    <el-option v-for="c in (config.server.knownClients || [])" :key="c.id" :label="`${c.id}${c.online ? ' (' + t('proxies.clientOnline') + ')' : ''}`" :value="c.id" />
+                  </el-select>
+                </template>
+                <template v-else-if="actionNeedsNetworkMode(item.action)">
                   <el-select v-model="item.networkMode" size="small" style="width: 110px;" @change="(val) => { if (val !== 'remote') item.targetClientId = ''; }">
                     <el-option :label="t('rules.networkLocal')" value="local" />
                     <el-option :label="t('rules.networkRemote')" value="remote" />
@@ -367,6 +375,8 @@ const props = defineProps({
     default: () => ['0.0.0.0', '127.0.0.1']
   }
 });
+
+const emit = defineEmits(['save']);
 
 const routingDialogVisible = ref(false);
 const aclDialogVisible = ref(false);
@@ -478,11 +488,12 @@ const handleAddProxy = (mode) => {
     chainNodes: [],
     defaultRuleActions: [{ action: 'direct_local', networkMode: 'local', targetClientId: '' }]
   });
+  emit('save');
 };
 
 // 代理启用开关切换：启用前预检端口冲突（前端配置冲突 + 后端实际占用），冲突则回滚为禁用
 const toggleProxyEnabled = async (px) => {
-  if (!px.enabled) return; // 关闭无需校验
+  if (!px.enabled) { emit('save'); return; } // 关闭无需校验，立即保存
   // 1) 前端预检：检查是否与其他已启用的代理/映射/连接端口冲突
   const used = getUsedPorts(px, true);
   if (used.has(px.listenPort)) {
@@ -502,6 +513,7 @@ const toggleProxyEnabled = async (px) => {
     // 后端校验失败不阻断，依赖代理服务启动时的错误兜底
     console.error('Port check failed:', e);
   }
+  emit('save');
 };
 
 // 名称编辑失焦校验：若与其他代理重名，自动追加 "_重复"
@@ -521,6 +533,7 @@ const removeProxy = (mode, refObj) => {
   const arr = props.config[mode].proxies;
   const idx = arr.indexOf(refObj);
   if (idx !== -1) arr.splice(idx, 1);
+  emit('save');
 };
 
 const switchProxyMode = (oldMode, newMode, refObj) => {
@@ -531,6 +544,7 @@ const switchProxyMode = (oldMode, newMode, refObj) => {
   if (idx !== -1) {
     oldArr.splice(idx, 1);
     newArr.push(refObj);
+    emit('save');
     ElMessage.success(newMode === 'server' ? t('proxies.switchedToServer') : t('proxies.switchedToClient'));
   }
 };

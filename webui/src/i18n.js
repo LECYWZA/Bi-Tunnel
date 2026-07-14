@@ -109,7 +109,7 @@ export const messages = {
     },
     login: {
       title: 'NB-PLUS 管理面板',
-      subtitle: '安全的高性能双向穿透控制台',
+      subtitle: '安全的高性能网络管理控制台',
       usernamePlaceholder: '请输入账号 (默认: admin)',
       passwordPlaceholder: '请输入密码 (默认: password)',
       submit: '进入控制台',
