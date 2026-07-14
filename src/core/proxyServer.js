@@ -506,12 +506,11 @@ class ProxyServer {
       actionItems = actions.map(a => ({ action: a, networkMode: effectiveNetworkMode, targetClientId: effectiveTargetClientId }));
     }
 
-    let targetSession = null;
+    // 预解析首个 remote 动作的 clientId，供后续故障切换循环作为初始值
     let resolvedClientId = '';
     const firstItem = actionItems[0] || { networkMode: 'local', targetClientId: '' };
     if (firstItem.networkMode === 'remote') {
       const s = resolveSession(firstItem.networkMode, firstItem.targetClientId);
-      targetSession = s.session;
       resolvedClientId = s.clientId;
     }
 
