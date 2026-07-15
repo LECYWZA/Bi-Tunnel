@@ -298,6 +298,7 @@
                 <el-icon class="default-action-drag cursor-move bt-text-secondary" :size="14"><Sort /></el-icon>
                 <el-tag size="small" :type="getActionTagType(item.action)" effect="dark">{{ getActionName(item.action) }}</el-tag>
                 <template v-if="item.action === 'direct_remote'">
+                  <el-tag size="small" type="success" effect="plain" class="mr-1">{{ t('rules.networkRemote') }}</el-tag>
                   <el-select v-if="currentProxyMode === 'client'" v-model="item.targetClientId" :placeholder="t('proxies.carrierServerPlaceholder')" size="small" style="width: 140px;" filterable>
                     <el-option v-for="c in (config.client.connections || [])" :key="c.id" :label="c.alias" :value="c.id" />
                   </el-select>
@@ -641,7 +642,9 @@ const addDefaultAction = (proxy, val) => {
   }
   // 已存在同 action 的项则不重复添加
   if (!proxy.defaultRuleActions.some(it => it.action === val)) {
-    proxy.defaultRuleActions.push({ action: val, networkMode: 'local', targetClientId: '' });
+    // direct_remote 天然需要远程会话，networkMode 固定为 remote
+    const networkMode = val === 'direct_remote' ? 'remote' : 'local';
+    proxy.defaultRuleActions.push({ action: val, networkMode, targetClientId: '' });
   }
 };
 

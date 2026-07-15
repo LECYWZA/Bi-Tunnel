@@ -97,13 +97,21 @@ function init() {
             if (webApp.locals.broadcastClientsUpdate) {
                 webApp.locals.broadcastClientsUpdate();
             }
+            // 服务端关停时清理 xray（仅当客户端也不在运行时）
+            if (!tunnelClient.shouldRetry) {
+                stopXray();
+                getLogger().info('[Xray] Core stopped with server tunnel.');
+            }
         } else if (mode === 'client') {
             if (tunnelClient.stop) tunnelClient.stop();
             clientForwarder.clearSessions();
             clientProxy.clearSessions();
+            // 客户端关停时清理 xray（仅当服务端也不在运行时）
+            if (!tunnelServer.server) {
+                stopXray();
+                getLogger().info('[Xray] Core stopped with client tunnel.');
+            }
         }
-        stopXray();
-        getLogger().info('[Xray] Core stopped along with tunnel.');
     };
 
     // Bind to the web server app for API to call

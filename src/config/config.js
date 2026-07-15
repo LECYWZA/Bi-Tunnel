@@ -236,15 +236,19 @@ function migrateProxyRulesToCards(px, loaded) {
   if (Array.isArray(px.defaultRuleAction) && !px.defaultRuleActions) {
     px.defaultRuleActions = px.defaultRuleAction.map(act => ({
       action: act,
-      networkMode: 'local',
+      networkMode: act === 'direct_remote' ? 'remote' : 'local',
       targetClientId: ''
     }));
     delete px.defaultRuleAction;
   } else if (px.defaultRuleActions) {
     // 确保每个对象字段完整
     px.defaultRuleActions.forEach(item => {
-      if (!item.networkMode) item.networkMode = 'local';
+      if (!item.networkMode) item.networkMode = item.action === 'direct_remote' ? 'remote' : 'local';
       if (!item.targetClientId) item.targetClientId = '';
+      // 修复历史遗留: direct_remote 被错误设为 local
+      if (item.action === 'direct_remote' && item.networkMode === 'local') {
+        item.networkMode = 'remote';
+      }
     });
   }
 }

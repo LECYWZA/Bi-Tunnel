@@ -190,7 +190,8 @@ class TunnelClientManager extends EventEmitter {
          const hasChanged = client.config.tunnelHost !== conn.tunnelHost ||
                             client.config.tunnelPort !== conn.tunnelPort ||
                             client.config.clientId !== conn.clientId ||
-                            client.config.password !== conn.password;
+                            client.config.password !== conn.password ||
+                            client.config.sni !== conn.sni;
          if (hasChanged) {
             getLogger().info(`[TLS] Connection config changed for ${conn.alias}, restarting connection...`);
             client.stop();

@@ -106,7 +106,8 @@ class ProxyDialer {
    * the previous node's local SOCKS5 port via proxySettings.
    */
   static dialV2rayChain(nodes, targetHost, targetPort, callback) {
-    const { startXray } = require('./xrayManager');
+    const { startXray, stopXray } = require('./xrayManager');
+    const startedKeys = []; // 追踪已启动的节点，用于失败时清理
 
     (async () => {
       try {
@@ -118,6 +119,7 @@ class ProxyDialer {
             getLogger().info(`[ProxyChain] Starting Xray for node ${i + 1}/${nodes.length} (${node.displayName || node.host})${prevSocksPort ? ' via port ' + prevSocksPort : ' (direct)'}`);
             const localPort = await startXray(node, prevSocksPort);
             if (!localPort) throw new Error(`Failed to start Xray for chain node ${i + 1}`);
+            startedKeys.push(prevSocksPort ? `${node.rawUrl}@${prevSocksPort}` : node.rawUrl);
             prevSocksPort = localPort;
           } else {
             throw new Error(`Non-v2ray node at position ${i} is not supported in multi-v2ray chain mode`);
@@ -132,15 +134,18 @@ class ProxyDialer {
           this.handshakeSocks5(socket, '', '', targetHost, targetPort, (err) => {
             if (err) {
               socket.destroy();
+              stopXray(); // 清理所有链节点
               return callback(err);
             }
             callback(null, socket);
           });
         });
         socket.once('error', (err) => {
+          stopXray(); // 清理所有链节点
           callback(new Error(`Failed to connect to final Xray port ${finalPort}: ${err.message}`));
         });
       } catch (err) {
+        stopXray(); // 清理已部分启动的链节点
         callback(err);
       }
     })();

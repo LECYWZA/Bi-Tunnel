@@ -12,6 +12,16 @@ class TunnelServer extends EventEmitter {
     this.server = null;
     this.sessions = new Map(); // Map<clientId, TunnelSession>
     this.clientStats = new Map(); // Maps clientId to connection data
+    this._saveTimer = null;
+  }
+
+  // 防抖写盘：客户端频繁上下线时合并写入，避免 1 秒内多次写盘
+  _debouncedSaveConfig(config) {
+    if (this._saveTimer) clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(() => {
+      this._saveTimer = null;
+      configManager.saveConfig(config);
+    }, 1000);
   }
 
   start() {
@@ -31,8 +41,17 @@ class TunnelServer extends EventEmitter {
       
       const session = new MuxSession(socket, true, encryptionKey);
       let sessionClientId = null;
-      
+
+      // Auth 超时：30 秒内未认证则关闭连接，防止僵尸连接
+      const authTimer = setTimeout(() => {
+        if (!sessionClientId && session.isAuthenticated === false) {
+          getLogger().warn(`[TLS] Auth timeout from ${socket.remoteAddress}, closing connection`);
+          socket.destroy();
+        }
+      }, 30000);
+
       session.on('auth', (authData) => {
+        clearTimeout(authTimer);
         const password = typeof authData === 'object' ? authData.password : authData;
         const clientId = typeof authData === 'object' ? authData.clientId : 'legacy-client';
 
@@ -55,7 +74,7 @@ class TunnelServer extends EventEmitter {
           clientEntry.lastConnected = Date.now();
           clientEntry.online = true;
           this.clientStats.set(clientId, { connectTime: Date.now() });
-          configManager.saveConfig(currentConfig);
+          this._debouncedSaveConfig(currentConfig);
 
           session.sendAuthRes(true);
           getLogger().info(`[TLS] Client '${clientId}' authenticated successfully`);
@@ -82,7 +101,7 @@ class TunnelServer extends EventEmitter {
                 clientEntry.totalDuration = (clientEntry.totalDuration || 0) + (Date.now() - stats.connectTime);
                 this.clientStats.delete(sessionClientId);
               }
-              configManager.saveConfig(currentConfig);
+              this._debouncedSaveConfig(currentConfig);
             }
           }
           this.sessions.delete(sessionClientId);

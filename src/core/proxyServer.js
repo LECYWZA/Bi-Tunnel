@@ -665,9 +665,10 @@ class ProxyServer {
 
     for (const item of actionItems) {
       // 每项动作按自己的网络模式解析 session
+      // direct_remote 强制解析 session（兼容旧数据中 networkMode 为 local 的情况）
       let itemSession = null;
       let itemClientId = resolvedClientId;
-      if (item.networkMode === 'remote') {
+      if (item.networkMode === 'remote' || item.action === 'direct_remote') {
         const s = resolveSession(item.networkMode, item.targetClientId);
         itemSession = s.session;
         itemClientId = s.clientId;
