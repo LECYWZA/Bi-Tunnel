@@ -417,33 +417,37 @@ class ProxyServer {
       ? defaultActionItems.map(it => it.action)
       : ['direct_local'];
 
-    let targetIpForAcl = host;
     let matchedRule = null;
-    try {
-       ipaddr.process(host); // Throws if not IP
-       if (resolvedRules.length > 0) {
-         const result = await Router.evaluate(host, resolvedRules, defaultAction);
-         actionResult = result.action;
-         rulePattern = result.rulePattern;
-         matchedRule = result.matchedRule;
-       } else {
-         if (!this.checkAcl(targetIpForAcl, proxyConfig.targetAllowIps, proxyConfig.targetDenyIps)) {
-           actionResult = ['block'];
-           rulePattern = 'ACL 拒绝';
-         } else {
-           actionResult = defaultAction;
-         }
-       }
-    } catch(e) {
-       if (resolvedRules.length > 0) {
-         const result = await Router.evaluate(host, resolvedRules, defaultAction);
-         actionResult = result.action;
-         rulePattern = result.rulePattern;
-         matchedRule = result.matchedRule;
-       } else {
-         actionResult = defaultAction;
-       }
+
+    // 1. 评估路由规则 (host 为 IP 或域名均可)
+    if (resolvedRules.length > 0) {
+      const result = await Router.evaluate(host, resolvedRules, defaultAction);
+      actionResult = result.action;
+      rulePattern = result.rulePattern;
+      matchedRule = result.matchedRule;
+    } else {
+      actionResult = defaultAction;
     }
+
+    // 2. 目标 ACL 校验 (独立于规则,仅当目标为 IP 地址时生效)
+    if (proxyConfig.targetAllowIps?.length || proxyConfig.targetDenyIps?.length) {
+      let targetIp = null;
+      try {
+        ipaddr.process(host); // 是 IP 则不抛异常
+        targetIp = host;
+      } catch (e) {
+        // host 是域名,无法做 IP 级 ACL 检查,跳过
+      }
+      if (targetIp && !this.checkAcl(targetIp, proxyConfig.targetAllowIps, proxyConfig.targetDenyIps)) {
+        actionResult = ['block'];
+        rulePattern = 'ACL 拒绝';
+        matchedRule = null;
+      }
+    }
+
+    // 当 ACL 阻止且无 defaultActionItems 时,确保 actionItems 后续能正确构造
+    // (后续逻辑中,matchedRule===null 且 defaultActionItems 存在时会走默认动作项,
+    //  但 ACL 已设为 block,需保证不会重复构建默认动作)
 
     // 确定本条请求的网络模式与目标服务
     // 命中规则:用规则级的 networkMode/targetClientId

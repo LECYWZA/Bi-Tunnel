@@ -1,6 +1,7 @@
 const geoip = require('geoip-lite');
 const dns = require('dns').promises;
 const ipaddr = require('ipaddr.js');
+const { getLogger } = require('../utils/logger');
 
 class Router {
   /**
@@ -28,7 +29,7 @@ class Router {
           const res = await dns.lookup(host);
           resolvedIp = res.address;
         } catch (err) {
-          // Domain could not be resolved
+          getLogger().warn(`[Router] DNS resolution failed for ${host}, GeoIP rules will be skipped: ${err.message}`);
         }
       }
     };
@@ -59,6 +60,9 @@ class Router {
           }
         } else {
           if (this.match(host, pattern)) {
+            if (pattern === '*') {
+              getLogger().warn(`[Router] 通配规则 (*) 匹配了 ${host}，所有下游规则和兜底策略将被跳过`);
+            }
             return { action: rule.action, rulePattern: pattern, matchedRule: rule };
           }
         }
