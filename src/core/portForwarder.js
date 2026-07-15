@@ -38,11 +38,19 @@ class PortForwarder {
       getLogger().info(`[Forward-${this.mode}] Accepted incoming connection to ${host}:${port}`);
       channel.pipe(socket);
       socket.pipe(channel);
+      // Notify local side that remote connection is established
+      if (channel.session && typeof channel.session.sendFrame === 'function') {
+        channel.session.sendFrame(6, channel.id, Buffer.from([1]));
+      }
     });
 
     socket.on('error', (err) => {
       getLogger().error(`[Forward-${this.mode}] Failed to connect to ${host}:${port}: ${err.message}`);
       channel.end();
+      // Notify local side that remote connection failed
+      if (channel.session && typeof channel.session.sendFrame === 'function') {
+        channel.session.sendFrame(6, channel.id, Buffer.from([0]));
+      }
     });
 
     socket.on('close', () => {
@@ -98,7 +106,7 @@ class PortForwarder {
 
   startForward(listenPort) {
     return new Promise((resolve, reject) => {
-      const server = net.createServer((socket) => {
+      const server = net.createServer(async (socket) => {
       if (!server._sockets) server._sockets = new Set();
       server._sockets.add(socket);
       socket.on('close', () => server._sockets.delete(socket));
@@ -146,6 +154,44 @@ class PortForwarder {
         host: targetHost,
         port: targetPort
       });
+
+      // Wait for remote side to confirm the connection is established
+      try {
+        await new Promise((resolveChannel, rejectChannel) => {
+          const CHANNEL_ACK_TIMEOUT = 5000;
+          let channelResolved = false;
+
+          const timer = setTimeout(() => {
+            if (!channelResolved) {
+              channelResolved = true;
+              getLogger().warn(`[Forward-${this.mode}] No ACK from remote for ${targetHost}:${targetPort}, proceeding anyway (timeout)`);
+              resolveChannel();
+            }
+          }, CHANNEL_ACK_TIMEOUT);
+
+          channel.once('ack', (success) => {
+            if (channelResolved) return;
+            channelResolved = true;
+            clearTimeout(timer);
+            if (success) {
+              resolveChannel();
+            } else {
+              rejectChannel(new Error(`Remote target ${targetHost}:${targetPort} unreachable`));
+            }
+          });
+
+          channel.once('error', (err) => {
+            if (channelResolved) return;
+            channelResolved = true;
+            clearTimeout(timer);
+            rejectChannel(err);
+          });
+        });
+      } catch (err) {
+        getLogger().error(`[Forward-${this.mode}] ${err.message}`);
+        socket.destroy();
+        return;
+      }
 
       socket.pipe(channel);
       channel.pipe(socket);

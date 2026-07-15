@@ -7,6 +7,7 @@ const TYPE_CREATE = 2;
 const TYPE_CLOSE = 3;
 const TYPE_AUTH = 4;
 const TYPE_AUTH_RES = 5;
+const TYPE_CREATE_ACK = 6;
 const MAX_FRAME_SIZE = 16 * 1024 * 1024;
 
 const AES_ALG = 'aes-256-gcm';
@@ -153,6 +154,15 @@ class MuxSession extends EventEmitter {
     } else if (type === TYPE_CLOSE) {
       const channel = this.channels.get(id);
       if (channel) channel.remoteClose();
+    } else if (type === TYPE_CREATE_ACK) {
+      const channel = this.channels.get(id);
+      if (channel) {
+        const success = payload.length > 0 && payload.readUInt8(0) === 1;
+        channel.emit('ack', success);
+        if (!success) {
+          channel.remoteClose();
+        }
+      }
     }
   }
 

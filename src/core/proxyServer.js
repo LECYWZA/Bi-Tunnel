@@ -555,12 +555,29 @@ class ProxyServer {
           if (!session) return reject(new Error(`direct_remote failed: targetSession not found`));
           const channel = session.createChannel({ type: 'forward', host: host, port: port });
           let resolved = false;
-          channel.once('error', (err) => {
-            if (!resolved) { resolved = true; reject(err); }
+          const timer = setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              getLogger().warn(`[Proxy] No ACK from remote for ${host}:${port}, proceeding anyway (timeout)`);
+              resolve(channel);
+            }
+          }, 5000);
+          channel.once('ack', (success) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            if (success) {
+              resolve(channel);
+            } else {
+              reject(new Error(`Remote target ${host}:${port} unreachable`));
+            }
           });
-          setTimeout(() => {
-             if (!resolved) { resolved = true; resolve(channel); }
-          }, 100);
+          channel.once('error', (err) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            reject(err);
+          });
         } else {
           const outbound = new net.Socket();
           let resolved = false;
