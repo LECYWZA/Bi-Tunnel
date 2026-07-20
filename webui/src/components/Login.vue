@@ -16,6 +16,7 @@
         <el-form-item prop="password">
           <el-input v-model="form.password" type="password" :placeholder="t('login.passwordPlaceholder')" :prefix-icon="Lock" show-password />
         </el-form-item>
+        <el-checkbox v-model="remember" class="remember-checkbox">{{ t('login.remember') }}</el-checkbox>
         <el-button type="primary" class="login-btn" :loading="loading" @click="handleLogin">
           {{ t('login.submit') }}
         </el-button>
@@ -29,7 +30,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, inject, computed } from 'vue';
+import { ref, reactive, inject, computed, onMounted } from 'vue';
 import { User, Lock, Connection } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 
@@ -51,12 +52,27 @@ const form = reactive({
   password: ''
 });
 
+const remember = ref(false);
+
 const rules = computed(() => ({
   username: [{ required: true, message: t('login.usernameRequired'), trigger: 'blur' }],
   password: [{ required: true, message: t('login.passwordRequired'), trigger: 'blur' }]
 }));
 
 const loading = ref(false);
+
+// 加载保存的账号
+onMounted(() => {
+  const saved = localStorage.getItem('bt_login_remember');
+  if (saved) {
+    try {
+      const creds = JSON.parse(saved);
+      form.username = creds.username || '';
+      form.password = creds.password || '';
+      remember.value = true;
+    } catch (e) {}
+  }
+});
 
 const handleLogin = async () => {
   if (!formRef.value) return;
@@ -71,6 +87,12 @@ const handleLogin = async () => {
         });
         const data = await res.json();
         if (data.success) {
+          // 保存或清除记住的账号密码
+          if (remember.value) {
+            localStorage.setItem('bt_login_remember', JSON.stringify({ username: form.username, password: form.password }));
+          } else {
+            localStorage.removeItem('bt_login_remember');
+          }
           ElMessage.success(t('login.success'));
           emit('login-success');
         } else {
@@ -184,5 +206,11 @@ p {
 
 .theme-toggle:hover {
   opacity: 1;
+}
+
+.remember-checkbox {
+  display: flex;
+  margin-top: 8px;
+  font-size: 13px;
 }
 </style>

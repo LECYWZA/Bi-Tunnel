@@ -119,7 +119,8 @@ export const messages = {
       themeLightTitle: '切换到暗色模式',
       success: '登录成功',
       failed: '登录失败',
-      netError: '网络错误: '
+      netError: '网络错误: ',
+      remember: '记住账号密码'
     },
     proxies: {
       title: '混合代理配置',
@@ -876,7 +877,8 @@ export const messages = {
       themeLightTitle: 'Switch to dark mode',
       success: 'Login successful',
       failed: 'Login failed',
-      netError: 'Network error: '
+      netError: 'Network error: ',
+      remember: 'Remember me'
     },
     proxies: {
       title: 'Mixed Proxy Configuration',

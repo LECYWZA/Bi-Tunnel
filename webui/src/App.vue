@@ -893,6 +893,9 @@ const fetchConfig = async () => {
     // Format arrays for textareas
     if (data.server && data.server.proxies) {
       data.server.proxies.forEach(p => {
+        // 确保密码认证字段存在
+        if (p.useAuth === undefined) p.useAuth = false;
+        if (!p.users) p.users = [{ user: '', pass: '' }];
         // 默认动作迁移为对象数组 defaultRuleActions;兼容旧 defaultRuleAction 字符串数组
         if (!p.defaultRuleActions) {
           const old = Array.isArray(p.defaultRuleAction) ? p.defaultRuleAction : (p.defaultRuleAction ? [p.defaultRuleAction] : ['direct_local']);
@@ -924,6 +927,9 @@ const fetchConfig = async () => {
     }
     if (data.client && data.client.proxies) {
       data.client.proxies.forEach(p => {
+        // 确保密码认证字段存在
+        if (p.useAuth === undefined) p.useAuth = false;
+        if (!p.users) p.users = [{ user: '', pass: '' }];
         // 默认动作迁移为对象数组 defaultRuleActions;兼容旧 defaultRuleAction 字符串数组
         if (!p.defaultRuleActions) {
           const old = Array.isArray(p.defaultRuleAction) ? p.defaultRuleAction : (p.defaultRuleAction ? [p.defaultRuleAction] : ['direct_local']);

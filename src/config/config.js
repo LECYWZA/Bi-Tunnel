@@ -133,6 +133,16 @@ function loadConfig() {
         loaded.client.proxies.forEach(px => migrateProxyRulesToCards(px, loaded));
       }
 
+      // 确保代理密码认证字段存在（兼容旧配置）
+      [loaded.server, loaded.client].forEach(side => {
+        if (side && side.proxies) {
+          side.proxies.forEach(px => {
+            if (px.useAuth === undefined) px.useAuth = false;
+            if (!px.users) px.users = [{ user: '', pass: '' }];
+          });
+        }
+      });
+
       currentConfig = mergeDefaults(DEFAULT_CONFIG, loaded);
       // Delete old flat properties if present
       delete currentConfig.tunnelPort;
