@@ -36,6 +36,14 @@ class MuxChannel extends Duplex {
     callback();
   }
 
+  _destroy(err, callback) {
+    try {
+      this.session.sendFrame(TYPE_CLOSE, this.id, Buffer.alloc(0));
+    } catch (e) {}
+    this.session.channels.delete(this.id);
+    callback(err);
+  }
+
   pushData(chunk) {
     this.push(chunk);
   }

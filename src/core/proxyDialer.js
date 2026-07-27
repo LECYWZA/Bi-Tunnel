@@ -58,10 +58,14 @@ class ProxyDialer {
             host: connectHost,
             port: connectPort
           });
-          socket.once('error', (err) => {
-             callback(new Error(`Remote tunnel error to first node: ${err.message}`));
+          const onError = (err) => {
+            callback(new Error(`Remote tunnel error to first node: ${err.message}`));
+          };
+          socket.once('error', onError);
+          process.nextTick(() => {
+            socket.removeListener('error', onError);
+            onFirstConnected(socket);
           });
-          process.nextTick(() => onFirstConnected(socket));
         } else {
           // HTTP 代理服务器本身使用 TLS（HTTPS 代理）时，先建立 TCP 再升级为 TLS
           // 其余情况（HTTP 明文 / SOCKS5 / v2ray 本地 SOCKS）使用普通 TCP
@@ -351,16 +355,15 @@ class ProxyDialer {
 
     const onData = (data) => {
       leftover = Buffer.concat([leftover, data]);
-      const str = leftover.toString('utf8');
-      const headerEnd = str.indexOf('\r\n\r\n');
+      const headerEndIdx = leftover.indexOf(Buffer.from('\r\n\r\n'));
       
-      if (headerEnd !== -1) {
+      if (headerEndIdx !== -1) {
         cleanup();
-        const headers = str.substring(0, headerEnd);
-        const firstLine = headers.split('\r\n')[0];
+        const headersStr = leftover.slice(0, headerEndIdx).toString('utf8');
+        const firstLine = headersStr.split('\r\n')[0];
         
         if (firstLine.includes('200')) {
-          const extra = leftover.slice(headerEnd + 4);
+          const extra = leftover.slice(headerEndIdx + 4);
           if (extra.length > 0) {
             socket.unshift(extra);
           }

@@ -189,7 +189,13 @@ class PortForwarder {
         });
       } catch (err) {
         getLogger().error(`[Forward-${this.mode}] ${err.message}`);
+        channel.remoteClose();
         socket.destroy();
+        return;
+      }
+
+      if (socket.destroyed || socket.closed) {
+        channel.remoteClose();
         return;
       }
 

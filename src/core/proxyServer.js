@@ -336,7 +336,8 @@ class ProxyServer {
 
         if (authenticated) {
           socket.write(Buffer.from([0x01, 0x00])); // Success
-          this.readSocks5Request(socket, proxyConfig);
+          const leftover = authData.slice(3 + ulen + plen);
+          this.readSocks5Request(socket, proxyConfig, leftover);
         } else {
           socket.write(Buffer.from([0x01, 0x01])); // Failure
           socket.destroy();
@@ -344,15 +345,22 @@ class ProxyServer {
       });
     } else {
       socket.write(Buffer.from([0x05, 0x00])); // NO AUTH REQUIRED
-      this.readSocks5Request(socket, proxyConfig);
+      const nmethods = initialData[1] || 1;
+      const leftover = initialData.slice(2 + nmethods);
+      this.readSocks5Request(socket, proxyConfig, leftover);
     }
   }
 
-  readSocks5Request(socket, proxyConfig) {
+  readSocks5Request(socket, proxyConfig, initialLeftover = Buffer.alloc(0)) {
     if (!socket._socksBuffer) socket._socksBuffer = Buffer.alloc(0);
+    if (initialLeftover && initialLeftover.length > 0) {
+      socket._socksBuffer = Buffer.concat([socket._socksBuffer, initialLeftover]);
+    }
 
     const onData = async (chunk) => {
-      socket._socksBuffer = Buffer.concat([socket._socksBuffer, chunk]);
+      if (chunk && chunk.length > 0) {
+        socket._socksBuffer = Buffer.concat([socket._socksBuffer, chunk]);
+      }
       const buf = socket._socksBuffer;
       if (buf.length < 4) return; // Wait for VER, CMD, RSV, ATYP
 
@@ -417,6 +425,9 @@ class ProxyServer {
     };
 
     socket.on('data', onData);
+    if (socket._socksBuffer.length > 0) {
+      process.nextTick(() => onData(Buffer.alloc(0)));
+    }
   }
 
   async processTarget(socket, host, port, proxyConfig, onConnected) {
@@ -768,6 +779,11 @@ class ProxyServer {
         trafficLogger.updateLog(logEntry);
       }
     });
+
+    if (socket.destroyed || socket.closed) {
+      finalSocket.destroy();
+      return;
+    }
 
     finalSocket.on('error', () => socket.destroy());
     socket.on('error', () => finalSocket.destroy());

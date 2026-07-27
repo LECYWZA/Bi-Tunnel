@@ -308,6 +308,7 @@ class DhcpServer {
   _cidrMask(cidr) {
     const m = (cidr || '').match(/\/(\d+)$/);
     const prefix = m ? parseInt(m[1]) : 24;
+    if (prefix === 0) return '0.0.0.0';
     const maskInt = (0xFFFFFFFF << (32 - prefix)) >>> 0;
     return intToIp(maskInt);
   }

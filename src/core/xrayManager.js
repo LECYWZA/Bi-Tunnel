@@ -104,7 +104,7 @@ function parseVless(rawUrl) {
   const parsed = new URL(rawUrl);
   const uuid = parsed.username;
   const host = parsed.hostname;
-  const port = parseInt(parsed.port);
+  const port = parseInt(parsed.port) || 443;
   const params = parsed.searchParams;
 
   const streamSettings = {

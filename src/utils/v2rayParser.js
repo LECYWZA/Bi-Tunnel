@@ -26,26 +26,28 @@ function parseProxyUrl(url) {
     // vless://
     if (url.startsWith('vless://')) {
       const parsed = new URL(url);
+      const port = parseInt(parsed.port) || 443;
       return {
         type: 'v2ray',
         v2rayType: 'vless',
         host: parsed.hostname,
-        port: parseInt(parsed.port),
+        port: port,
         rawUrl: url,
-        displayName: decodeURIComponent(parsed.hash.replace('#', '')) || `${parsed.hostname}:${parsed.port}`
+        displayName: decodeURIComponent(parsed.hash.replace('#', '')) || `${parsed.hostname}:${port}`
       };
     }
 
     // trojan://
     if (url.startsWith('trojan://')) {
       const parsed = new URL(url);
+      const port = parseInt(parsed.port) || 443;
       return {
         type: 'v2ray',
         v2rayType: 'trojan',
         host: parsed.hostname,
-        port: parseInt(parsed.port),
+        port: port,
         rawUrl: url,
-        displayName: decodeURIComponent(parsed.hash.replace('#', '')) || `${parsed.hostname}:${parsed.port}`
+        displayName: decodeURIComponent(parsed.hash.replace('#', '')) || `${parsed.hostname}:${port}`
       };
     }
 
@@ -53,23 +55,26 @@ function parseProxyUrl(url) {
     if (url.startsWith('ss://')) {
       // ss urls can have user info base64 encoded
       const parsed = new URL(url);
+      const port = parseInt(parsed.port) || 1080;
       return {
         type: 'v2ray',
         v2rayType: 'shadowsocks',
         host: parsed.hostname,
-        port: parseInt(parsed.port),
+        port: port,
         rawUrl: url,
-        displayName: decodeURIComponent(parsed.hash.replace('#', '')) || `${parsed.hostname}:${parsed.port}`
+        displayName: decodeURIComponent(parsed.hash.replace('#', '')) || `${parsed.hostname}:${port}`
       };
     }
 
     // Standard HTTP/SOCKS5
     if (url.startsWith('http://') || url.startsWith('socks5://')) {
       const parsed = new URL(url);
+      const defaultPort = url.startsWith('socks5://') ? 1080 : 80;
+      const port = parseInt(parsed.port) || defaultPort;
       return {
         type: parsed.protocol.replace(':', ''),
         host: parsed.hostname,
-        port: parseInt(parsed.port),
+        port: port,
         user: parsed.username || '',
         pass: parsed.password || ''
       };
