@@ -135,8 +135,9 @@ class DhcpServer {
 
     // 解析 options
     const opts = this._parseOptions(msg.slice(240));
-    const msgType = opts[OPT_DHCP_TYPE];
-    if (!msgType) return;
+    const msgTypeOpt = opts[OPT_DHCP_TYPE];
+    if (!msgTypeOpt) return;
+    const msgType = msgTypeOpt.readUInt8(0);
 
     if (msgType === MSG_DISCOVER) {
       this._onDiscover(xid, mac, opts, yiaddr_buf);

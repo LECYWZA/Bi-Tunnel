@@ -94,16 +94,18 @@ class ProxyServer {
       const currentConfig = configManager.getConfig()[this.mode]?.proxies.find(p => p.listenPort === listenPort);
       const bindHost = currentConfig?.listenIp || '0.0.0.0';
 
-      server.once('error', (err) => {
+      const errorHandler = (err) => {
         if (err.code === 'EADDRINUSE') {
           reject({ code: 'PORT_IN_USE', port: listenPort });
         } else {
           getLogger().error(`[Proxy] Failed to listen on ${listenPort}: ${err.message}`);
           reject(err);
         }
-      });
+      };
+      server.once('error', errorHandler);
 
       server.listen(listenPort, bindHost, () => {
+        server.removeListener('error', errorHandler);
         getLogger().info(`[Proxy] Listening on ${bindHost}:${listenPort}`);
         server._bindHost = bindHost;
         this.servers.set(listenPort, server);
@@ -636,7 +638,11 @@ class ProxyServer {
             if (!resolved) { resolved = true; resolve(outbound); }
           });
           outbound.once('error', (err) => {
-            if (!resolved) { resolved = true; reject(err); }
+            if (!resolved) {
+              resolved = true;
+              try { outbound.destroy(); } catch (e) {}
+              reject(err);
+            }
           });
         }
       });

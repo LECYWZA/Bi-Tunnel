@@ -66,8 +66,27 @@ class MuxSession extends EventEmitter {
     this.isAuthenticated = false;
 
     this.socket.on('data', (data) => this._onData(data));
-    this.socket.on('close', () => this.emit('close'));
-    this.socket.on('error', (err) => this.emit('error', err));
+    this.socket.on('close', () => {
+      this._cleanupChannels();
+      this.emit('close');
+    });
+    this.socket.on('error', (err) => {
+      this._cleanupChannels(err);
+      this.emit('error', err);
+    });
+  }
+
+  _cleanupChannels(err) {
+    for (const channel of this.channels.values()) {
+      try {
+        if (err) {
+          channel.destroy(err);
+        } else {
+          channel.remoteClose();
+        }
+      } catch (e) {}
+    }
+    this.channels.clear();
   }
 
   _encrypt(plaintext) {

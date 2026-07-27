@@ -121,16 +121,18 @@ class TunnelServer extends EventEmitter {
 
     const bindHost = serverConfig.bindHost || '0.0.0.0';
 
-    this.server.once('error', (err) => {
+    const errorHandler = (err) => {
       if (err.code === 'EADDRINUSE') {
         reject({ code: 'PORT_IN_USE', port: serverConfig.tunnelPort });
       } else {
         getLogger().error(`[TLS] Server error: ${err.message}`);
         reject(err);
       }
-    });
+    };
+    this.server.once('error', errorHandler);
 
     this.server.listen(serverConfig.tunnelPort, bindHost, () => {
+      if (this.server) this.server.removeListener('error', errorHandler);
       getLogger().info(`[TLS] Tunnel Server listening on ${bindHost}:${serverConfig.tunnelPort}`);
       resolve();
     });

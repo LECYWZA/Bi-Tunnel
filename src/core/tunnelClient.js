@@ -14,6 +14,7 @@ class SingleTunnelClient extends EventEmitter {
     super();
     this.config = connConfig;
     this.session = null;
+    this.pendingSocket = null;
     this.retryTimeout = null;
     this.shouldRetry = false;
     this.status = 'stopped';
@@ -31,6 +32,10 @@ class SingleTunnelClient extends EventEmitter {
       this.retryTimeout = null;
     }
     this.status = 'stopped';
+    if (this.pendingSocket) {
+      try { this.pendingSocket.destroy(); } catch (e) {}
+      this.pendingSocket = null;
+    }
     if (this.session) {
       this.session.close();
       this.session = null;
@@ -38,7 +43,7 @@ class SingleTunnelClient extends EventEmitter {
   }
 
   connect() {
-    if (this.session) return;
+    if (this.session || this.pendingSocket) return;
     
     const clientConfig = this.config;
     getLogger().info(`[TLS] [${clientConfig.alias}] Connecting to ${clientConfig.tunnelHost}:${clientConfig.tunnelPort}...`);
@@ -48,6 +53,11 @@ class SingleTunnelClient extends EventEmitter {
       rejectUnauthorized: false, // We use self-signed certs
       servername: clientConfig.sni || 'mail.qq.com'
     }, () => {
+      this.pendingSocket = null;
+      if (!this.shouldRetry) {
+        try { socket.destroy(); } catch (e) {}
+        return;
+      }
       getLogger().info(`[TLS] [${clientConfig.alias}] Secure connection established, authenticating...`);
       const encryptionKey = deriveKey(clientConfig.password);
       const session = new MuxSession(socket, false, encryptionKey);
@@ -83,7 +93,10 @@ class SingleTunnelClient extends EventEmitter {
       });
     });
 
+    this.pendingSocket = socket;
+
     socket.on('error', (err) => {
+      if (this.pendingSocket === socket) this.pendingSocket = null;
       getLogger().error(`[TLS] [${clientConfig.alias}] Socket error: ${err.message}`);
       this.status = 'failed';
       this.scheduleRetry();

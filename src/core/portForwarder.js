@@ -221,16 +221,18 @@ class PortForwarder {
       });
     });
 
-    server.once('error', (err) => {
+    const errorHandler = (err) => {
       if (err.code === 'EADDRINUSE') {
         reject({ code: 'PORT_IN_USE', port: listenPort });
       } else {
         getLogger().error(`[Forward-${this.mode}] Failed to listen on ${listenPort}: ${err.message}`);
         reject(err);
       }
-    });
+    };
+    server.once('error', errorHandler);
 
     server.listen(listenPort, '0.0.0.0', () => {
+      server.removeListener('error', errorHandler);
       getLogger().info(`[Forward-${this.mode}] Listening on ${listenPort} (dynamic target)`);
       this.servers.set(listenPort, server);
       resolve();
