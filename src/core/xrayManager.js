@@ -47,7 +47,9 @@ async function getFreePort() {
 
 function parseVmess(rawUrl) {
   const base64str = rawUrl.replace('vmess://', '');
-  const vmess = JSON.parse(decodeURIComponent(escape(atob(base64str))));
+  const normalized = base64str.trim().replace(/-/g, '+').replace(/_/g, '/');
+  const jsonStr = Buffer.from(normalized, 'base64').toString('utf8');
+  const vmess = JSON.parse(jsonStr);
   
   const streamSettings = {
     network: vmess.net || 'tcp',

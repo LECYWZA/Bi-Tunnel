@@ -1,5 +1,6 @@
 const net = require('net');
 const tls = require('tls');
+const ipaddr = require('ipaddr.js');
 const { getLogger } = require('../utils/logger');
 
 class ProxyDialer {
@@ -141,6 +142,7 @@ class ProxyDialer {
           });
         });
         socket.once('error', (err) => {
+          try { socket.destroy(); } catch (e) {}
           stopXray(); // 清理所有链节点
           callback(new Error(`Failed to connect to final Xray port ${finalPort}: ${err.message}`));
         });
@@ -304,6 +306,9 @@ class ProxyDialer {
       if (net.isIPv4(targetHost)) {
         atyp = 0x01;
         hostBuf = Buffer.from(targetHost.split('.').map(Number));
+      } else if (net.isIPv6(targetHost)) {
+        atyp = 0x04;
+        hostBuf = Buffer.from(ipaddr.parse(targetHost).toByteArray());
       } else {
         atyp = 0x03;
         const hBuf = Buffer.from(targetHost);

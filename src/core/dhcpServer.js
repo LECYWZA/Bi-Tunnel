@@ -290,7 +290,9 @@ class DhcpServer {
       const code = buf.readUInt8(i);
       if (code === OPT_END) break;
       if (code === 0) { i++; continue; }   // PAD
+      if (i + 1 >= buf.length) break;
       const len = buf.readUInt8(i + 1);
+      if (i + 2 + len > buf.length) break;
       const val = buf.slice(i + 2, i + 2 + len);
       opts[code] = val;
       i += 2 + len;

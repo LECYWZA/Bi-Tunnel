@@ -144,7 +144,7 @@ function encodeV2RayUrl(config) {
         v.host = config.sni || config.host; 
       }
       const jsonStr = JSON.stringify(v);
-      const base64str = btoa(unescape(encodeURIComponent(jsonStr)));
+      const base64str = Buffer.from(jsonStr, 'utf8').toString('base64');
       return 'vmess://' + base64str;
     } else {
       let url = `${config.v2rayType}://${config.uuid}@${config.host}:${config.port}`;
