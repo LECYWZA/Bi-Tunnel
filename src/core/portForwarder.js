@@ -190,12 +190,34 @@ class PortForwarder {
       } catch (err) {
         getLogger().error(`[Forward-${this.mode}] ${err.message}`);
         try { channel.destroy(); } catch (e) {}
+        trafficLogger.addLog({
+          module: `Forward Outgoing (${this.mode})`,
+          sourceIp: socket.remoteAddress || 'Local',
+          target: `${targetHost}:${targetPort}`,
+          action: 'forward',
+          bytesTransferred: socket.bytesRead + socket.bytesWritten,
+          durationMs: Date.now() - startTime,
+          status: 'failed',
+          error: err.message,
+          clientId: resolvedClientId
+        });
         socket.destroy();
         return;
       }
 
       if (socket.destroyed || socket.closed) {
         try { channel.destroy(); } catch (e) {}
+        trafficLogger.addLog({
+          module: `Forward Outgoing (${this.mode})`,
+          sourceIp: socket.remoteAddress || 'Local',
+          target: `${targetHost}:${targetPort}`,
+          action: 'forward',
+          bytesTransferred: socket.bytesRead + socket.bytesWritten,
+          durationMs: Date.now() - startTime,
+          status: 'failed',
+          error: '客户端连接已关闭',
+          clientId: resolvedClientId
+        });
         return;
       }
 

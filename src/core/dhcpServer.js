@@ -34,11 +34,6 @@ const OPT_PARAM_REQ_LIST = 55;
 const OPT_CLIENT_ID = 61;
 const OPT_END = 255;
 
-function ipToInt(ip) {
-  const parts = ip.split('.').map(Number);
-  // eslint-disable-next-line no-bitwise
-  return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
-}
 function intToIp(n) {
   // eslint-disable-next-line no-bitwise
   return [ (n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff ].join('.');

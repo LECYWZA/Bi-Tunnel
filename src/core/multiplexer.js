@@ -217,6 +217,9 @@ class MuxSession extends EventEmitter {
   createChannel(meta) {
     const id = this.nextChannelId;
     this.nextChannelId += 2;
+    if (this.nextChannelId > 0xFFFFFFFF) {
+      this.nextChannelId = this.isServer ? 2 : 1;
+    }
     const metaBuffer = Buffer.from(JSON.stringify(meta), 'utf8');
     this.sendFrame(TYPE_CREATE, id, metaBuffer);
     const channel = new MuxChannel(this, id, meta);

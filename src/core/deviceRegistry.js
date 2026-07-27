@@ -18,6 +18,7 @@ const { getLogger } = require('../utils/logger');
  */
 
 function ipToInt(ip) {
+  if (!ip || typeof ip !== 'string' || !net.isIPv4(ip)) return NaN;
   const p = ip.split('.').map(Number);
   // eslint-disable-next-line no-bitwise
   return ((p[0] << 24) >>> 0) + (p[1] << 16) + (p[2] << 8) + p[3];

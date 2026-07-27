@@ -790,6 +790,13 @@ class ProxyServer {
 
     if (socket.destroyed || socket.closed) {
       finalSocket.destroy();
+      if (logEntry) {
+        logEntry.bytesTransferred = socket.bytesRead + socket.bytesWritten;
+        logEntry.durationMs = Date.now() - startTime;
+        logEntry.status = 'failed';
+        logEntry.error = '客户端连接已关闭';
+        trafficLogger.updateLog(logEntry);
+      }
       return;
     }
 
