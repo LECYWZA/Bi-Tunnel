@@ -426,7 +426,9 @@ class ProxyServer {
 
     socket.on('data', onData);
     if (socket._socksBuffer.length > 0) {
-      process.nextTick(() => onData(Buffer.alloc(0)));
+      process.nextTick(() => {
+        if (!socket.destroyed) onData(Buffer.alloc(0));
+      });
     }
   }
 

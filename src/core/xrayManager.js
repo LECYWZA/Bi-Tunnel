@@ -600,44 +600,35 @@ async function startTun(proxyPort) {
     // Wait a bit and check if Xray is still running
     setTimeout(async () => {
       if (isResolved) return;
-      if (currentTunProcess && currentTunProcess.pid) {
-        if (os.platform() === 'linux') {
-          try {
+      try {
+        if (currentTunProcess && currentTunProcess.pid) {
+          if (os.platform() === 'linux') {
             await routeManager.setupLinuxTunRouting('tun-bi');
-          } catch (err) {
-            getLogger().error(`[Xray TUN] Linux route setup failed: ${err.message}`);
-            currentTunError = `路由配置失败: ${err.message}`;
-            try { currentTunProcess.kill(); } catch(e) {}
-            if (!isResolved) {
-              isResolved = true;
-              reject(err);
-            }
-            return;
-          }
-        } else if (os.platform() === 'win32') {
-          try {
+          } else if (os.platform() === 'win32') {
             await routeManager.setupWindowsTunRouting(tunName, tunGateway.split('/')[0]);
-          } catch (err) {
-            getLogger().error(`[Xray TUN] Windows route setup failed: ${err.message}`);
-            currentTunError = `路由配置失败: ${err.message}`;
-            try { currentTunProcess.kill(); } catch(e) {}
-            if (!isResolved) {
-              isResolved = true;
-              reject(err);
-            }
-            return;
+          }
+          if (!isResolved) {
+            isResolved = true;
+            resolve({ success: true, port: proxyPort });
+          }
+        } else {
+          if (!isResolved) {
+            isResolved = true;
+            reject(new Error(currentTunError || 'Failed to start TUN process'));
           }
         }
-        isResolved = true;
-        resolve({ success: true, port: proxyPort });
-      } else {
+      } catch (err) {
+        getLogger().error(`[Xray TUN] Route setup failed: ${err.message}`);
+        currentTunError = `路由配置失败: ${err.message}`;
+        try { currentTunProcess.kill(); } catch(e) {}
         if (!isResolved) {
           isResolved = true;
-          reject(new Error(currentTunError || 'Failed to start TUN process'));
+          reject(err);
         }
       }
-    })().catch(reject);
-  });
+    }, 1000);
+  })().catch(reject);
+});
 }
 
 async function stopTun() {

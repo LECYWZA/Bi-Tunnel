@@ -427,6 +427,7 @@ async function _readArp(iface) {
 }
 
 function _prefixToMask(prefix) {
+  if (prefix === 0) return '0.0.0.0';
   // eslint-disable-next-line no-bitwise
   const maskInt = (0xFFFFFFFF << (32 - prefix)) >>> 0;
   // eslint-disable-next-line no-bitwise

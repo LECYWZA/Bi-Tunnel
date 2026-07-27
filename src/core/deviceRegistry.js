@@ -160,6 +160,9 @@ class DeviceRegistry {
 
     const exist = this._devices().find(d => d.mac === mac);
     if (exist) {
+      if (exist.enabled === false) {
+        return exist;
+      }
       if (requestedIp && requestedIp !== exist.ip) {
         // 客户端请求的 IP 与已有租约不一致，确认是否被别人占用
         const occupier = this._devices().find(d => d.ip === requestedIp && d.mac !== mac);
