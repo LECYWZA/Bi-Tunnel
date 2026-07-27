@@ -13,6 +13,9 @@ function init() {
     const logger = getLogger();
     logger.info('Starting NB-PLUS Application...');
 
+    // Initialize SQLite Database
+    require('./db/sqlite').getDb();
+
     // Download Xray-core in the background
     downloadXray().catch(e => getLogger().error('Xray download error: ' + e.message));
 
