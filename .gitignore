@@ -4,8 +4,9 @@ node_modules/
 # Build output
 dist/
 
-# Configuration and Secrets
+# Configuration, Secrets, and Database
 config.json
+sqlite.db*
 *.pem
 
 # Xray Core and downloaded binaries
