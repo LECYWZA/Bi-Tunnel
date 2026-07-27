@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { getDb } = require('../db/sqlite');
 
 const CONFIG_PATH = path.join(process.cwd(), 'config.json');
 
@@ -74,12 +75,37 @@ function mergeDefaults(defaultValue, loadedValue) {
 
 let currentConfig = mergeDefaults(DEFAULT_CONFIG, {});
 
+function saveConfigToDb(configObj, dbInstance) {
+  const db = dbInstance || getDb();
+  const stmt = db.prepare(`
+    INSERT INTO system_config (key, value, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value,
+      updated_at = excluded.updated_at
+  `);
+  stmt.run('config', JSON.stringify(configObj), Date.now());
+}
+
 function loadConfig() {
   try {
-    if (fs.existsSync(CONFIG_PATH)) {
+    const db = getDb();
+    const row = db.prepare('SELECT value FROM system_config WHERE key = ?').get('config');
+
+    let loaded = null;
+    if (row && row.value) {
+      loaded = JSON.parse(row.value);
+    } else if (fs.existsSync(CONFIG_PATH)) {
       const data = fs.readFileSync(CONFIG_PATH, 'utf8');
-      const loaded = JSON.parse(data);
-      // Migration: if loaded has flat config, ignore or clean it up. The user said they don't have much config, so we can just merge.
+      loaded = JSON.parse(data);
+      // Migrate loaded data to SQLite DB
+      saveConfigToDb(loaded, db);
+      try {
+        fs.renameSync(CONFIG_PATH, CONFIG_PATH + '.bak');
+      } catch (e) {}
+    }
+
+    if (loaded) {
       if (!loaded.server) loaded.server = { ...DEFAULT_CONFIG.server };
       if (!loaded.client) loaded.client = { ...DEFAULT_CONFIG.client };
       if (!loaded.proxyNodes) loaded.proxyNodes = [];
@@ -144,7 +170,6 @@ function loadConfig() {
       });
 
       currentConfig = mergeDefaults(DEFAULT_CONFIG, loaded);
-      // Delete old flat properties if present
       delete currentConfig.tunnelPort;
       delete currentConfig.bindHost;
       delete currentConfig.tunnelHost;
@@ -164,7 +189,7 @@ function saveConfig(newConfig) {
     if (newConfig) {
       currentConfig = mergeDefaults(currentConfig, newConfig);
     }
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(currentConfig, null, 2), 'utf8');
+    saveConfigToDb(currentConfig);
   } catch (err) {
     console.error('Failed to save config:', err);
   }
@@ -210,12 +235,10 @@ function migrateProxyRulesToCards(px, loaded) {
   if (px.proxyRules && Array.isArray(px.proxyRules)) {
     if (!loaded.ruleCards) loaded.ruleCards = [];
     px.proxyRules.forEach((rule, idx) => {
-      // Ensure action is an array
       if (rule.action && !Array.isArray(rule.action)) {
         rule.action = [rule.action];
       }
 
-      // Migrate pattern to a shared rule card
       if (rule.pattern && !rule.ruleCardId && !rule.ruleCardIds) {
         const cardId = 'rule_card_' + Math.random().toString(36).substr(2, 9);
         const cardName = `${px.name || ('端口 ' + px.listenPort)} - 规则 ${idx + 1}`;
@@ -232,7 +255,6 @@ function migrateProxyRulesToCards(px, loaded) {
         delete rule.ruleCardId;
       }
 
-      // 规则级网络模式:未设置则默认 'local'
       if (!rule.networkMode) rule.networkMode = 'local';
       if (!rule.targetClientId) rule.targetClientId = '';
     });
@@ -240,9 +262,6 @@ function migrateProxyRulesToCards(px, loaded) {
   if (px.defaultRuleAction && !Array.isArray(px.defaultRuleAction)) {
     px.defaultRuleAction = [px.defaultRuleAction];
   }
-  // 默认动作升级为对象数组,支持每项单独配置网络模式与目标服务
-  // 旧格式: defaultRuleAction: ['chain:xxx', 'direct_local']
-  // 新格式: defaultRuleActions: [{ action: 'chain:xxx', networkMode: 'local', targetClientId: '' }, ...]
   if (Array.isArray(px.defaultRuleAction) && !px.defaultRuleActions) {
     px.defaultRuleActions = px.defaultRuleAction.map(act => ({
       action: act,
@@ -251,11 +270,9 @@ function migrateProxyRulesToCards(px, loaded) {
     }));
     delete px.defaultRuleAction;
   } else if (px.defaultRuleActions) {
-    // 确保每个对象字段完整
     px.defaultRuleActions.forEach(item => {
       if (!item.networkMode) item.networkMode = item.action === 'direct_remote' ? 'remote' : 'local';
       if (!item.targetClientId) item.targetClientId = '';
-      // 修复历史遗留: direct_remote 被错误设为 local
       if (item.action === 'direct_remote' && item.networkMode === 'local') {
         item.networkMode = 'remote';
       }
