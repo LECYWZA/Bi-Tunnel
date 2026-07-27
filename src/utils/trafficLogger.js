@@ -9,6 +9,9 @@ class TrafficLogger extends EventEmitter {
     this.maxSize = maxSize;
     this.jsonPath = path.join(process.cwd(), 'logs', 'traffic_logs.json');
     this.recordingEnabled = true;
+    this.pendingInserts = [];
+    this.flushTimer = null;
+    this.flushIntervalMs = 100;
     this.migrateOldJsonLogs();
   }
 
@@ -64,12 +67,96 @@ class TrafficLogger extends EventEmitter {
     }
   }
 
-  scheduleSave() {
-    // SQLite handles persistence immediately on insert/update
+  flushPending() {
+    if (this.pendingInserts.length === 0) return;
+    const itemsToFlush = this.pendingInserts;
+    this.pendingInserts = [];
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
+    try {
+      const db = getDb();
+      const insertStmt = db.prepare(`
+        INSERT INTO traffic_logs (timestamp, module, source_ip, target, action, rule_pattern, bytes_transferred, duration_ms, status, error, client_id, route_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const insertMany = db.transaction((logs) => {
+        for (const item of logs) {
+          const routePathStr = Array.isArray(item.routePath) ? JSON.stringify(item.routePath) : (item.routePath || '');
+          const info = insertStmt.run(
+            item.timestamp,
+            item.module || '',
+            item.sourceIp || 'Local',
+            item.target || '',
+            item.action || '',
+            item.rulePattern || '',
+            item.bytesTransferred || 0,
+            item.durationMs || 0,
+            item.status || 'success',
+            item.error || '',
+            item.clientId || '',
+            routePathStr
+          );
+          item.id = Number(info.lastInsertRowid);
+        }
+      });
+
+      insertMany(itemsToFlush);
+      this.cleanLogs(db);
+    } catch (err) {
+      console.error('Failed to flush traffic logs to sqlite:', err);
+    }
+  }
+
+  scheduleFlush() {
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => {
+        this.flushTimer = null;
+        this.flushPending();
+      }, this.flushIntervalMs);
+    }
+  }
+
+  cleanLogs(dbInstance) {
+    try {
+      const db = dbInstance || getDb();
+      // Count-based cleanup
+      const pruneStmt = db.prepare(`
+        DELETE FROM traffic_logs WHERE id NOT IN (
+          SELECT id FROM traffic_logs ORDER BY id DESC LIMIT ?
+        )
+      `);
+      pruneStmt.run(this.maxSize);
+
+      // TTL Time-based cleanup if maxDays configured
+      let maxDays = 14;
+      try {
+        const configManager = require('../config/config');
+        const cfg = configManager.getConfig();
+        if (cfg && cfg.logConfig && cfg.logConfig.maxDays) {
+          maxDays = cfg.logConfig.maxDays;
+        }
+      } catch (e) {}
+
+      if (maxDays > 0) {
+        const minTimestamp = Date.now() - (maxDays * 86400 * 1000);
+        const ttlStmt = db.prepare('DELETE FROM traffic_logs WHERE timestamp < ?');
+        ttlStmt.run(minTimestamp);
+      }
+    } catch (err) {
+      console.error('Failed to clean traffic logs:', err);
+    }
   }
 
   saveSync() {
-    // SQLite handles persistence immediately on insert/update
+    this.flushPending();
+  }
+
+  scheduleSave() {
+    this.scheduleFlush();
   }
 
   resolveRoutePath(action, target) {
@@ -133,85 +220,59 @@ class TrafficLogger extends EventEmitter {
 
     const timestamp = Date.now();
     const resolvedRoutePath = routePath || this.resolveRoutePath(action, target);
-    const routePathStr = Array.isArray(resolvedRoutePath) ? JSON.stringify(resolvedRoutePath) : resolvedRoutePath;
 
-    try {
-      const db = getDb();
-      const insertStmt = db.prepare(`
-        INSERT INTO traffic_logs (timestamp, module, source_ip, target, action, rule_pattern, bytes_transferred, duration_ms, status, error, client_id, route_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+    const logEntry = {
+      id: null,
+      timestamp,
+      module,
+      sourceIp: sourceIp || 'Local',
+      target,
+      action,
+      rulePattern,
+      bytesTransferred,
+      durationMs,
+      status,
+      error,
+      clientId,
+      routePath: resolvedRoutePath
+    };
 
-      const info = insertStmt.run(
-        timestamp,
-        module,
-        sourceIp || 'Local',
-        target,
-        action,
-        rulePattern,
-        bytesTransferred,
-        durationMs,
-        status,
-        error,
-        clientId,
-        routePathStr
-      );
+    this.pendingInserts.push(logEntry);
+    this.emit('new_log', logEntry);
+    this.scheduleFlush();
 
-      const logEntry = {
-        id: Number(info.lastInsertRowid),
-        timestamp,
-        module,
-        sourceIp: sourceIp || 'Local',
-        target,
-        action,
-        rulePattern,
-        bytesTransferred,
-        durationMs,
-        status,
-        error,
-        clientId,
-        routePath: resolvedRoutePath
-      };
-
-      this.emit('new_log', logEntry);
-
-      // Clean up old logs if buffer exceeds maxSize
-      const pruneStmt = db.prepare(`
-        DELETE FROM traffic_logs WHERE id NOT IN (
-          SELECT id FROM traffic_logs ORDER BY id DESC LIMIT ?
-        )
-      `);
-      pruneStmt.run(this.maxSize);
-
-      return logEntry;
-    } catch (err) {
-      console.error('Failed to add traffic log to sqlite:', err);
-      return null;
+    if (this.pendingInserts.length >= 100) {
+      this.flushPending();
     }
+
+    return logEntry;
   }
 
   updateLog(logEntry) {
-    if (!logEntry || !logEntry.id) return;
-    try {
-      const db = getDb();
-      const updateStmt = db.prepare(`
-        UPDATE traffic_logs
-        SET bytes_transferred = ?, duration_ms = ?, status = ?, error = ?
-        WHERE id = ?
-      `);
-      updateStmt.run(
-        logEntry.bytesTransferred || 0,
-        logEntry.durationMs || 0,
-        logEntry.status || 'success',
-        logEntry.error || '',
-        logEntry.id
-      );
-    } catch (err) {
-      console.error('Failed to update traffic log in sqlite:', err);
+    if (!logEntry) return;
+    if (logEntry.id) {
+      try {
+        const db = getDb();
+        const updateStmt = db.prepare(`
+          UPDATE traffic_logs
+          SET bytes_transferred = ?, duration_ms = ?, status = ?, error = ?
+          WHERE id = ?
+        `);
+        updateStmt.run(
+          logEntry.bytesTransferred || 0,
+          logEntry.durationMs || 0,
+          logEntry.status || 'success',
+          logEntry.error || '',
+          logEntry.id
+        );
+      } catch (err) {
+        console.error('Failed to update traffic log in sqlite:', err);
+      }
     }
   }
 
   getLogs(limit = 100, offset = 0, query = {}) {
+    this.flushPending(); // Ensure all buffered logs are in DB before querying
     try {
       const conditions = [];
       const params = [];
@@ -281,6 +342,11 @@ class TrafficLogger extends EventEmitter {
   }
 
   clear() {
+    this.pendingInserts = [];
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
     try {
       const db = getDb();
       db.prepare('DELETE FROM traffic_logs').run();
