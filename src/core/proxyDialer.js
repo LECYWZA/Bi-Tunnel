@@ -53,18 +53,36 @@ class ProxyDialer {
 
         if (useRemoteNetwork) {
           if (!session) return callback(new Error('No remote session available'));
-          socket = session.createChannel({
+          const channel = session.createChannel({
             type: 'forward',
             host: connectHost,
             port: connectPort
           });
-          const onError = (err) => {
+          let resolved = false;
+          const timer = setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              getLogger().warn(`[ProxyChain] No ACK from remote for ${connectHost}:${connectPort}, proceeding anyway (timeout)`);
+              onFirstConnected(channel);
+            }
+          }, 5000);
+          channel.once('ack', (success) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            if (success) {
+              onFirstConnected(channel);
+            } else {
+              try { channel.destroy(); } catch (e) {}
+              callback(new Error(`Remote tunnel target ${connectHost}:${connectPort} unreachable`));
+            }
+          });
+          channel.once('error', (err) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            try { channel.destroy(); } catch (e) {}
             callback(new Error(`Remote tunnel error to first node: ${err.message}`));
-          };
-          socket.once('error', onError);
-          process.nextTick(() => {
-            socket.removeListener('error', onError);
-            onFirstConnected(socket);
           });
         } else {
           // HTTP 代理服务器本身使用 TLS（HTTPS 代理）时，先建立 TCP 再升级为 TLS

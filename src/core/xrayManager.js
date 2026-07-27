@@ -88,7 +88,7 @@ function parseVmess(rawUrl) {
     settings: {
       vnext: [{
         address: vmess.add,
-        port: parseInt(vmess.port),
+        port: parseInt(vmess.port) || 443,
         users: [{
           id: vmess.id,
           alterId: parseInt(vmess.aid) || 0,
@@ -531,15 +531,16 @@ async function startTun(proxyPort) {
   const configPath = path.join(BIN_DIR, 'tun-config.json');
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
-  return new Promise(async (resolve, reject) => {
-    getLogger().info(`[Xray TUN] Starting xray-core in TUN mode pointing to SOCKS5 port ${proxyPort}...`);
-    
-    const routeManager = require('../utils/routeManager');
-    if (os.platform() === 'linux') {
-      try {
-        await routeManager.tearDownLinuxTunRouting('tun-bi');
-      } catch(e) {}
-    }
+  return new Promise((resolve, reject) => {
+    (async () => {
+      getLogger().info(`[Xray TUN] Starting xray-core in TUN mode pointing to SOCKS5 port ${proxyPort}...`);
+      
+      const routeManager = require('../utils/routeManager');
+      if (os.platform() === 'linux') {
+        try {
+          await routeManager.tearDownLinuxTunRouting('tun-bi');
+        } catch(e) {}
+      }
 
     currentTunProcess = spawn(XRAY_EXE, ['run', '-c', configPath], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -635,7 +636,7 @@ async function startTun(proxyPort) {
           reject(new Error(currentTunError || 'Failed to start TUN process'));
         }
       }
-    }, 3000);
+    })().catch(reject);
   });
 }
 

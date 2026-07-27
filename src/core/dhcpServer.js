@@ -118,15 +118,16 @@ class DhcpServer {
     const op = msg.readUInt8(0);
     const htype = msg.readUInt8(1);
     const hlen = msg.readUInt8(2);
+    if (htype !== 1 || hlen !== 6) return; // 仅处理以太网 (htype=1, hlen=6)
     const xid = msg.readUInt32BE(4);
     const flags = msg.readUInt16BE(10);
     const ciaddr = msg.slice(12, 16).join('.');          // client IP
     const yiaddr_buf = msg.slice(16, 20);
     const siaddr = msg.slice(20, 24).join('.');           // server IP (next)
-    const chaddr = msg.slice(28, 28 + hlen);             // client hardware addr
+    const chaddr = msg.slice(28, 34);             // client hardware addr (6 bytes)
     const hex = chaddr.toString('hex');
     const macParts = hex.match(/.{2}/g);
-    if (!macParts || macParts.length < 6) return;
+    if (!macParts || macParts.length !== 6) return;
     const mac = macParts.join(':').toUpperCase();
 
     // magic cookie 0x63825363 at offset 236
