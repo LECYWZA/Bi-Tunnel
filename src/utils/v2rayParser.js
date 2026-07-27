@@ -1,3 +1,9 @@
+function safeBase64Decode(str) {
+  if (!str) return '';
+  const normalized = str.trim().replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(normalized, 'base64').toString('utf8');
+}
+
 function parseProxyUrl(url) {
   try {
     if (!url || typeof url !== 'string') return null;
@@ -5,7 +11,7 @@ function parseProxyUrl(url) {
     // vmess://
     if (url.startsWith('vmess://')) {
       const base64str = url.replace('vmess://', '');
-      const jsonStr = decodeURIComponent(escape(atob(base64str)));
+      const jsonStr = safeBase64Decode(base64str);
       const vmessConfig = JSON.parse(jsonStr);
       return {
         type: 'v2ray',
@@ -81,7 +87,7 @@ function decodeV2RayUrl(url) {
     if (!url) return null;
     if (url.startsWith('vmess://')) {
       const base64str = url.replace('vmess://', '');
-      const jsonStr = decodeURIComponent(escape(atob(base64str)));
+      const jsonStr = safeBase64Decode(base64str);
       const v = JSON.parse(jsonStr);
       return {
         v2rayType: 'vmess',

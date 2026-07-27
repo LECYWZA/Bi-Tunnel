@@ -275,6 +275,14 @@ class TrafficLogger extends EventEmitter {
       } catch (err) {
         console.error('Failed to update traffic log in sqlite:', err);
       }
+    } else if (this.pendingInserts && this.pendingInserts.length > 0) {
+      const pending = this.pendingInserts.find(item => item === logEntry);
+      if (pending) {
+        pending.bytesTransferred = logEntry.bytesTransferred || 0;
+        pending.durationMs = logEntry.durationMs || 0;
+        pending.status = logEntry.status || 'success';
+        pending.error = logEntry.error || '';
+      }
     }
   }
 

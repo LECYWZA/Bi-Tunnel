@@ -137,6 +137,11 @@ class TunnelServer extends EventEmitter {
 }
 
   stop() {
+    if (this._saveTimer) {
+      clearTimeout(this._saveTimer);
+      this._saveTimer = null;
+    }
+
     if (this.server) {
       this.server.close();
       this.server = null;
@@ -159,9 +164,7 @@ class TunnelServer extends EventEmitter {
         }
       }
     }
-    if (configChanged) {
-      configManager.saveConfig(config);
-    }
+    configManager.saveConfig(config);
 
     for (const session of this.sessions.values()) {
       session.close();

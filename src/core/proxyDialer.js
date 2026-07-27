@@ -201,11 +201,13 @@ class ProxyDialer {
 
     const onError = (err) => {
       cleanup();
+      try { socket.destroy(); } catch (e) {}
       callback(err);
     };
 
     const onClose = () => {
       cleanup();
+      try { socket.destroy(); } catch (e) {}
       callback(new Error('Connection closed by SOCKS5 proxy before handshake completed'));
     };
 
@@ -215,6 +217,7 @@ class ProxyDialer {
           if (buffer.length < 2) return;
           if (buffer[0] !== 0x05) {
             cleanup();
+            try { socket.destroy(); } catch (e) {}
             return callback(new Error('Invalid SOCKS5 auth reply'));
           }
           if (buffer[1] === 0x00) {
@@ -225,6 +228,7 @@ class ProxyDialer {
             buffer = buffer.slice(2);
             if (!user && !pass) {
               cleanup();
+              try { socket.destroy(); } catch (e) {}
               return callback(new Error('SOCKS5 requires auth but no credentials provided'));
             }
             const uBuf = Buffer.from(user || '');
@@ -233,12 +237,14 @@ class ProxyDialer {
             state = 'auth_result';
           } else {
             cleanup();
+            try { socket.destroy(); } catch (e) {}
             return callback(new Error('SOCKS5 server denied accepted auth methods'));
           }
         } else if (state === 'auth_result') {
           if (buffer.length < 2) return;
           if (buffer[0] !== 0x01) {
             cleanup();
+            try { socket.destroy(); } catch (e) {}
             return callback(new Error('Invalid SOCKS5 auth result'));
           }
           if (buffer[1] === 0x00) {
@@ -247,12 +253,14 @@ class ProxyDialer {
             state = 'request';
           } else {
             cleanup();
+            try { socket.destroy(); } catch (e) {}
             return callback(new Error('SOCKS5 auth failed'));
           }
         } else if (state === 'request') {
           if (buffer.length < 10) return;
           if (buffer[0] !== 0x05) {
             cleanup();
+            try { socket.destroy(); } catch (e) {}
             return callback(new Error('Invalid SOCKS5 request reply'));
           }
           let replyLen = 10;
@@ -266,6 +274,7 @@ class ProxyDialer {
             replyLen = 22;
           } else {
             cleanup();
+            try { socket.destroy(); } catch (e) {}
             return callback(new Error('Unknown SOCKS5 address type: ' + buffer[3]));
           }
           if (buffer.length < replyLen) return;
@@ -276,6 +285,7 @@ class ProxyDialer {
             if (extra.length > 0) socket.unshift(extra);
             callback(null);
           } else {
+            try { socket.destroy(); } catch (e) {}
             callback(new Error(`SOCKS5 connection to target failed with code: ${buffer[1]}`));
           }
           return;
@@ -324,11 +334,13 @@ class ProxyDialer {
 
     const onError = (err) => {
       cleanup();
+      try { socket.destroy(); } catch (e) {}
       callback(err);
     };
 
     const onClose = () => {
       cleanup();
+      try { socket.destroy(); } catch (e) {}
       callback(new Error('Connection closed by HTTP proxy before handshake completed'));
     };
 
@@ -349,6 +361,7 @@ class ProxyDialer {
           }
           callback(null);
         } else {
+          try { socket.destroy(); } catch (e) {}
           callback(new Error(`HTTP Proxy rejected CONNECT: ${firstLine}`));
         }
       }

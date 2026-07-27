@@ -273,6 +273,10 @@ class ProxyServer {
     let host = match[2];
     let port = parseInt(match[3]) || 80;
 
+    if (host.startsWith('[') && host.endsWith(']')) {
+      host = host.slice(1, -1);
+    }
+
     // Use async wrapper to catch errors since handleHttp is synchronous in its callback flow
     (async () => {
       try {

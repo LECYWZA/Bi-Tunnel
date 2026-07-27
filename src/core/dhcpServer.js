@@ -124,7 +124,10 @@ class DhcpServer {
     const yiaddr_buf = msg.slice(16, 20);
     const siaddr = msg.slice(20, 24).join('.');           // server IP (next)
     const chaddr = msg.slice(28, 28 + hlen);             // client hardware addr
-    const mac = chaddr.toString('hex').match(/.{2}/g).join(':').toUpperCase();
+    const hex = chaddr.toString('hex');
+    const macParts = hex.match(/.{2}/g);
+    if (!macParts || macParts.length < 6) return;
+    const mac = macParts.join(':').toUpperCase();
 
     // magic cookie 0x63825363 at offset 236
     if (msg.readUInt32BE(236) !== 0x63825363) return;
