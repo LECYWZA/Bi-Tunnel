@@ -1,6 +1,13 @@
 # Dependencies
 node_modules/
 
+# Flutter dependencies
+mobile/.pub-cache/
+mobile/build/
+mobile/android/.gradle/
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+
 # Build output
 dist/
 
@@ -10,6 +17,15 @@ config.json
 sqlite.db*
 *.pem
 
+# Environment variables and API keys
+.env
+.env.*
+*.key
+*.secret
+
+# Mobile local config (proxy settings, server addresses, tokens)
+mobile/assets/config.local.json
+
 # Xray Core and downloaded binaries
 bin/config*.json
 bin/tun-config.json
@@ -18,10 +34,6 @@ bin/tun-config.json
 test-*.js
 download*.js
 verify-proxy.js
-
-# IDEs and Editors
-.idea/
-.vscode/
 
 # Logs
 logs/
