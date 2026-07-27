@@ -336,6 +336,68 @@ import { t, locale, setLocale } from './i18n';
 
 const isLoggedIn = ref(false);
 const isCheckingAuth = ref(true);
+let accessToken = '';
+
+// ---- authFetch: wraps fetch with JWT Authorization header + auto-refresh on 401 ----
+let isRefreshing = false;
+let refreshQueue = [];
+
+async function tryRefreshToken() {
+  const res = await fetch('/api/refresh-token', { method: 'POST', credentials: 'include' });
+  if (!res.ok) throw new Error('refresh failed');
+  const data = await res.json();
+  if (data.success && data.accessToken) {
+    accessToken = data.accessToken;
+    return accessToken;
+  }
+  throw new Error('refresh failed');
+}
+
+async function authFetch(url, options = {}) {
+  const opts = { ...options, credentials: 'include' };
+  if (!opts.headers) opts.headers = {};
+  // Convert Headers object to plain object if needed
+  if (opts.headers instanceof Headers) {
+    const h = {};
+    opts.headers.forEach((v, k) => { h[k] = v; });
+    opts.headers = h;
+  }
+  if (accessToken) {
+    opts.headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+
+  let res = await fetch(url, opts);
+
+  // If 401, attempt to refresh and retry once
+  if (res.status === 401 && url !== '/api/login' && url !== '/api/refresh-token') {
+    if (!isRefreshing) {
+      isRefreshing = true;
+      try {
+        await tryRefreshToken();
+        // Resolve all queued requests
+        refreshQueue.forEach(cb => cb(null));
+      } catch (e) {
+        refreshQueue.forEach(cb => cb(e));
+        accessToken = '';
+        isLoggedIn.value = false;
+        return res; // return original 401
+      } finally {
+        refreshQueue = [];
+        isRefreshing = false;
+      }
+    } else {
+      // Wait for the ongoing refresh
+      await new Promise((resolve, reject) => {
+        refreshQueue.push((err) => err ? reject(err) : resolve());
+      });
+    }
+    // Retry with new token
+    opts.headers['Authorization'] = `Bearer ${accessToken}`;
+    res = await fetch(url, opts);
+  }
+
+  return res;
+}
 
 const toggleLocale = () => {
   const newLocale = locale.value === 'zh' ? 'en' : 'zh';
@@ -348,7 +410,8 @@ let statusTimer = null;
 let autoSaveTimer = null;
 let stopConfigAutoSaveWatch = null;
 
-const onLoginSuccess = () => {
+const onLoginSuccess = (token) => {
+  accessToken = token || '';
   isLoggedIn.value = true;
   fetchConfig();
   fetchNetworkInterfaces();
@@ -374,7 +437,7 @@ const toggleProtocol = async () => {
   const newProtocol = isHttps.value ? 'http' : 'https';
   switchingProtocol.value = true;
   try {
-    const res = await fetch('/api/switch-protocol', {
+    const res = await authFetch('/api/switch-protocol', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ protocol: newProtocol })
@@ -566,7 +629,7 @@ const submitChangePassword = async () => {
   if (passwordForm.newPass !== passwordForm.confirm) { ElMessage.error('两次输入的新密码不一致'); return; }
   passwordLoading.value = true;
   try {
-    const res = await fetch('/api/change-password', {
+    const res = await authFetch('/api/change-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -629,7 +692,7 @@ const genDnsId = () => `dns_${Date.now().toString(36)}_${Math.random().toString(
 // 加载系统 DNS 列表（打开弹窗时拉取）
 const loadSystemDns = async () => {
   try {
-    const res = await fetch('/api/system-dns');
+    const res = await authFetch('/api/system-dns');
     const data = await res.json();
     if (data.success) systemDnsList.value = data.servers || [];
   } catch (e) {
@@ -702,7 +765,7 @@ const testDns = async (item) => {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch('/api/dns-test', {
+    const res = await authFetch('/api/dns-test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ address: item.address }),
@@ -743,14 +806,14 @@ const handleGlobalProxyToggle = async (val) => {
         config.tunModeEnabled = false;
         config.tunProxyPort = null;
         try {
-          await fetch('/api/tun/disable', { method: 'POST' });
+          await authFetch('/api/tun/disable', { method: 'POST' });
           ElMessage.warning('虚拟网卡 (TUN) 模式已自动关闭');
         } catch (e) {
           console.error('Failed to auto-disable TUN:', e);
         }
       }
       ensureActiveProxyEnabled();
-      const res = await fetch('/api/system-proxy/enable', {
+      const res = await authFetch('/api/system-proxy/enable', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ host: '127.0.0.1', port: config.activeProxyPort })
@@ -764,7 +827,7 @@ const handleGlobalProxyToggle = async (val) => {
         config.globalProxyEnabled = false;
       }
     } else {
-      const res = await fetch('/api/system-proxy/disable', { method: 'POST' });
+      const res = await authFetch('/api/system-proxy/disable', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         config.globalProxyPort = null;
@@ -791,14 +854,14 @@ const handleTunToggle = async (val) => {
         config.globalProxyEnabled = false;
         config.globalProxyPort = null;
         try {
-          await fetch('/api/system-proxy/disable', { method: 'POST' });
+          await authFetch('/api/system-proxy/disable', { method: 'POST' });
           ElMessage.warning('全局系统代理已自动关闭');
         } catch (e) {
           console.error('Failed to auto-disable System Proxy:', e);
         }
       }
       ensureActiveProxyEnabled();
-      const res = await fetch('/api/tun/enable', {
+      const res = await authFetch('/api/tun/enable', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ port: config.activeProxyPort })
@@ -815,7 +878,7 @@ const handleTunToggle = async (val) => {
         config.tunModeEnabled = false;
       }
     } else {
-      const res = await fetch('/api/tun/disable', { method: 'POST' });
+      const res = await authFetch('/api/tun/disable', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         config.tunProxyPort = null;
@@ -842,7 +905,7 @@ const handleTabSelect = (index) => {
 
 const fetchStatus = async () => {
   try {
-    const res = await fetch('/api/status');
+    const res = await authFetch('/api/status');
     const data = await res.json();
     status.serverConnected = data.serverConnected;
     status.serverRunning = data.serverRunning;
@@ -856,7 +919,7 @@ const fetchStatus = async () => {
 
 const fetchXrayStatus = async () => {
   try {
-    const res = await fetch('/api/xray-status');
+    const res = await authFetch('/api/xray-status');
     const data = await res.json();
     xrayStatus.running = data.running;
     xrayStatus.pid = data.pid;
@@ -866,7 +929,7 @@ const fetchXrayStatus = async () => {
 
 const fetchNetworkInterfaces = async () => {
   try {
-    const res = await fetch('/api/network-interfaces');
+    const res = await authFetch('/api/network-interfaces');
     const data = await res.json();
     if (data && Array.isArray(data)) {
       availableIps.value = data;
@@ -878,7 +941,17 @@ const fetchNetworkInterfaces = async () => {
 
 const fetchConfig = async () => {
   try {
-    const res = await fetch('/api/config');
+    // On initial load (no accessToken), try to restore session via refresh token
+    if (!accessToken) {
+      try {
+        await tryRefreshToken();
+      } catch (e) {
+        isLoggedIn.value = false;
+        isCheckingAuth.value = false;
+        return;
+      }
+    }
+    const res = await authFetch('/api/config');
     if (res.status === 401) {
       isLoggedIn.value = false;
       return;
@@ -1014,7 +1087,7 @@ const startTunnel = async (targetMode) => {
   try {
     await saveConfig(true); 
     
-    const res = await fetch(`/api/tunnel/${targetMode}/start`, {
+    const res = await authFetch(`/api/tunnel/${targetMode}/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({})
@@ -1031,7 +1104,7 @@ const startTunnel = async (targetMode) => {
             cancelButtonText: '取消',
             type: 'warning'
           });
-          const killRes = await fetch(`/api/kill-port/${result.port}`, { method: 'POST' });
+          const killRes = await authFetch(`/api/kill-port/${result.port}`, { method: 'POST' });
           const killData = await killRes.json();
           if (killData.success) {
             ElMessage.success(killData.message);
@@ -1053,7 +1126,7 @@ const startTunnel = async (targetMode) => {
 
 const stopTunnel = async (targetMode) => {
   try {
-    const res = await fetch(`/api/tunnel/${targetMode}/stop`, { method: 'POST' });
+    const res = await authFetch(`/api/tunnel/${targetMode}/stop`, { method: 'POST' });
     const result = await res.json();
     if (result.success) {
       ElMessage.warning(`${targetMode === 'server' ? '服务端' : '客户端'} 隧道已停止`);
@@ -1083,7 +1156,7 @@ const saveConfig = async (silent = false) => {
   processProxies(payload.client.proxies);
 
   try {
-    const res = await fetch('/api/config', {
+    const res = await authFetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -1202,7 +1275,7 @@ const stopService = async () => {
         confirmButtonClass: 'el-button--danger'
       }
     );
-    await fetch('/api/service/stop', { method: 'POST' });
+    await authFetch('/api/service/stop', { method: 'POST' });
     ElMessage.success('服务正在停止...');
     // 页面将在服务停止后断开
     setTimeout(() => {
@@ -1225,13 +1298,13 @@ const restartService = async () => {
         confirmButtonClass: 'el-button--warning'
       }
     );
-    await fetch('/api/service/restart', { method: 'POST' });
+    await authFetch('/api/service/restart', { method: 'POST' });
     ElMessage.success('服务正在重启，即将自动刷新页面...');
     // 等待服务重启后刷新页面
     let retries = 0;
     const checkAndReload = async () => {
       try {
-        const res = await fetch('/api/status');
+        const res = await authFetch('/api/status');
         if (res.ok) {
           window.location.reload();
           return;
@@ -1252,7 +1325,7 @@ const restartService = async () => {
 
 // 退出登录
 const logout = async () => {
-  await fetch('/api/logout', { method: 'POST' });
+  await authFetch('/api/logout', { method: 'POST' });
   isLoggedIn.value = false;
 };
 

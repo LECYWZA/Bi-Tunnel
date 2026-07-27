@@ -94,7 +94,7 @@ const handleLogin = async () => {
             localStorage.removeItem('bt_login_remember');
           }
           ElMessage.success(t('login.success'));
-          emit('login-success');
+          emit('login-success', data.accessToken);
         } else {
           ElMessage.error(data.message || t('login.failed'));
         }

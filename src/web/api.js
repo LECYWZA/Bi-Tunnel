@@ -20,7 +20,58 @@ const ProxyDialer = require('../core/proxyDialer');
 // Dependency Injection to get current status
 let getStatus = () => ({});
 
-let currentAuthToken = '';
+// ============ JWT Utility (HMAC-SHA256, no external dependency) ============
+let jwtSecret = '';
+
+function base64UrlEncode(buf) {
+    return Buffer.from(buf).toString('base64')
+        .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function base64UrlDecode(str) {
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    return Buffer.from(str, 'base64');
+}
+
+function signJwt(payload, expiresInSec) {
+    const header = { alg: 'HS256', typ: 'JWT' };
+    const now = Math.floor(Date.now() / 1000);
+    const body = { ...payload, iat: now, exp: now + expiresInSec };
+    const segments = [
+        base64UrlEncode(JSON.stringify(header)),
+        base64UrlEncode(JSON.stringify(body))
+    ];
+    const signature = crypto.createHmac('sha256', jwtSecret)
+        .update(segments.join('.')).digest();
+    segments.push(base64UrlEncode(signature));
+    return segments.join('.');
+}
+
+function verifyJwt(token) {
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        const sigCheck = crypto.createHmac('sha256', jwtSecret)
+            .update(parts[0] + '.' + parts[1]).digest();
+        const sigGiven = base64UrlDecode(parts[2]);
+        if (!crypto.timingSafeEqual(sigCheck, sigGiven)) return null;
+        const payload = JSON.parse(base64UrlDecode(parts[1]).toString());
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+        return payload;
+    } catch (e) {
+        return null;
+    }
+}
+
+const ACCESS_TOKEN_TTL = 60 * 60;          // 1 hour
+const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60; // 7 days
+
+function issueTokens(username) {
+    const accessToken = signJwt({ sub: username, type: 'access' }, ACCESS_TOKEN_TTL);
+    const refreshToken = signJwt({ sub: username, type: 'refresh' }, REFRESH_TOKEN_TTL);
+    return { accessToken, refreshToken };
+}
 
 function getCookieValue(cookieHeader, name) {
     const cookies = cookieHeader || '';
@@ -43,10 +94,10 @@ function isAllowedCorsOrigin(origin) {
 function createWebServer(statusCallback) {
     const config = configManager.getConfig();
     if (!config.secretToken) {
-        config.secretToken = crypto.randomBytes(16).toString('hex');
+        config.secretToken = crypto.randomBytes(32).toString('hex');
         configManager.saveConfig(config);
     }
-    currentAuthToken = config.secretToken;
+    jwtSecret = config.secretToken;
 
     getStatus = statusCallback || (() => ({}));
     const app = express();
@@ -60,36 +111,64 @@ function createWebServer(statusCallback) {
     app.use(express.json({ limit: '10mb' }));
     app.use(express.static(path.join(__dirname, 'public')));
 
+    // ---- Auth middleware: verify JWT access token from Authorization header ----
     app.use((req, res, next) => {
-        // allow static files and login endpoints
-        if (req.path === '/api/login' || !req.path.startsWith('/api/')) {
+        // Allow static files, login, and refresh-token endpoints without auth
+        if (req.path === '/api/login' || req.path === '/api/refresh-token' || !req.path.startsWith('/api/')) {
             return next();
         }
 
-        const token = getCookieValue(req.headers.cookie, 'bt_token');
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+        const payload = token ? verifyJwt(token) : null;
 
-        if (token && token === currentAuthToken) {
+        if (payload && payload.type === 'access') {
+            req.user = payload;
             return next();
         } else {
             res.status(401).json({ error: 'Unauthorized', message: 'Not logged in' });
         }
     });
 
+    // ---- Login: issue access + refresh tokens ----
     app.post('/api/login', (req, res) => {
         const config = configManager.getConfig();
         const validUser = config.webUsername || 'admin';
         const validPass = config.webPassword || 'password';
 
         if (req.body.username === validUser && req.body.password === validPass) {
-            res.cookie('bt_token', currentAuthToken, { httpOnly: true, sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });
-            res.json({ success: true });
+            const { accessToken, refreshToken } = issueTokens(validUser);
+            res.cookie('bt_refresh', refreshToken, {
+                httpOnly: true,
+                sameSite: 'strict',
+                maxAge: REFRESH_TOKEN_TTL * 1000,
+                path: '/'
+            });
+            res.json({ success: true, accessToken });
         } else {
             res.status(401).json({ success: false, message: '账号或密码错误' });
         }
     });
 
+    // ---- Refresh: issue new access token using refresh cookie ----
+    app.post('/api/refresh-token', (req, res) => {
+        const refreshToken = getCookieValue(req.headers.cookie, 'bt_refresh');
+        if (!refreshToken) {
+            return res.status(401).json({ success: false, message: 'No refresh token' });
+        }
+        const payload = verifyJwt(refreshToken);
+        if (!payload || payload.type !== 'refresh') {
+            res.clearCookie('bt_refresh', { path: '/' });
+            return res.status(401).json({ success: false, message: 'Invalid or expired refresh token' });
+        }
+        // Issue a fresh access token (refresh token stays valid until it expires)
+        const accessToken = signJwt({ sub: payload.sub, type: 'access' }, ACCESS_TOKEN_TTL);
+        res.json({ success: true, accessToken });
+    });
+
+    // ---- Logout: clear refresh cookie ----
     app.post('/api/logout', (req, res) => {
-        res.clearCookie('bt_token');
+        res.clearCookie('bt_refresh', { path: '/' });
         res.json({ success: true });
     });
 
@@ -382,34 +461,49 @@ function createWebServer(statusCallback) {
         if (!port) return res.status(400).json({ success: false, message: 'Port is required' });
 
         const { exec } = require('child_process');
-        // Find PID on Windows using netstat and findstr
-        exec(`netstat -ano | findstr :${port}`, (err, stdout) => {
-            if (err || !stdout) {
-                return res.json({ success: false, message: `未找到占用端口 ${port} 的进程` });
-            }
-
-            const lines = stdout.trim().split('\n');
-            let targetPid = null;
-            for (const line of lines) {
-                const parts = line.trim().split(/\s+/);
-                // Protocol, Local Address, Foreign Address, State, PID
-                if (parts.length >= 4 && parts[1].endsWith(`:${port}`) && parts[parts.length - 1] !== '0') {
-                    targetPid = parts[parts.length - 1];
-                    break;
+        if (process.platform === 'win32') {
+            // Find PID on Windows using netstat and findstr
+            exec(`netstat -ano | findstr :${port}`, (err, stdout) => {
+                if (err || !stdout) {
+                    return res.json({ success: false, message: `未找到占用端口 ${port} 的进程` });
                 }
-            }
 
-            if (!targetPid) {
-                return res.json({ success: false, message: `未找到占用端口 ${port} 的有效 PID` });
-            }
-
-            exec(`taskkill /PID ${targetPid} /F`, (killErr) => {
-                if (killErr) {
-                    return res.json({ success: false, message: `强杀进程 ${targetPid} 失败: ${killErr.message}` });
+                const lines = stdout.trim().split('\n');
+                let targetPid = null;
+                for (const line of lines) {
+                    const parts = line.trim().split(/\s+/);
+                    // Protocol, Local Address, Foreign Address, State, PID
+                    if (parts.length >= 4 && parts[1].endsWith(`:${port}`) && parts[parts.length - 1] !== '0') {
+                        targetPid = parts[parts.length - 1];
+                        break;
+                    }
                 }
-                res.json({ success: true, message: `成功结束进程 ${targetPid}，端口 ${port} 已释放` });
+
+                if (!targetPid) {
+                    return res.json({ success: false, message: `未找到占用端口 ${port} 的有效 PID` });
+                }
+
+                exec(`taskkill /PID ${targetPid} /F`, (killErr) => {
+                    if (killErr) {
+                        return res.json({ success: false, message: `强杀进程 ${targetPid} 失败: ${killErr.message}` });
+                    }
+                    res.json({ success: true, message: `成功结束进程 ${targetPid}，端口 ${port} 已释放` });
+                });
             });
-        });
+        } else {
+            exec(`fuser -k ${port}/tcp`, (err) => {
+                if (err) {
+                    exec(`lsof -t -i:${port} | xargs -r kill -9`, (err2) => {
+                        if (err2) {
+                            return res.json({ success: false, message: `无法结束占用端口 ${port} 的进程: ${err2.message}` });
+                        }
+                        res.json({ success: true, message: `成功结束占用端口 ${port} 的进程` });
+                    });
+                } else {
+                    res.json({ success: true, message: `成功结束占用端口 ${port} 的进程` });
+                }
+            });
+        }
     });
 
     // 检查端口是否可绑定（用于启用代理前的实时校验）
@@ -644,12 +738,12 @@ function createWebServer(statusCallback) {
         }
     });
 
-    const dns = require('dns').promises;
+    const dnsPromises = require('dns').promises;
     async function resolveHost(host) {
         if (!host) return null;
         if (net.isIP(host)) return host;
         try {
-            const res = await dns.lookup(host);
+            const res = await dnsPromises.lookup(host);
             return res.address;
         } catch (e) {
             return null;
@@ -1128,6 +1222,9 @@ function createWebServer(statusCallback) {
             }
 
             const { stopXray } = require('../core/xrayManager');
+            const { closeDb } = require('../db/sqlite');
+            const trafficLogger = require('../utils/trafficLogger');
+            try { trafficLogger.saveSync(); } catch (e) {}
             stopXray();
             if (app.locals.server) {
                 app.locals.server.close();
@@ -1135,6 +1232,7 @@ function createWebServer(statusCallback) {
             if (app.locals.httpServer) {
                 app.locals.httpServer.close();
             }
+            try { closeDb(); } catch (e) {}
             setTimeout(() => process.exit(0), 500);
         }, 500);
     });
@@ -1200,8 +1298,12 @@ function createWebServer(statusCallback) {
                 runCmd = `bash "${restartScript}"`;
             }
             const { exec } = require('child_process');
+            const { closeDb } = require('../db/sqlite');
+            const trafficLogger = require('../utils/trafficLogger');
+            try { trafficLogger.saveSync(); } catch (e) {}
             exec(runCmd, { detached: true, cwd });
             getLogger().info('[Service] Restart script executed, exiting current process...');
+            try { closeDb(); } catch (e) {}
             process.exit(0);
         }, 500);
     });
@@ -1351,8 +1453,10 @@ function createWebServer(statusCallback) {
                 runCmd = `bash "${restartScript}"`;
             }
             const { exec } = require('child_process');
+            const { closeDb } = require('../db/sqlite');
             exec(runCmd, { detached: true, cwd });
             getLogger().info('[Service] Protocol switch script executed, exiting current process...');
+            try { closeDb(); } catch (e) {}
             process.exit(0);
         }, 500);
     });
@@ -1450,8 +1554,16 @@ function createWebServer(statusCallback) {
     app.locals.broadcastTrafficLog = broadcastTrafficLog;
 
     const handleWsConnection = (ws, req) => {
-        const token = getCookieValue(req.headers.cookie, 'bt_token');
-        if (!token || token !== currentAuthToken) {
+        const refreshToken = getCookieValue(req.headers.cookie, 'bt_refresh');
+        let token = refreshToken;
+        if (!token && req.url) {
+            try {
+                const urlObj = new URL(req.url, 'http://127.0.0.1');
+                token = urlObj.searchParams.get('token');
+            } catch (e) {}
+        }
+        const payload = token ? verifyJwt(token) : null;
+        if (!payload) {
             ws.close(1008, 'Unauthorized');
             return;
         }

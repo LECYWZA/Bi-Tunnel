@@ -6,6 +6,7 @@ dist/
 
 # Configuration, Secrets, and Database
 config.json
+*.bak
 sqlite.db*
 *.pem
 

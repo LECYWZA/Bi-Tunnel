@@ -345,36 +345,64 @@ class ProxyServer {
   }
 
   readSocks5Request(socket, proxyConfig) {
-    socket.once('data', async (reqData) => {
-      if (reqData.length < 10 || reqData[0] !== 0x05 || reqData[1] !== 0x01) {
+    if (!socket._socksBuffer) socket._socksBuffer = Buffer.alloc(0);
+
+    const onData = async (chunk) => {
+      socket._socksBuffer = Buffer.concat([socket._socksBuffer, chunk]);
+      const buf = socket._socksBuffer;
+      if (buf.length < 4) return; // Wait for VER, CMD, RSV, ATYP
+
+      if (buf[0] !== 0x05 || buf[1] !== 0x01) { // 0x05 = SOCKS5, 0x01 = CONNECT
+        socket.removeListener('data', onData);
         socket.destroy();
         return;
       }
-      const atyp = reqData[3];
+
+      const atyp = buf[3];
+      let reqLen = 0;
       let host = '';
       let port = 0;
       let offset = 4;
 
       if (atyp === 0x01) { // IPv4
-        host = `${reqData[4]}.${reqData[5]}.${reqData[6]}.${reqData[7]}`;
+        reqLen = 4 + 4 + 2; // 10 bytes
+        if (buf.length < reqLen) return;
+        host = `${buf[4]}.${buf[5]}.${buf[6]}.${buf[7]}`;
         offset += 4;
       } else if (atyp === 0x03) { // Domain
-        const len = reqData[4];
-        host = reqData.slice(5, 5 + len).toString('utf8');
+        if (buf.length < 5) return;
+        const len = buf[4];
+        reqLen = 5 + len + 2;
+        if (buf.length < reqLen) return;
+        host = buf.slice(5, 5 + len).toString('utf8');
         offset += 1 + len;
       } else if (atyp === 0x04) { // IPv6
-        // Simplified IPv6 ignoring for now, rarely used natively here
+        reqLen = 4 + 16 + 2; // 22 bytes
+        if (buf.length < reqLen) return;
+        const parts = [];
+        for (let i = 0; i < 16; i += 2) {
+          parts.push(buf.readUInt16BE(4 + i).toString(16));
+        }
+        host = parts.join(':');
+        offset += 16;
+      } else {
+        socket.removeListener('data', onData);
         socket.destroy();
         return;
       }
-      
-      port = reqData.readUInt16BE(offset);
 
+      port = buf.readUInt16BE(offset);
+      socket.removeListener('data', onData);
+
+      const leftover = buf.slice(reqLen);
       try {
         await this.processTarget(socket, host, port, proxyConfig, (channel) => {
           // Send SOCKS5 success reply
           const reply = Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
           socket.write(reply);
+          if (leftover.length > 0) {
+            channel.write(leftover);
+          }
           socket.pipe(channel);
           channel.pipe(socket);
         });
@@ -382,7 +410,9 @@ class ProxyServer {
         getLogger().error(`[Proxy] Error processing SOCKS5 target ${host}: ${err.message}`);
         socket.destroy();
       }
-    });
+    };
+
+    socket.on('data', onData);
   }
 
   async processTarget(socket, host, port, proxyConfig, onConnected) {

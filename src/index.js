@@ -275,6 +275,7 @@ process.on('SIGINT', async () => {
     const { disableSystemProxy } = require('./utils/systemProxy');
     const routeManager = require('./utils/routeManager');
     const trafficLogger = require('./utils/trafficLogger');
+    const { closeDb } = require('./db/sqlite');
 
     try { trafficLogger.saveSync(); } catch (e) {}
     try { await disableSystemProxy(); } catch (e) {}
@@ -287,6 +288,7 @@ process.on('SIGINT', async () => {
 
     stopXray();
     stopTun().catch(() => {}).finally(() => {
+        try { closeDb(); } catch (e) {}
         process.exit(0);
     });
 });

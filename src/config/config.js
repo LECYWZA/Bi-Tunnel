@@ -97,21 +97,23 @@ function saveConfigToDb(configObj, dbInstance) {
       tunModeEnabled: configObj.tunModeEnabled,
       tunProxyPort: configObj.tunProxyPort,
       globalProxyEnabled: configObj.globalProxyEnabled,
-      globalProxyPort: configObj.globalProxyPort
+      globalProxyPort: configObj.globalProxyPort,
+      webProtocol: configObj.webProtocol,
+      webHttpPort: configObj.webHttpPort
     },
     'section:proxyNodes': configObj.proxyNodes || [],
     'section:proxyChains': configObj.proxyChains || [],
     'section:ruleCards': configObj.ruleCards || [],
     'section:routerSystem': configObj.routerSystem || {},
     'section:server': configObj.server || {},
-    'section:client': configObj.client || {},
-    'config': configObj
+    'section:client': configObj.client || {}
   };
 
   const saveBatch = db.transaction((secMap) => {
     const now = Date.now();
     for (const [k, val] of Object.entries(secMap)) {
-      stmt.run(k, JSON.stringify(val), now);
+      const jsonVal = JSON.stringify(val) || 'null';
+      stmt.run(k, jsonVal, now);
     }
   });
 
@@ -233,7 +235,8 @@ function loadConfig() {
 function saveConfig(newConfig) {
   try {
     if (newConfig) {
-      currentConfig = mergeDefaults(currentConfig, newConfig);
+      // Deep merge: newConfig fields override currentConfig, missing fields preserved
+      currentConfig = mergeDefaults(DEFAULT_CONFIG, mergeDefaults(currentConfig, newConfig));
     }
     saveConfigToDb(currentConfig);
   } catch (err) {

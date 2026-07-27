@@ -8,6 +8,7 @@ const transparentProxy = require('../utils/transparentProxy');
 
 const isLinux = os.platform() === 'linux';
 const isWindows = os.platform() === 'win32';
+const CHAIN_TAG = 'nb-plus-router';
 
 function execPromise(cmd) {
   return new Promise((resolve, reject) => {
@@ -440,7 +441,5 @@ function _findProxyPort(config, proxyId) {
   const proxy = lists.find(p => p.id === proxyId);
   return proxy ? proxy.listenPort : null;
 }
-
-const CHAIN_TAG = 'nb-plus-router';
 
 module.exports = { start, stop, isRunning, getDeviceRegistry };

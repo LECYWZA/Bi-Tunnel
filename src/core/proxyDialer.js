@@ -193,12 +193,28 @@ class ProxyDialer {
     let state = 'auth'; // 'auth' | 'auth_result' | 'request'
     let buffer = Buffer.alloc(0);
 
+    const cleanup = () => {
+      socket.removeListener('data', onData);
+      socket.removeListener('error', onError);
+      socket.removeListener('close', onClose);
+    };
+
+    const onError = (err) => {
+      cleanup();
+      callback(err);
+    };
+
+    const onClose = () => {
+      cleanup();
+      callback(new Error('Connection closed by SOCKS5 proxy before handshake completed'));
+    };
+
     const advanceState = () => {
       while (buffer.length > 0) {
         if (state === 'auth') {
           if (buffer.length < 2) return;
           if (buffer[0] !== 0x05) {
-            socket.removeListener('data', onData);
+            cleanup();
             return callback(new Error('Invalid SOCKS5 auth reply'));
           }
           if (buffer[1] === 0x00) {
@@ -208,7 +224,7 @@ class ProxyDialer {
           } else if (buffer[1] === 0x02) {
             buffer = buffer.slice(2);
             if (!user && !pass) {
-              socket.removeListener('data', onData);
+              cleanup();
               return callback(new Error('SOCKS5 requires auth but no credentials provided'));
             }
             const uBuf = Buffer.from(user || '');
@@ -216,13 +232,13 @@ class ProxyDialer {
             socket.write(Buffer.concat([Buffer.from([0x01, uBuf.length]), uBuf, Buffer.from([pBuf.length]), pBuf]));
             state = 'auth_result';
           } else {
-            socket.removeListener('data', onData);
+            cleanup();
             return callback(new Error('SOCKS5 server denied accepted auth methods'));
           }
         } else if (state === 'auth_result') {
           if (buffer.length < 2) return;
           if (buffer[0] !== 0x01) {
-            socket.removeListener('data', onData);
+            cleanup();
             return callback(new Error('Invalid SOCKS5 auth result'));
           }
           if (buffer[1] === 0x00) {
@@ -230,13 +246,13 @@ class ProxyDialer {
             sendRequest();
             state = 'request';
           } else {
-            socket.removeListener('data', onData);
+            cleanup();
             return callback(new Error('SOCKS5 auth failed'));
           }
         } else if (state === 'request') {
           if (buffer.length < 10) return;
           if (buffer[0] !== 0x05) {
-            socket.removeListener('data', onData);
+            cleanup();
             return callback(new Error('Invalid SOCKS5 request reply'));
           }
           let replyLen = 10;
@@ -249,12 +265,12 @@ class ProxyDialer {
           } else if (buffer[3] === 0x04) {
             replyLen = 22;
           } else {
-            socket.removeListener('data', onData);
+            cleanup();
             return callback(new Error('Unknown SOCKS5 address type: ' + buffer[3]));
           }
           if (buffer.length < replyLen) return;
 
-          socket.removeListener('data', onData);
+          cleanup();
           if (buffer[1] === 0x00) {
             const extra = buffer.slice(replyLen);
             if (extra.length > 0) socket.unshift(extra);
@@ -289,10 +305,8 @@ class ProxyDialer {
     };
 
     socket.on('data', onData);
-    socket.once('error', (err) => {
-      socket.removeListener('data', onData);
-      callback(err);
-    });
+    socket.once('error', onError);
+    socket.once('close', onClose);
 
     // Start handshake
     const methods = (user || pass) ? Buffer.from([0x05, 0x02, 0x00, 0x02]) : Buffer.from([0x05, 0x01, 0x00]);
@@ -301,20 +315,34 @@ class ProxyDialer {
 
   static handshakeHttp(socket, user, pass, targetHost, targetPort, callback) {
     let leftover = Buffer.alloc(0);
-    
+
+    const cleanup = () => {
+      socket.removeListener('data', onData);
+      socket.removeListener('error', onError);
+      socket.removeListener('close', onClose);
+    };
+
+    const onError = (err) => {
+      cleanup();
+      callback(err);
+    };
+
+    const onClose = () => {
+      cleanup();
+      callback(new Error('Connection closed by HTTP proxy before handshake completed'));
+    };
+
     const onData = (data) => {
       leftover = Buffer.concat([leftover, data]);
       const str = leftover.toString('utf8');
       const headerEnd = str.indexOf('\r\n\r\n');
       
       if (headerEnd !== -1) {
-        socket.removeListener('data', onData);
+        cleanup();
         const headers = str.substring(0, headerEnd);
         const firstLine = headers.split('\r\n')[0];
         
         if (firstLine.includes('200')) {
-          // If the proxy sent extra data, put it back onto the socket stream
-          // In Node.js, we can emit 'data' or unshift
           const extra = leftover.slice(headerEnd + 4);
           if (extra.length > 0) {
             socket.unshift(extra);
@@ -327,10 +355,8 @@ class ProxyDialer {
     };
 
     socket.on('data', onData);
-    socket.once('error', (err) => {
-      socket.removeListener('data', onData);
-      callback(err);
-    });
+    socket.once('error', onError);
+    socket.once('close', onClose);
 
     let authHeader = '';
     if (user || pass) {

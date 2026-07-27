@@ -12,7 +12,7 @@ class TrafficLogger extends EventEmitter {
     this.pendingInserts = [];
     this.flushTimer = null;
     this.flushIntervalMs = 100;
-    this.migrateOldJsonLogs();
+    this._migrated = false;
   }
 
   setEnabled(enabled) {
@@ -139,7 +139,9 @@ class TrafficLogger extends EventEmitter {
         if (cfg && cfg.logConfig && cfg.logConfig.maxDays) {
           maxDays = cfg.logConfig.maxDays;
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Failed to load config for log cleanup:', e.message);
+      }
 
       if (maxDays > 0) {
         const minTimestamp = Date.now() - (maxDays * 86400 * 1000);
@@ -218,6 +220,11 @@ class TrafficLogger extends EventEmitter {
   addLog({ module, sourceIp, target, action, rulePattern = '', bytesTransferred = 0, durationMs = 0, status = 'success', error = '', clientId = '', routePath }) {
     if (!this.recordingEnabled) return null;
 
+    if (!this._migrated) {
+      this._migrated = true;
+      this.migrateOldJsonLogs();
+    }
+
     const timestamp = Date.now();
     const resolvedRoutePath = routePath || this.resolveRoutePath(action, target);
 
@@ -272,6 +279,10 @@ class TrafficLogger extends EventEmitter {
   }
 
   getLogs(limit = 100, offset = 0, query = {}) {
+    if (!this._migrated) {
+      this._migrated = true;
+      this.migrateOldJsonLogs();
+    }
     this.flushPending(); // Ensure all buffered logs are in DB before querying
     try {
       const conditions = [];

@@ -49,7 +49,19 @@ function initTables(dbInstance) {
   `);
 }
 
+function closeDb() {
+  if (db) {
+    try {
+      db.close();
+    } catch (e) {
+      console.error('Failed to close sqlite db:', e);
+    }
+    db = null;
+  }
+}
+
 module.exports = {
   getDb,
+  closeDb,
   DB_PATH
 };
