@@ -1242,6 +1242,7 @@ const sendWsMessage = (msg) => {
 };
 
 provide('sendWsMessage', sendWsMessage);
+provide('authFetch', authFetch);
 
 // Traffic log listener registry (for WS-pushed logs)
 const trafficLogListeners = [];

@@ -412,13 +412,15 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, inject } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, Delete, Monitor, Connection, DocumentCopy, Check, Edit, Search, FolderOpened, Folder, ArrowDown, ArrowRight, Clock, Odometer, Share, FullScreen } from '@element-plus/icons-vue';
 import { parseProxyUrl, decodeV2RayUrl, encodeV2RayUrl } from '../utils/v2rayParser';
 import jsQR from 'jsqr';
 import QrcodeVue from 'qrcode.vue';
 import { t } from '../i18n';
+
+const authFetch = inject('authFetch', fetch);
 
 const props = defineProps({
   config: Object
@@ -608,7 +610,7 @@ const fetchSubscription = async () => {
   if (!subUrl.value) return ElMessage.warning(t('nodes.subUrlRequired'));
   fetchingSub.value = true;
   try {
-    const res = await fetch('/api/fetch-subscription', {
+    const res = await authFetch('/api/fetch-subscription', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -740,7 +742,7 @@ const testLatency = async (nodeId, silent = false) => {
     const targetHost = parts[0] || 'www.bing.com';
     const targetPort = parseInt(parts[1]) || 443;
 
-    const res = await fetch('/api/test-latency', {
+    const res = await authFetch('/api/test-latency', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'node', id: nodeId, targetHost, targetPort, networkMode: testNetworkMode.value, targetClientId: testTargetClientId.value }),
@@ -786,7 +788,7 @@ const testSpeed = async (nodeId, silent = false) => {
     const targetHost = parts[0] || 'speed.cloudflare.com';
     const targetPort = parseInt(parts[1]) || 443;
 
-    const res = await fetch('/api/test-speed', {
+    const res = await authFetch('/api/test-speed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'node', id: nodeId, targetHost, targetPort, networkMode: testNetworkMode.value, targetClientId: testTargetClientId.value }),
@@ -898,7 +900,7 @@ const startCleanTest = async () => {
     cleanProgress.value = Math.floor((i / nodes.length) * 100);
     
     try {
-      const res = await fetch('/api/test-latency', {
+      const res = await authFetch('/api/test-latency', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'node', id: node.id, targetHost, targetPort, networkMode: testNetworkMode.value, targetClientId: testTargetClientId.value })

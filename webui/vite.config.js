@@ -7,6 +7,19 @@ export default defineConfig({
   build: {
     outDir: '../src/web/public',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 2500,
+    rollupOptions: {
+      onwarn(warning, warn) {
+        if (warning.code === 'INVALID_ANNOTATION') return
+        warn(warning)
+      }
+    },
+    rolldownOptions: {
+      onwarn(warning, warn) {
+        if (warning.code === 'INVALID_ANNOTATION') return
+        warn(warning)
+      }
+    }
   },
   server: {
     proxy: {

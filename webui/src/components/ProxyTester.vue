@@ -143,11 +143,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, inject } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Odometer, User, Lock, VideoPlay, Monitor, Plus, Delete, CopyDocument, CircleClose } from '@element-plus/icons-vue';
 import { t } from '../i18n';
 
+const authFetch = inject('authFetch', fetch);
 const STORAGE_KEY = 'nb_plus_tester_profiles';
 
 const profiles = ref([]);
@@ -276,7 +277,7 @@ const runTest = async (profile) => {
     }
     profile._abortController = new AbortController();
 
-    const res = await fetch('/api/test-proxy', {
+    const res = await authFetch('/api/test-proxy', {
       method: 'POST',
       signal: profile._abortController.signal,
       headers: {
@@ -295,8 +296,14 @@ const runTest = async (profile) => {
     });
 
     const data = await res.json();
-    profile.logs.push(...data.logs);
-    profile.testResult = data.success;
+    if (Array.isArray(data.logs)) {
+      profile.logs.push(...data.logs);
+    } else if (data.message || data.error) {
+      profile.logs.push(`Error: ${data.message || data.error}`);
+    } else {
+      profile.logs.push(`Error: HTTP ${res.status}`);
+    }
+    profile.testResult = !!data.success;
 
     if (data.success) {
       ElMessage.success(t('tester.profileTestSuccess', { name: profile.name }));

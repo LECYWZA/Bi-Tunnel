@@ -234,8 +234,10 @@ class ProxyServer {
     let requireAuth = proxyConfig.useAuth;
     const clientIp = socket.remoteAddress;
     
-    // Auto-bypass auth for localhost / local machine interface IPs
-    if (requireAuth && this.isLocalIp(clientIp)) {
+    // Auto-bypass auth for localhost ONLY when System Proxy or TUN mode is active
+    const config = configManager.getConfig();
+    const isSystemProxyOrTunActive = !!(config.globalProxyEnabled || config.tunModeEnabled);
+    if (requireAuth && this.isLocalIp(clientIp) && isSystemProxyOrTunActive) {
       requireAuth = false;
     }
 
@@ -310,8 +312,10 @@ class ProxyServer {
     let requireAuth = proxyConfig.useAuth;
     const clientIp = socket.remoteAddress;
     
-    // Auto-bypass auth for localhost / local machine interface IPs
-    if (requireAuth && this.isLocalIp(clientIp)) {
+    // Auto-bypass auth for localhost ONLY when System Proxy or TUN mode is active
+    const config = configManager.getConfig();
+    const isSystemProxyOrTunActive = !!(config.globalProxyEnabled || config.tunModeEnabled);
+    if (requireAuth && this.isLocalIp(clientIp) && isSystemProxyOrTunActive) {
       requireAuth = false;
     }
 
