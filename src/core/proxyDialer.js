@@ -263,7 +263,7 @@ class ProxyDialer {
             return callback(new Error('SOCKS5 auth failed'));
           }
         } else if (state === 'request') {
-          if (buffer.length < 10) return;
+          if (buffer.length < 4) return;
           if (buffer[0] !== 0x05) {
             cleanup();
             try { socket.destroy(); } catch (e) {}

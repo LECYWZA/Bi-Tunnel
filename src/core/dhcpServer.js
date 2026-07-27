@@ -321,7 +321,8 @@ class DhcpServer {
   _resolveDnsList(localDhcp) {
     // 兼容老的 dhcp.dns 字段（如有则优先）
     if (Array.isArray(localDhcp.dns) && localDhcp.dns.length > 0) {
-      return localDhcp.dns.filter(d => /^\d+\.\d+\.\d+\.\d+$/.test(d));
+      const filtered = localDhcp.dns.filter(d => /^\d+\.\d+\.\d+\.\d+$/.test(d));
+      if (filtered.length > 0) return filtered;
     }
     const defaults = ['223.5.5.5', '1.1.1.1'];
     if (!this.getGlobalConfig) return defaults;

@@ -89,6 +89,7 @@ class TunnelServer extends EventEmitter {
       });
 
       session.on('close', () => {
+        clearTimeout(authTimer);
         getLogger().info(`[TLS] Client ${sessionClientId || socket.remoteAddress} disconnected`);
         if (sessionClientId && this.sessions.get(sessionClientId) === session) {
           const currentConfig = configManager.getConfig();

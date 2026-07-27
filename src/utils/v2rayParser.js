@@ -17,7 +17,7 @@ function parseProxyUrl(url) {
         type: 'v2ray',
         v2rayType: 'vmess',
         host: vmessConfig.add,
-        port: parseInt(vmessConfig.port),
+        port: parseInt(vmessConfig.port) || 443,
         rawUrl: url,
         displayName: vmessConfig.ps || `${vmessConfig.add}:${vmessConfig.port}`
       };
