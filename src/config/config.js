@@ -9,6 +9,7 @@ const DEFAULT_CONFIG = {
   webPort: 8899,
   webUsername: 'admin',
   webPassword: 'password',
+  secretToken: '',
   logConfig: {
     maxDays: 14,
     maxSizeMB: 20
@@ -84,21 +85,67 @@ function saveConfigToDb(configObj, dbInstance) {
       value = excluded.value,
       updated_at = excluded.updated_at
   `);
-  stmt.run('config', JSON.stringify(configObj), Date.now());
+
+  const sections = {
+    'section:global': {
+      mode: configObj.mode,
+      webPort: configObj.webPort,
+      webUsername: configObj.webUsername,
+      webPassword: configObj.webPassword,
+      secretToken: configObj.secretToken,
+      logConfig: configObj.logConfig,
+      tunModeEnabled: configObj.tunModeEnabled,
+      tunProxyPort: configObj.tunProxyPort,
+      globalProxyEnabled: configObj.globalProxyEnabled,
+      globalProxyPort: configObj.globalProxyPort
+    },
+    'section:proxyNodes': configObj.proxyNodes || [],
+    'section:proxyChains': configObj.proxyChains || [],
+    'section:ruleCards': configObj.ruleCards || [],
+    'section:routerSystem': configObj.routerSystem || {},
+    'section:server': configObj.server || {},
+    'section:client': configObj.client || {},
+    'config': configObj
+  };
+
+  const saveBatch = db.transaction((secMap) => {
+    const now = Date.now();
+    for (const [k, val] of Object.entries(secMap)) {
+      stmt.run(k, JSON.stringify(val), now);
+    }
+  });
+
+  saveBatch(sections);
 }
 
 function loadConfig() {
   try {
     const db = getDb();
-    const row = db.prepare('SELECT value FROM system_config WHERE key = ?').get('config');
+    const rows = db.prepare("SELECT key, value FROM system_config WHERE key LIKE 'section:%' OR key = 'config'").all();
+    const secMap = {};
+    for (const row of rows) {
+      try {
+        secMap[row.key] = JSON.parse(row.value);
+      } catch (e) {}
+    }
 
     let loaded = null;
-    if (row && row.value) {
-      loaded = JSON.parse(row.value);
+
+    if (secMap['section:global']) {
+      loaded = {
+        ...secMap['section:global'],
+        proxyNodes: secMap['section:proxyNodes'] || [],
+        proxyChains: secMap['section:proxyChains'] || [],
+        ruleCards: secMap['section:ruleCards'] || [],
+        routerSystem: secMap['section:routerSystem'] || {},
+        server: secMap['section:server'] || {},
+        client: secMap['section:client'] || {}
+      };
+    } else if (secMap['config']) {
+      loaded = secMap['config'];
     } else if (fs.existsSync(CONFIG_PATH)) {
       const data = fs.readFileSync(CONFIG_PATH, 'utf8');
       loaded = JSON.parse(data);
-      // Migrate loaded data to SQLite DB
       saveConfigToDb(loaded, db);
       try {
         fs.renameSync(CONFIG_PATH, CONFIG_PATH + '.bak');
@@ -113,7 +160,6 @@ function loadConfig() {
       if (!loaded.ruleCards) loaded.ruleCards = [];
       if (!loaded.routerSystem) loaded.routerSystem = { ...DEFAULT_CONFIG.routerSystem };
       else {
-        // 补全字段
         const def = DEFAULT_CONFIG.routerSystem;
         const rs = loaded.routerSystem;
         rs.enabled = !!rs.enabled;
@@ -128,7 +174,6 @@ function loadConfig() {
         if (!Array.isArray(rs.devices)) rs.devices = [];
       }
       
-      // Upgrade existing proxyChains to use nodeRefs
       if (loaded.proxyChains.length > 0) {
         loaded.proxyChains.forEach(chain => {
           if (chain.nodes && Array.isArray(chain.nodes)) {
@@ -141,15 +186,14 @@ function loadConfig() {
                 loaded.proxyNodes.push(node);
                 nodeRefs.push(nodeId);
               } else if (typeof node === 'string') {
-                nodeRefs.push(node); // already a ref
+                nodeRefs.push(node);
               }
             });
-            chain.nodes = nodeRefs; // replace full objects with refs
+            chain.nodes = nodeRefs;
           }
         });
       }
 
-      // Upgrade existing inline chainNodes to decoupled proxyChains if any exist
       if (loaded.server && loaded.server.proxies) {
         loaded.server.proxies.forEach(px => migrateInlineChain(px, loaded));
         loaded.server.proxies.forEach(px => migrateProxyRulesToCards(px, loaded));
@@ -159,7 +203,6 @@ function loadConfig() {
         loaded.client.proxies.forEach(px => migrateProxyRulesToCards(px, loaded));
       }
 
-      // 确保代理密码认证字段存在（兼容旧配置）
       [loaded.server, loaded.client].forEach(side => {
         if (side && side.proxies) {
           side.proxies.forEach(px => {
@@ -176,6 +219,9 @@ function loadConfig() {
       delete currentConfig.password;
       delete currentConfig.forwards;
       delete currentConfig.proxies;
+
+      // Re-save to DB to ensure section keys are initialized
+      saveConfigToDb(currentConfig, db);
     } else {
       saveConfig(currentConfig);
     }
@@ -216,7 +262,6 @@ function migrateInlineChain(px, loaded) {
       name: `Migrated Chain (Port ${px.listenPort})`,
       nodes: nodeRefs
     });
-    // Update rules that point to proxy_chain
     if (px.proxyRules) {
       px.proxyRules.forEach(r => {
         if (r.action === 'proxy_chain') {
