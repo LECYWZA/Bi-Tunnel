@@ -8,7 +8,7 @@
     "start": "npm run build:webui && node src/index.js",
     "build:css": "npx tailwindcss -i ./src/web/public/input.css -o ./src/web/public/tailwind.css --minify",
     "build:webui": "cd webui && npm run build",
-    "build:app": "npx @yao-pkg/pkg . --out-path dist",
+    "build:app": "npx @yao-pkg/pkg . --out-path dist --compress Zstd",
     "build": "npm run build:webui && npm run build:app",
     "dev:webui": "cd webui && npm run dev",
     "dev:backend": "node src/index.js"
@@ -22,7 +22,9 @@
       "bin/geoip.dat",
       "bin/geosite.dat",
       "bin/wintun.dll",
-      "node_modules/better-sqlite3/**/*"
+      "node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+      "node_modules/better-sqlite3/lib/**/*",
+      "node_modules/better-sqlite3/package.json"
     ],
     "targets": [
       "node24-win-x64",
