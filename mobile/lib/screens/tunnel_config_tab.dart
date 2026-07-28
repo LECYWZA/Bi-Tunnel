@@ -44,44 +44,56 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
     super.initState();
     _servers = List.from(widget.config.servers);
     _clients = List.from(widget.config.clients);
-    _statusSub = PlatformService.statusStream.listen((status) {
-      try {
-        final instances = (status['instances'] as List?) ?? [];
-        debugPrint('statusStream: ${instances.length} instances');
-        final cStatuses = <String, String>{};
-        final sClients = <String, List<String>>{};
-        for (final inst in instances) {
-          final instMap = Map<String, dynamic>.from(inst as Map);
-          final id = instMap['id'] as String? ?? '';
-          final type = instMap['type'] as String? ?? '';
-          final isRunning = instMap['running'] as bool? ?? false;
-          debugPrint('statusStream: id=$id type=$type running=$isRunning');
-          if (type == 'client') {
-            final s = instMap['status'] as String? ?? 'disconnected';
-            cStatuses[id] = s;
-            final ci = _clients.indexWhere((c) => c.id == id);
-            if (ci >= 0) {
-              _clients[ci] = _clients[ci].copyWith(running: s == 'connected');
-            }
-          } else if (type == 'server') {
-            final clients = instMap['connectedClients'] as List? ?? [];
-            sClients[id] = List<String>.from(clients);
-            final si = _servers.indexWhere((s) => s.id == id);
-            if (si >= 0) {
-              _servers[si] = _servers[si].copyWith(running: isRunning);
-            }
+    _statusSub = PlatformService.statusStream.listen(_onStatus);
+    _syncInitialStatus();
+  }
+
+  Future<void> _syncInitialStatus() async {
+    try {
+      final status = await PlatformService.getStatus();
+      if (mounted) _onStatus(status);
+    } catch (e) {
+      debugPrint('syncInitialStatus error: $e');
+    }
+  }
+
+  void _onStatus(Map<String, dynamic> status) {
+    try {
+      final instances = (status['instances'] as List?) ?? [];
+      debugPrint('onStatus: ${instances.length} instances');
+      final cStatuses = <String, String>{};
+      final sClients = <String, List<String>>{};
+      for (final inst in instances) {
+        final instMap = Map<String, dynamic>.from(inst as Map);
+        final id = instMap['id'] as String? ?? '';
+        final type = instMap['type'] as String? ?? '';
+        final isRunning = instMap['running'] as bool? ?? false;
+        debugPrint('onStatus: id=$id type=$type running=$isRunning');
+        if (type == 'client') {
+          final s = instMap['status'] as String? ?? 'disconnected';
+          cStatuses[id] = s;
+          final ci = _clients.indexWhere((c) => c.id == id);
+          if (ci >= 0) {
+            _clients[ci] = _clients[ci].copyWith(running: s == 'connected');
+          }
+        } else if (type == 'server') {
+          final clients = instMap['connectedClients'] as List? ?? [];
+          sClients[id] = List<String>.from(clients);
+          final si = _servers.indexWhere((s) => s.id == id);
+          if (si >= 0) {
+            _servers[si] = _servers[si].copyWith(running: isRunning);
           }
         }
-        if (mounted) {
-          setState(() {
-            _clientStatuses = cStatuses;
-            _serverClients = sClients;
-          });
-        }
-      } catch (e) {
-        debugPrint('statusStream error: $e');
       }
-    });
+      if (mounted) {
+        setState(() {
+          _clientStatuses = cStatuses;
+          _serverClients = sClients;
+        });
+      }
+    } catch (e) {
+      debugPrint('onStatus error: $e');
+    }
   }
 
   @override
@@ -109,6 +121,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
       _syncCtrl('client_${c.id}_sni', c.sni);
       _syncCtrl('client_${c.id}_clientId', c.clientId);
     }
+    _syncInitialStatus();
   }
 
   @override

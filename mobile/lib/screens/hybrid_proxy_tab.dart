@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/connection_config.dart';
 import '../services/platform_service.dart';
@@ -20,6 +21,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
   late List<ProxyInstance> _proxies;
   bool _hasChanges = false;
   final Map<String, TextEditingController> _ctrls = {};
+  StreamSubscription<Map<String, dynamic>>? _statusSub;
 
   TextEditingController _getCtrl(String key, String initialText) {
     if (!_ctrls.containsKey(key)) {
@@ -38,6 +40,38 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
   void initState() {
     super.initState();
     _proxies = List.from(widget.config.proxies);
+    _statusSub = PlatformService.statusStream.listen(_onStatus);
+    _syncInitialStatus();
+  }
+
+  Future<void> _syncInitialStatus() async {
+    try {
+      final status = await PlatformService.getStatus();
+      if (mounted) _onStatus(status);
+    } catch (e) {
+      debugPrint('proxy syncInitialStatus error: $e');
+    }
+  }
+
+  void _onStatus(Map<String, dynamic> status) {
+    try {
+      final instances = (status['instances'] as List?) ?? [];
+      var changed = false;
+      for (final inst in instances) {
+        final instMap = Map<String, dynamic>.from(inst as Map);
+        if ((instMap['type'] as String?) != 'proxy') continue;
+        final id = instMap['id'] as String? ?? '';
+        final isRunning = instMap['running'] as bool? ?? false;
+        final pi = _proxies.indexWhere((p) => p.id == id);
+        if (pi >= 0) {
+          _proxies[pi] = _proxies[pi].copyWith(running: isRunning);
+          changed = true;
+        }
+      }
+      if (mounted && changed) setState(() {});
+    } catch (e) {
+      debugPrint('proxy onStatus error: $e');
+    }
   }
 
   @override
@@ -49,10 +83,12 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
       _syncCtrl('proxy_${p.id}_bindIp', p.bindIp);
       _syncCtrl('proxy_${p.id}_listenPort', p.listenPort.toString());
     }
+    _syncInitialStatus();
   }
 
   @override
   void dispose() {
+    _statusSub?.cancel();
     for (final c in _ctrls.values) {
       c.dispose();
     }
