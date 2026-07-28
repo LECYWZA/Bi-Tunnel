@@ -4,6 +4,7 @@ node_modules/
 # Flutter dependencies
 mobile/.pub-cache/
 mobile/build/
+mobile/android/build/
 mobile/android/.gradle/
 mobile/ios/Pods/
 mobile/ios/.symlinks/
