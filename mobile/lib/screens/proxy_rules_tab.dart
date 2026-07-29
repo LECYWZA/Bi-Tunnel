@@ -73,7 +73,19 @@ class _ProxyRulesTabState extends State<ProxyRulesTab> {
     _notify();
   }
 
-  void _removeRule(int index) {
+  void _removeRule(int index) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除规则'),
+        content: Text('确定删除"${_rules[index].name}"规则吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
     setState(() => _rules.removeAt(index));
     _notify();
   }

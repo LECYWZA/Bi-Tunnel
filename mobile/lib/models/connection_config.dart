@@ -68,7 +68,7 @@ class TunnelServerConfig {
   TunnelServerConfig({
     String? id,
     this.name = '隧道服务端',
-    this.enabled = true,
+    this.enabled = false,
     this.bindIp = '127.0.0.1',
     this.listenPort = 33891,
     this.password = 'admin',
@@ -144,7 +144,7 @@ class TunnelClientConfig {
   TunnelClientConfig({
     String? id,
     this.name = '隧道客户端',
-    this.enabled = true,
+    this.enabled = false,
     this.serverHost = '127.0.0.1',
     this.serverPort = 33891,
     this.password = 'admin',
@@ -218,7 +218,7 @@ class ProxyAccount {
   ProxyAccount({
     this.username = '',
     this.password = '',
-    this.enabled = true,
+    this.enabled = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -250,7 +250,7 @@ class ProxyInstance {
   ProxyInstance({
     String? id,
     this.name = '混合代理',
-    this.enabled = true,
+    this.enabled = false,
     this.bindIp = '127.0.0.1',
     this.mode = 'client',
     this.listenPort = 1080,
@@ -345,7 +345,7 @@ class ProxyRule {
     this.name = '',
     this.matchType = MatchType.auto,
     this.matchValue = '',
-    this.enabled = true,
+    this.enabled = false,
     this.order = 0,
     this.action = ProxyAction.forward,
   }) : id = id ?? '';
@@ -388,7 +388,7 @@ class ProxyRule {
           orElse: () => MatchType.auto,
         ),
         matchValue: json['matchValue'] as String? ?? '',
-        enabled: json['enabled'] as bool? ?? true,
+        enabled: json['enabled'] as bool? ?? false,
         order: json['order'] as int? ?? 0,
         action: ProxyAction.values.firstWhere(
           (e) => e.name == json['action'],

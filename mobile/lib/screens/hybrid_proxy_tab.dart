@@ -109,7 +109,19 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
     _autoSave();
   }
 
-  void _removeProxy(int index) {
+  void _removeProxy(int index) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除代理'),
+        content: Text('确定删除"${_proxies[index].name}"吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
     setState(() {
       _proxies.removeAt(index);
     });
@@ -270,8 +282,16 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                   child: TextField(
                     controller: _getCtrl('proxy_${proxy.id}_listenPort', proxy.listenPort.toString()),
                     onChanged: (v) {
+                      final newPort = int.tryParse(v) ?? 0;
+                      final conflict = _proxies.asMap().entries.any((e) =>
+                        e.key != index && e.value.listenPort == newPort);
+                      if (conflict && newPort > 0) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('端口已被其他代理使用'), duration: Duration(seconds: 2)),
+                        );
+                      }
                       setState(() {
-                        _proxies[index] = proxy.copyWith(listenPort: int.tryParse(v) ?? 1080);
+                        _proxies[index] = proxy.copyWith(listenPort: newPort > 0 ? newPort : 1080);
                         _autoSave();
                       });
                     },

@@ -148,14 +148,38 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
     _autoSave();
   }
 
-  void _removeClient(int index) {
+  void _removeClient(int index) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除客户端'),
+        content: Text('确定删除"${_clients[index].name}"吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
     setState(() {
       _clients.removeAt(index);
     });
     _autoSave();
   }
 
-  void _removeServer(int index) {
+  void _removeServer(int index) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除服务端'),
+        content: Text('确定删除"${_servers[index].name}"吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
     setState(() {
       _servers.removeAt(index);
     });
@@ -284,7 +308,19 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                         const Spacer(),
                         IconButton(
                           icon: Icon(Icons.delete_outline, color: Colors.red.shade400, size: 18),
-                          onPressed: () {
+                          onPressed: () async {
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('删除转发规则'),
+                                content: Text('确定删除监听 ${rule.listenPort} 的转发规则吗？'),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                                  TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
+                                ],
+                              ),
+                            );
+                            if (confirm != true) return;
                             final updated = List<PortForwardRule>.from(rules);
                             updated.removeAt(i);
                             onUpdate(updated);
@@ -580,8 +616,16 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                   child: TextField(
                     controller: _getCtrl('server_${server.id}_listenPort', server.listenPort.toString()),
                     onChanged: (v) {
+                      final newPort = int.tryParse(v) ?? 0;
+                      final conflict = _servers.asMap().entries.any((e) =>
+                        e.key != index && e.value.listenPort == newPort);
+                      if (conflict && newPort > 0) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('端口已被其他服务端使用'), duration: Duration(seconds: 2)),
+                        );
+                      }
                       setState(() {
-                        _servers[index] = server.copyWith(listenPort: int.tryParse(v) ?? 33891);
+                        _servers[index] = server.copyWith(listenPort: newPort > 0 ? newPort : 33891);
                       });
                     },
                     keyboardType: TextInputType.number,
