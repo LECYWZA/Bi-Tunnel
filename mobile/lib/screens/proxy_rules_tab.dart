@@ -216,6 +216,40 @@ class _ProxyRulesTabState extends State<ProxyRulesTab> {
               style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
             ),
             const SizedBox(height: 4),
+            DropdownButtonFormField<ProxyAction>(
+              value: rule.action,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: '匹配动作',
+                border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              ),
+              items: ProxyAction.values.map((a) {
+                String label;
+                switch (a) {
+                  case ProxyAction.forward:
+                    label = '转发（通过隧道）';
+                    break;
+                  case ProxyAction.direct:
+                    label = '直连（本地网络）';
+                    break;
+                  case ProxyAction.reject:
+                    label = '拒绝';
+                    break;
+                }
+                return DropdownMenuItem(
+                  value: a,
+                  child: Text(label, style: const TextStyle(fontSize: 12)),
+                );
+              }).toList(),
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() => _rules[index] = rule.copyWith(action: v));
+                _notify();
+              },
+            ),
+            const SizedBox(height: 4),
             Text(
               '自动识别：*.example.com（域名） | 8.8.8.8（IP） | 10.0.0.0/8（CIDR）',
               style: TextStyle(color: Colors.grey.shade500, fontSize: 11),

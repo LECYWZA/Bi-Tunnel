@@ -288,58 +288,27 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
               ],
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<ProxyAction>(
-                    value: proxy.action,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: '匹配动作',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: ProxyAction.forward, child: Text('走隧道', style: TextStyle(fontSize: 12))),
-                      DropdownMenuItem(value: ProxyAction.direct, child: Text('直连', style: TextStyle(fontSize: 12))),
-                      DropdownMenuItem(value: ProxyAction.reject, child: Text('拒绝', style: TextStyle(fontSize: 12))),
-                    ],
-                    onChanged: (v) {
-                      if (v == null) return;
-                      setState(() {
-                        _proxies[index] = proxy.copyWith(action: v);
-                        _autoSave();
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<ProxyAction>(
-                    value: proxy.defaultAction,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: '默认动作',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: ProxyAction.forward, child: Text('走隧道', style: TextStyle(fontSize: 12))),
-                      DropdownMenuItem(value: ProxyAction.direct, child: Text('直连', style: TextStyle(fontSize: 12))),
-                      DropdownMenuItem(value: ProxyAction.reject, child: Text('拒绝', style: TextStyle(fontSize: 12))),
-                    ],
-                    onChanged: (v) {
-                      if (v == null) return;
-                      setState(() {
-                        _proxies[index] = proxy.copyWith(defaultAction: v);
-                        _autoSave();
-                      });
-                    },
-                  ),
-                ),
+            DropdownButtonFormField<ProxyAction>(
+              value: proxy.defaultAction,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: '默认动作（未匹配规则时）',
+                border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              ),
+              items: const [
+                DropdownMenuItem(value: ProxyAction.forward, child: Text('转发（通过隧道）', style: TextStyle(fontSize: 12))),
+                DropdownMenuItem(value: ProxyAction.direct, child: Text('直连（本地网络）', style: TextStyle(fontSize: 12))),
+                DropdownMenuItem(value: ProxyAction.reject, child: Text('拒绝', style: TextStyle(fontSize: 12))),
               ],
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() {
+                  _proxies[index] = proxy.copyWith(defaultAction: v);
+                  _autoSave();
+                });
+              },
             ),
             if (proxy.mode == 'server') ...[
               const SizedBox(height: 8),

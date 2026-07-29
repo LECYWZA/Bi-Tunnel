@@ -11,7 +11,8 @@ import kotlin.concurrent.thread
 data class ProxyRule(
     val matchType: String,
     val matchValue: String,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val action: String = "forward"
 )
 
 data class ProxyAccount(
@@ -26,7 +27,6 @@ class Socks5Proxy(
     private val onForwardRequest: (host: String, port: Int, clientSocket: Socket) -> Unit,
     private val onDirectRequest: ((host: String, port: Int, clientSocket: Socket) -> Unit)? = null,
     private val rules: List<ProxyRule> = emptyList(),
-    private val proxyAction: String = "forward",
     private val defaultAction: String = "forward"
 ) {
     private var serverSocket: ServerSocket? = null
@@ -165,8 +165,7 @@ class Socks5Proxy(
             else -> { socket.close(); return }
         }
 
-        val matched = evaluateRules(host)
-        val resolvedAction = if (matched) proxyAction else defaultAction
+        val resolvedAction = evaluateRules(host) ?: defaultAction
         when (resolvedAction) {
             "reject" -> {
                 val reply = byteArrayOf(0x05, 0x02.toByte(), 0x00, 0x01, 0, 0, 0, 0, 0, 0)
@@ -230,8 +229,7 @@ class Socks5Proxy(
             val hostPort = parts[1]
             val host = hostPort.substringBefore(":")
             val p = hostPort.substringAfter(":").toIntOrNull() ?: 443
-            val matched = evaluateRules(host)
-            val resolvedAction = if (matched) proxyAction else defaultAction
+            val resolvedAction = evaluateRules(host) ?: defaultAction
             when (resolvedAction) {
                 "reject" -> {
                     output.write("HTTP/1.1 403 Forbidden\r\n\r\n".toByteArray())
@@ -257,8 +255,7 @@ class Socks5Proxy(
             val uri = java.net.URI(url)
             val host = uri.host ?: run { socket.close(); return }
             val targetPort = uri.port.takeIf { it > 0 } ?: 80
-            val matched = evaluateRules(host)
-            val resolvedAction = if (matched) proxyAction else defaultAction
+            val resolvedAction = evaluateRules(host) ?: defaultAction
             when (resolvedAction) {
                 "reject" -> {
                     output.write("HTTP/1.1 403 Forbidden\r\n\r\n".toByteArray())
@@ -276,7 +273,7 @@ class Socks5Proxy(
         }
     }
 
-    private fun evaluateRules(host: String): Boolean {
+    private fun evaluateRules(host: String): String? {
         for (rule in rules) {
             if (!rule.enabled) continue
             val patterns = rule.matchValue.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
@@ -296,9 +293,9 @@ class Socks5Proxy(
                 "cidr" -> patterns.any { matchesCIDR(host, it) }
                 else -> false
             }
-            if (matches) return true
+            if (matches) return rule.action
         }
-        return false
+        return null
     }
 
     private fun matchesGlob(host: String, pattern: String): Boolean {

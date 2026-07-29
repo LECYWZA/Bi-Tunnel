@@ -322,7 +322,8 @@ class TunnelService : Service() {
                 ProxyRule(
                     matchType = r["matchType"] as? String ?: "any",
                     matchValue = r["matchValue"] as? String ?: "",
-                    enabled = r["enabled"] as? Boolean ?: true
+                    enabled = r["enabled"] as? Boolean ?: true,
+                    action = r["action"] as? String ?: "forward"
                 )
             } catch (_: Exception) { null }
         }
@@ -487,7 +488,6 @@ class TunnelService : Service() {
                                     }
                                 },
                                 rules = rules,
-                                proxyAction = "forward",
                                 defaultAction = "forward"
                             )
                             proxy?.start()
@@ -683,7 +683,6 @@ class TunnelService : Service() {
                         accounts = accounts,
                         onForwardRequest = { _, _, _ -> },
                         rules = rules,
-                        proxyAction = config["action"] as? String ?: "forward",
                         defaultAction = config["defaultAction"] as? String ?: "forward"
                     )
                     proxy = p

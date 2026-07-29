@@ -10,7 +10,7 @@ class PortForwardRule {
 
   PortForwardRule({
     String? id,
-    this.enabled = true,
+    this.enabled = false,
     this.listenPort = 8080,
     this.targetHost = '127.0.0.1',
     this.targetPort = 80,
@@ -241,7 +241,6 @@ class ProxyInstance {
   String bindIp;
   String mode;
   int listenPort;
-  ProxyAction action;
   ProxyAction defaultAction;
   List<ProxyAccount> accounts;
   List<String> ruleIds;
@@ -255,7 +254,6 @@ class ProxyInstance {
     this.bindIp = '127.0.0.1',
     this.mode = 'client',
     this.listenPort = 1080,
-    this.action = ProxyAction.forward,
     this.defaultAction = ProxyAction.forward,
     List<ProxyAccount>? accounts,
     List<String>? ruleIds,
@@ -272,7 +270,6 @@ class ProxyInstance {
     String? bindIp,
     String? mode,
     int? listenPort,
-    ProxyAction? action,
     ProxyAction? defaultAction,
     List<ProxyAccount>? accounts,
     List<String>? ruleIds,
@@ -286,7 +283,6 @@ class ProxyInstance {
       bindIp: bindIp ?? this.bindIp,
       mode: mode ?? this.mode,
       listenPort: listenPort ?? this.listenPort,
-      action: action ?? this.action,
       defaultAction: defaultAction ?? this.defaultAction,
       accounts: accounts ?? this.accounts,
       ruleIds: ruleIds ?? this.ruleIds,
@@ -302,7 +298,6 @@ class ProxyInstance {
         'bindIp': bindIp,
         'mode': mode,
         'listenPort': listenPort,
-        'action': action.name,
         'defaultAction': defaultAction.name,
         'accounts': accounts.map((a) => a.toJson()).toList(),
         'ruleIds': ruleIds,
@@ -316,10 +311,6 @@ class ProxyInstance {
         bindIp: json['bindIp'] as String? ?? '127.0.0.1',
         mode: json['mode'] as String? ?? 'client',
         listenPort: json['listenPort'] as int? ?? 1080,
-        action: ProxyAction.values.firstWhere(
-          (e) => e.name == json['action'],
-          orElse: () => ProxyAction.forward,
-        ),
         defaultAction: ProxyAction.values.firstWhere(
           (e) => e.name == json['defaultAction'],
           orElse: () => ProxyAction.forward,
@@ -347,6 +338,7 @@ class ProxyRule {
   final String matchValue;
   final bool enabled;
   final int order;
+  final ProxyAction action;
 
   const ProxyRule({
     String? id,
@@ -355,6 +347,7 @@ class ProxyRule {
     this.matchValue = '',
     this.enabled = true,
     this.order = 0,
+    this.action = ProxyAction.forward,
   }) : id = id ?? '';
 
   ProxyRule copyWith({
@@ -364,6 +357,7 @@ class ProxyRule {
     String? matchValue,
     bool? enabled,
     int? order,
+    ProxyAction? action,
   }) {
     return ProxyRule(
       id: id ?? this.id,
@@ -372,6 +366,7 @@ class ProxyRule {
       matchValue: matchValue ?? this.matchValue,
       enabled: enabled ?? this.enabled,
       order: order ?? this.order,
+      action: action ?? this.action,
     );
   }
 
@@ -382,6 +377,7 @@ class ProxyRule {
         'matchValue': matchValue,
         'enabled': enabled,
         'order': order,
+        'action': action.name,
       };
 
   factory ProxyRule.fromJson(Map<String, dynamic> json) => ProxyRule(
@@ -394,6 +390,10 @@ class ProxyRule {
         matchValue: json['matchValue'] as String? ?? '',
         enabled: json['enabled'] as bool? ?? true,
         order: json['order'] as int? ?? 0,
+        action: ProxyAction.values.firstWhere(
+          (e) => e.name == json['action'],
+          orElse: () => ProxyAction.forward,
+        ),
       );
 }
 
@@ -485,7 +485,6 @@ class AppConfig {
       'bindIp': proxy.bindIp,
       'mode': proxy.mode,
       'listenPort': proxy.listenPort,
-      'action': proxy.action.name,
       'defaultAction': proxy.defaultAction.name,
       'accounts': proxy.accounts.map((a) => a.toJson()).toList(),
       'targetClientId': proxy.targetClientId,
