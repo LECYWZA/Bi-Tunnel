@@ -71,6 +71,30 @@ class PlatformService {
     }
   }
 
+  static Future<bool> startPortForward(String instanceId, Map<String, dynamic> rule) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('startPortForward', {
+        'instanceId': instanceId,
+        'rule': rule,
+      });
+      return result ?? false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  static Future<bool> stopPortForward(String instanceId, String ruleId) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('stopPortForward', {
+        'instanceId': instanceId,
+        'ruleId': ruleId,
+      });
+      return result ?? false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   static Future<Map<String, dynamic>> getStatus() async {
     try {
       final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('getStatus');
@@ -86,7 +110,31 @@ class PlatformService {
   static Stream<Map<String, dynamic>> get statusStream {
     _statusStream ??= _eventChannel
         .receiveBroadcastStream()
-        .map((event) => Map<String, dynamic>.from(event as Map));
+        .map((event) {
+          final m = Map<String, dynamic>.from(event as Map);
+          _lastStatus = m;
+          return m;
+        });
     return _statusStream!;
+  }
+
+  static void init() {
+    statusStream.listen((_) {});
+  }
+
+  static Future<void> openAppSettings() async {
+    try {
+      await _channel.invokeMethod('openAppSettings');
+    } catch (e) {
+      debugPrint('openAppSettings error: $e');
+    }
+  }
+
+  static Future<void> openNotificationSettings() async {
+    try {
+      await _channel.invokeMethod('openNotificationSettings');
+    } catch (e) {
+      debugPrint('openNotificationSettings error: $e');
+    }
   }
 }

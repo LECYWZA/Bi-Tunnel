@@ -126,8 +126,11 @@ class TunnelServer(
                     val host = json.optString("host", "")
                     val port = json.optInt("port", 0)
                     if (host.isNotEmpty() && port > 0) {
+                        // Subscribe before spawning the connectTarget thread so any
+                        // TYPE_DATA arriving during connect is queued, not lost.
+                        val queue = mux.subscribeChannel(frame.channelId)
                         thread(isDaemon = true) {
-                            connectTarget(mux, frame.channelId, host, port)
+                            connectTarget(mux, frame.channelId, host, port, queue)
                         }
                     }
                 } catch (_: Exception) {}
@@ -135,7 +138,7 @@ class TunnelServer(
         }
     }
 
-    private fun connectTarget(mux: MuxSession, channelId: Long, host: String, port: Int) {
+    private fun connectTarget(mux: MuxSession, channelId: Long, host: String, port: Int, queue: java.util.concurrent.BlockingQueue<MuxFrame>) {
         var remote: Socket? = null
         try {
             remote = Socket()
@@ -143,8 +146,6 @@ class TunnelServer(
             remote.soTimeout = 30000
 
             mux.sendCreateAck(channelId, true)
-
-            val queue = mux.subscribeChannel(channelId)
             val remoteInput = remote.getInputStream()
             val remoteOutput = remote.getOutputStream()
             val buf = ByteArray(8192)
@@ -162,7 +163,6 @@ class TunnelServer(
                         }
                     }
                 } catch (_: Exception) {}
-                finally { mux.unsubscribeChannel(channelId) }
             }
 
             try {
@@ -178,6 +178,7 @@ class TunnelServer(
         } catch (_: Exception) {
             mux.sendCreateAck(channelId, false)
         } finally {
+            mux.unsubscribeChannel(channelId)
             try { remote?.close() } catch (_: Exception) {}
         }
     }

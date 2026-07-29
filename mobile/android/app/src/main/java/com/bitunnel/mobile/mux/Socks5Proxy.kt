@@ -1,19 +1,16 @@
 package com.bitunnel.mobile.mux
 
 import java.io.InputStream
+import java.io.PushbackInputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import kotlin.concurrent.thread
 
-enum class RuleAction { FORWARD, DIRECT, REJECT }
-enum class ProxyType { SOCKS5, HTTP }
-
 data class ProxyRule(
     val matchType: String,
     val matchValue: String,
-    val action: RuleAction,
     val enabled: Boolean = true
 )
 
@@ -25,11 +22,12 @@ data class ProxyAccount(
 
 class Socks5Proxy(
     private val port: Int,
-    private val proxyType: ProxyType = ProxyType.SOCKS5,
     private val accounts: List<ProxyAccount> = emptyList(),
     private val onForwardRequest: (host: String, port: Int, clientSocket: Socket) -> Unit,
     private val onDirectRequest: ((host: String, port: Int, clientSocket: Socket) -> Unit)? = null,
-    private val rules: List<ProxyRule> = emptyList()
+    private val rules: List<ProxyRule> = emptyList(),
+    private val proxyAction: String = "forward",
+    private val defaultAction: String = "forward"
 ) {
     private var serverSocket: ServerSocket? = null
     @Volatile
@@ -66,17 +64,23 @@ class Socks5Proxy(
 
     private fun handleClient(socket: Socket) {
         try {
-            when (proxyType) {
-                ProxyType.SOCKS5 -> handleSocks5(socket)
-                ProxyType.HTTP -> handleHttp(socket)
+            val input = socket.getInputStream()
+            val pushback = PushbackInputStream(input, 1)
+            val firstByte = pushback.read()
+            if (firstByte < 0) { socket.close(); return }
+            pushback.unread(firstByte)
+            when {
+                firstByte == 0x05 -> handleSocks5(socket, pushback)
+                firstByte in listOf('G'.code, 'P'.code, 'H'.code, 'C'.code, 'D'.code, 'O'.code) ->
+                    handleHttp(socket, pushback)
+                else -> socket.close()
             }
         } catch (_: Exception) {
             try { socket.close() } catch (_: Exception) {}
         }
     }
 
-    private fun handleSocks5(socket: Socket) {
-        val input = socket.getInputStream()
+    private fun handleSocks5(socket: Socket, input: PushbackInputStream) {
         val output = socket.getOutputStream()
 
         val buf = ByteArray(4096)
@@ -161,15 +165,16 @@ class Socks5Proxy(
             else -> { socket.close(); return }
         }
 
-        val action = evaluateRules(host)
-        when (action) {
-            RuleAction.REJECT -> {
+        val matched = evaluateRules(host)
+        val resolvedAction = if (matched) proxyAction else defaultAction
+        when (resolvedAction) {
+            "reject" -> {
                 val reply = byteArrayOf(0x05, 0x02.toByte(), 0x00, 0x01, 0, 0, 0, 0, 0, 0)
                 output.write(reply)
                 output.flush()
                 socket.close()
             }
-            RuleAction.DIRECT -> {
+            "direct" -> {
                 val reply = byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0)
                 output.write(reply)
                 output.flush()
@@ -179,7 +184,7 @@ class Socks5Proxy(
                     directConnect(host, port, socket)
                 }
             }
-            RuleAction.FORWARD -> {
+            else -> {
                 val reply = byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0)
                 output.write(reply)
                 output.flush()
@@ -188,8 +193,7 @@ class Socks5Proxy(
         }
     }
 
-    private fun handleHttp(socket: Socket) {
-        val input = socket.getInputStream()
+    private fun handleHttp(socket: Socket, input: PushbackInputStream) {
         val output = socket.getOutputStream()
         val buf = ByteArray(8192)
         var n = input.read(buf)
@@ -225,24 +229,25 @@ class Socks5Proxy(
             if (parts.size < 2) { socket.close(); return }
             val hostPort = parts[1]
             val host = hostPort.substringBefore(":")
-            val port = hostPort.substringAfter(":").toIntOrNull() ?: 443
-            val action = evaluateRules(host)
-            when (action) {
-                RuleAction.REJECT -> {
+            val p = hostPort.substringAfter(":").toIntOrNull() ?: 443
+            val matched = evaluateRules(host)
+            val resolvedAction = if (matched) proxyAction else defaultAction
+            when (resolvedAction) {
+                "reject" -> {
                     output.write("HTTP/1.1 403 Forbidden\r\n\r\n".toByteArray())
                     output.flush()
                     socket.close()
                 }
-                RuleAction.DIRECT -> {
+                "direct" -> {
                     output.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray())
                     output.flush()
-                    if (onDirectRequest != null) onDirectRequest(host, port, socket)
-                    else directConnect(host, port, socket)
+                    if (onDirectRequest != null) onDirectRequest(host, p, socket)
+                    else directConnect(host, p, socket)
                 }
-                RuleAction.FORWARD -> {
+                else -> {
                     output.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray())
                     output.flush()
-                    onForwardRequest(host, port, socket)
+                    onForwardRequest(host, p, socket)
                 }
             }
         } else {
@@ -252,38 +257,48 @@ class Socks5Proxy(
             val uri = java.net.URI(url)
             val host = uri.host ?: run { socket.close(); return }
             val targetPort = uri.port.takeIf { it > 0 } ?: 80
-            val action = evaluateRules(host)
-            when (action) {
-                RuleAction.REJECT -> {
+            val matched = evaluateRules(host)
+            val resolvedAction = if (matched) proxyAction else defaultAction
+            when (resolvedAction) {
+                "reject" -> {
                     output.write("HTTP/1.1 403 Forbidden\r\n\r\n".toByteArray())
                     output.flush()
                     socket.close()
                 }
-                RuleAction.DIRECT -> {
+                "direct" -> {
                     if (onDirectRequest != null) onDirectRequest(host, targetPort, socket)
                     else directConnect(host, targetPort, socket)
                 }
-                RuleAction.FORWARD -> {
+                else -> {
                     onForwardRequest(host, targetPort, socket)
                 }
             }
         }
     }
 
-    private fun evaluateRules(host: String): RuleAction {
+    private fun evaluateRules(host: String): Boolean {
         for (rule in rules) {
             if (!rule.enabled) continue
             val patterns = rule.matchValue.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
             val matches = when (rule.matchType) {
                 "any" -> true
+                "auto" -> patterns.any { pattern ->
+                    when {
+                        pattern == "any" || pattern == "*" || pattern == "all" || pattern == "0.0.0.0/0" || pattern == "::/0" -> true
+                        pattern.contains("/") -> matchesCIDR(host, pattern)
+                        pattern.any { it.isLetter() || it == '*' || it == '?' } -> matchesGlob(host, pattern.trimStart('.'))
+                        pattern.all { it.isDigit() || it == '.' } -> host == pattern
+                        else -> host == pattern
+                    }
+                }
                 "domain" -> patterns.any { matchesGlob(host, it.trimStart('.')) }
                 "ip" -> patterns.any { it == host }
                 "cidr" -> patterns.any { matchesCIDR(host, it) }
                 else -> false
             }
-            if (matches) return rule.action
+            if (matches) return true
         }
-        return RuleAction.FORWARD
+        return false
     }
 
     private fun matchesGlob(host: String, pattern: String): Boolean {

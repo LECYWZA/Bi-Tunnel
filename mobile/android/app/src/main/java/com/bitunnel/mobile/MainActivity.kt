@@ -10,12 +10,20 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        tunnelPlugin = TunnelPlugin(this, flutterEngine)
+        if (tunnelPlugin == null) {
+            tunnelPlugin = TunnelPlugin(this, flutterEngine)
+        }
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        // Don't dispose tunnelPlugin here — it would kill status stream
+        // Only null the reference, keep the native event channel connected
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    override fun onDestroy() {
         tunnelPlugin?.dispose()
         tunnelPlugin = null
-        super.cleanUpFlutterEngine(flutterEngine)
+        super.onDestroy()
     }
 }

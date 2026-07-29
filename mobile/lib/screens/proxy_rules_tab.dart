@@ -65,8 +65,7 @@ class _ProxyRulesTabState extends State<ProxyRulesTab> {
       _rules.add(ProxyRule(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         name: '规则 ${_rules.length + 1}',
-        matchType: MatchType.any,
-        action: RuleAction.forward,
+        matchType: MatchType.auto,
         enabled: true,
         order: _rules.length,
       ));
@@ -200,81 +199,27 @@ class _ProxyRulesTabState extends State<ProxyRulesTab> {
               ],
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<MatchType>(
-                    value: rule.matchType,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: '匹配类型',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: MatchType.any, child: Text('全部流量')),
-                      DropdownMenuItem(value: MatchType.domain, child: Text('域名')),
-                      DropdownMenuItem(value: MatchType.ip, child: Text('IP 地址')),
-                      DropdownMenuItem(value: MatchType.cidr, child: Text('IP 段 (CIDR)')),
-                    ],
-                    onChanged: (v) {
-                      if (v == null) return;
-                      _syncCtrl('rule_${rule.id}_matchValue', '');
-                      setState(() => _rules[index] = rule.copyWith(matchType: v, matchValue: ''));
-                      _notify();
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<RuleAction>(
-                    value: rule.action,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: '动作',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: RuleAction.forward, child: Text('走隧道')),
-                      DropdownMenuItem(value: RuleAction.direct, child: Text('直连')),
-                      DropdownMenuItem(value: RuleAction.reject, child: Text('拒绝')),
-                    ],
-                    onChanged: (v) {
-                      if (v == null) return;
-                      setState(() => _rules[index] = rule.copyWith(action: v));
-                      _notify();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            if (rule.matchType != MatchType.any) ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: _getCtrl('rule_${rule.id}_matchValue', rule.matchValue),
-                minLines: 3,
-                maxLines: null,
-                onChanged: (v) {
-                  setState(() => _rules[index] = rule.copyWith(matchValue: v));
-                  _notify();
-                },
-                decoration: InputDecoration(
-                  hintText: switch (rule.matchType) {
-                    MatchType.domain => '每行一个值，支持换行输入多条',
-                    MatchType.ip => '每行一个值，支持换行输入多条',
-                    MatchType.cidr => '每行一个值，支持换行输入多条',
-                    _ => '',
-                  },
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                ),
-                style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
+            TextField(
+              controller: _getCtrl('rule_${rule.id}_matchValue', rule.matchValue),
+              minLines: 3,
+              maxLines: null,
+              onChanged: (v) {
+                setState(() => _rules[index] = rule.copyWith(matchValue: v));
+                _notify();
+              },
+              decoration: const InputDecoration(
+                hintText: '每行一个值，支持换行输入多条',
+                border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               ),
-            ],
+              style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '自动识别：*.example.com（域名） | 8.8.8.8（IP） | 10.0.0.0/8（CIDR）',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+            ),
           ],
         ),
       ),

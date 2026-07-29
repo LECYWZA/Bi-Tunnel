@@ -19,9 +19,9 @@ class HybridProxyTab extends StatefulWidget {
 
 class _HybridProxyTabState extends State<HybridProxyTab> {
   late List<ProxyInstance> _proxies;
-  bool _hasChanges = false;
   final Map<String, TextEditingController> _ctrls = {};
   StreamSubscription<Map<String, dynamic>>? _statusSub;
+  final Set<String> _visiblePasswords = {};
 
   TextEditingController _getCtrl(String key, String initialText) {
     if (!_ctrls.containsKey(key)) {
@@ -95,10 +95,9 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
     super.dispose();
   }
 
-  void _save() {
+  void _autoSave() {
     final cfg = widget.config.copyWith(proxies: _proxies);
     widget.onSave(cfg);
-    setState(() => _hasChanges = false);
   }
 
   void _addProxy() {
@@ -106,15 +105,15 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
       _proxies.add(ProxyInstance(
         name: '代理 ${_proxies.length + 1}',
       ));
-      _hasChanges = true;
     });
+    _autoSave();
   }
 
   void _removeProxy(int index) {
     setState(() {
       _proxies.removeAt(index);
-      _hasChanges = true;
     });
+    _autoSave();
   }
 
   Widget _buildStatus(bool running) {
@@ -176,17 +175,6 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
           )
         else
           ..._proxies.asMap().entries.map((e) => _buildProxyCard(e.key, theme)),
-        if (_hasChanges) ...[
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _save,
-              icon: const Icon(Icons.save_rounded),
-              label: const Text('保存配置'),
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -210,7 +198,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                     onChanged: (v) {
                       setState(() {
                         _proxies[index] = proxy.copyWith(name: v);
-                        _hasChanges = true;
+                        _autoSave();
                       });
                     },
                     decoration: const InputDecoration(
@@ -240,7 +228,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                     onChanged: (v) {
                       setState(() {
                         _proxies[index] = proxy.copyWith(bindIp: v);
-                        _hasChanges = true;
+                        _autoSave();
                       });
                     },
                     decoration: const InputDecoration(
@@ -255,23 +243,23 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: proxy.type,
+                    value: proxy.mode,
                     isExpanded: true,
                     decoration: const InputDecoration(
-                      labelText: '代理类型',
+                      labelText: '模式',
                       border: OutlineInputBorder(),
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                     ),
                     items: const [
-                      DropdownMenuItem(value: 'socks5', child: Text('SOCKS5')),
-                      DropdownMenuItem(value: 'http', child: Text('HTTP')),
+                      DropdownMenuItem(value: 'client', child: Text('客户端', style: TextStyle(fontSize: 12))),
+                      DropdownMenuItem(value: 'server', child: Text('服务端', style: TextStyle(fontSize: 12))),
                     ],
                     onChanged: (v) {
                       if (v == null) return;
                       setState(() {
-                        _proxies[index] = proxy.copyWith(type: v);
-                        _hasChanges = true;
+                        _proxies[index] = proxy.copyWith(mode: v);
+                        _autoSave();
                       });
                     },
                   ),
@@ -284,7 +272,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                     onChanged: (v) {
                       setState(() {
                         _proxies[index] = proxy.copyWith(listenPort: int.tryParse(v) ?? 1080);
-                        _hasChanges = true;
+                        _autoSave();
                       });
                     },
                     keyboardType: TextInputType.number,
@@ -300,6 +288,79 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
               ],
             ),
             const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<ProxyAction>(
+                    value: proxy.action,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: '匹配动作',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: ProxyAction.forward, child: Text('走隧道', style: TextStyle(fontSize: 12))),
+                      DropdownMenuItem(value: ProxyAction.direct, child: Text('直连', style: TextStyle(fontSize: 12))),
+                      DropdownMenuItem(value: ProxyAction.reject, child: Text('拒绝', style: TextStyle(fontSize: 12))),
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() {
+                        _proxies[index] = proxy.copyWith(action: v);
+                        _autoSave();
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<ProxyAction>(
+                    value: proxy.defaultAction,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: '默认动作',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: ProxyAction.forward, child: Text('走隧道', style: TextStyle(fontSize: 12))),
+                      DropdownMenuItem(value: ProxyAction.direct, child: Text('直连', style: TextStyle(fontSize: 12))),
+                      DropdownMenuItem(value: ProxyAction.reject, child: Text('拒绝', style: TextStyle(fontSize: 12))),
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() {
+                        _proxies[index] = proxy.copyWith(defaultAction: v);
+                        _autoSave();
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            if (proxy.mode == 'server') ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: _getCtrl('proxy_${proxy.id}_targetClientId', proxy.targetClientId ?? ''),
+                onChanged: (v) {
+                  setState(() {
+                    _proxies[index] = proxy.copyWith(targetClientId: v.isEmpty ? null : v);
+                    _autoSave();
+                  });
+                },
+                decoration: const InputDecoration(
+                  labelText: '目标客户端ID',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                ),
+                style: const TextStyle(fontSize: 13),
+              ),
+            ],
+            const SizedBox(height: 8),
             ...proxy.accounts.asMap().entries.map((ae) {
               final ac = ae.value;
               return Padding(
@@ -314,7 +375,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                           accounts[ae.key] = ProxyAccount(username: v, password: ac.password, enabled: ac.enabled);
                           setState(() {
                             _proxies[index] = proxy.copyWith(accounts: accounts);
-                            _hasChanges = true;
+                            _autoSave();
                           });
                         },
                         decoration: const InputDecoration(
@@ -335,15 +396,35 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                           accounts[ae.key] = ProxyAccount(username: ac.username, password: v, enabled: ac.enabled);
                           setState(() {
                             _proxies[index] = proxy.copyWith(accounts: accounts);
-                            _hasChanges = true;
+                            _autoSave();
                           });
                         },
-                        obscureText: true,
-                        decoration: const InputDecoration(
+                        obscureText: !_visiblePasswords.contains('proxy_${proxy.id}_account_${ae.key}_password'),
+                        decoration: InputDecoration(
                           labelText: '密码',
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _visiblePasswords.contains('proxy_${proxy.id}_account_${ae.key}_password')
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                              size: 16,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                final key = 'proxy_${proxy.id}_account_${ae.key}_password';
+                                if (_visiblePasswords.contains(key)) {
+                                  _visiblePasswords.remove(key);
+                                } else {
+                                  _visiblePasswords.add(key);
+                                }
+                              });
+                            },
+                            constraints: const BoxConstraints(),
+                            padding: EdgeInsets.zero,
+                          ),
                         ),
                         style: const TextStyle(fontSize: 12),
                       ),
@@ -356,7 +437,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                         accounts.removeAt(ae.key);
                         setState(() {
                           _proxies[index] = proxy.copyWith(accounts: accounts);
-                          _hasChanges = true;
+                          _autoSave();
                         });
                       },
                       constraints: const BoxConstraints(),
@@ -372,7 +453,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                   ..add(ProxyAccount());
                 setState(() {
                   _proxies[index] = proxy.copyWith(accounts: accounts);
-                  _hasChanges = true;
+                  _autoSave();
                 });
               },
               icon: const Icon(Icons.person_add_rounded, size: 16),
@@ -400,7 +481,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                         dense: true,
                         title: Text(rule.name, style: const TextStyle(fontSize: 13)),
                         subtitle: Text(
-                          '${rule.matchType.name} / ${rule.action.name}',
+                          rule.matchType.name,
                           style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
                         ),
                         value: proxy.ruleIds.contains(rule.id),
@@ -413,7 +494,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                           }
                           setState(() {
                             _proxies[index] = proxy.copyWith(ruleIds: ids);
-                            _hasChanges = true;
+                            _autoSave();
                           });
                         },
                         controlAffinity: ListTileControlAffinity.leading,

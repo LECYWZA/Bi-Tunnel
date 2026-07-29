@@ -20,11 +20,11 @@ class TunnelConfigTab extends StatefulWidget {
 class _TunnelConfigTabState extends State<TunnelConfigTab> {
   late List<TunnelServerConfig> _servers;
   late List<TunnelClientConfig> _clients;
-  bool _hasChanges = false;
   final Map<String, TextEditingController> _ctrls = {};
   StreamSubscription<Map<String, dynamic>>? _statusSub;
   Map<String, String> _clientStatuses = {};
   Map<String, List<String>> _serverClients = {};
+  final Set<String> _visiblePasswords = {};
 
   TextEditingController _getCtrl(String key, String initialText) {
     if (!_ctrls.containsKey(key)) {
@@ -74,7 +74,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
           cStatuses[id] = s;
           final ci = _clients.indexWhere((c) => c.id == id);
           if (ci >= 0) {
-            _clients[ci] = _clients[ci].copyWith(running: s == 'connected');
+            _clients[ci] = _clients[ci].copyWith(running: s == 'connected' || s == 'connecting' || s == 'reconnecting');
           }
         } else if (type == 'server') {
           final clients = instMap['connectedClients'] as List? ?? [];
@@ -133,10 +133,9 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
     super.dispose();
   }
 
-  void _save() {
+  void _autoSave() {
     final cfg = widget.config.copyWith(servers: _servers, clients: _clients);
     widget.onSave(cfg);
-    setState(() => _hasChanges = false);
   }
 
   void _addClient() {
@@ -145,22 +144,22 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
         name: '客户端 ${_clients.length + 1}',
         clientId: 'mobile-${_clients.length + 1}',
       ));
-      _hasChanges = true;
     });
+    _autoSave();
   }
 
   void _removeClient(int index) {
     setState(() {
       _clients.removeAt(index);
-      _hasChanges = true;
     });
+    _autoSave();
   }
 
   void _removeServer(int index) {
     setState(() {
       _servers.removeAt(index);
-      _hasChanges = true;
     });
+    _autoSave();
   }
 
   Widget _buildServerStatus(bool running, int connectedCount) {
@@ -213,6 +212,9 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
       case 'connecting':
         color = Colors.orange;
         label = '连接中';
+      case 'reconnecting':
+        color = Colors.amber;
+        label = '重连中';
       case 'failed':
         color = Colors.red;
         label = '连接失败';
@@ -241,8 +243,10 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
     List<PortForwardRule> rules,
     String prefix,
     List<TunnelClientConfig> clients,
-    void Function(List<PortForwardRule>) onUpdate,
-  ) {
+    void Function(List<PortForwardRule>) onUpdate, {
+    bool running = false,
+    String instanceId = '',
+  }) {
     return ExpansionTile(
       title: Text('端口转发规则 (${rules.length})', style: const TextStyle(fontSize: 13)),
       initiallyExpanded: false,
@@ -264,7 +268,14 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                         Switch(
                           value: rule.enabled,
                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          onChanged: (v) {
+                          onChanged: (v) async {
+                            if (running) {
+                              if (v) {
+                                await PlatformService.startPortForward(instanceId, rule.toJson());
+                              } else {
+                                await PlatformService.stopPortForward(instanceId, rule.id);
+                              }
+                            }
                             final updated = List<PortForwardRule>.from(rules);
                             updated[i] = rule.copyWith(enabled: v);
                             onUpdate(updated);
@@ -415,7 +426,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
               onPressed: () {
                 setState(() {
                   _servers.add(TunnelServerConfig(name: '服务端 ${_servers.length + 1}'));
-                  _hasChanges = true;
                 });
               },
               icon: const Icon(Icons.add, size: 18),
@@ -461,17 +471,47 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
           )
         else
           ..._clients.asMap().entries.map((e) => _buildClientCard(e.key, theme)),
-        if (_hasChanges) ...[
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _save,
-              icon: const Icon(Icons.save_rounded),
-              label: const Text('保存配置'),
+        const Divider(height: 32),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.battery_charging_full_rounded, size: 18, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text('后台保活', style: theme.textTheme.titleSmall),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'ColorOS 默认禁止非商店应用通知，需要手动开启：',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => PlatformService.openNotificationSettings(),
+                    icon: const Icon(Icons.notifications_rounded, size: 18),
+                    label: const Text('打开通知设置 → 允许通知'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => PlatformService.openAppSettings(),
+                    icon: const Icon(Icons.battery_charging_full_rounded, size: 18),
+                    label: const Text('打开应用设置 → 耗电保护'),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ],
     );
   }
@@ -495,7 +535,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _servers[index] = server.copyWith(name: v);
-                        _hasChanges = true;
                       });
                     },
                     decoration: const InputDecoration(
@@ -525,7 +564,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _servers[index] = server.copyWith(bindIp: v);
-                        _hasChanges = true;
                       });
                     },
                     decoration: const InputDecoration(
@@ -544,7 +582,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _servers[index] = server.copyWith(listenPort: int.tryParse(v) ?? 33891);
-                        _hasChanges = true;
                       });
                     },
                     keyboardType: TextInputType.number,
@@ -568,15 +605,33 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _servers[index] = server.copyWith(password: v);
-                        _hasChanges = true;
                       });
                     },
-                    obscureText: true,
-                    decoration: const InputDecoration(
+                    obscureText: !_visiblePasswords.contains('server_${server.id}_password'),
+                    decoration: InputDecoration(
                       labelText: '密码',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _visiblePasswords.contains('server_${server.id}_password')
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          size: 18,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            if (_visiblePasswords.contains('server_${server.id}_password')) {
+                              _visiblePasswords.remove('server_${server.id}_password');
+                            } else {
+                              _visiblePasswords.add('server_${server.id}_password');
+                            }
+                          });
+                        },
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                      ),
                     ),
                     style: const TextStyle(fontSize: 13),
                   ),
@@ -588,7 +643,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _servers[index] = server.copyWith(sni: v);
-                        _hasChanges = true;
                       });
                     },
                     decoration: const InputDecoration(
@@ -609,9 +663,11 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
               (updated) {
                 setState(() {
                   _servers[index] = server.copyWith(portForwards: updated);
-                  _hasChanges = true;
                 });
+                _autoSave();
               },
+              running: server.running,
+              instanceId: server.id,
             ),
             if (server.running) ...[
               const SizedBox(height: 8),
@@ -667,7 +723,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
     final cStatus = client.running
         ? (_clientStatuses[client.id] ?? 'connecting')
         : 'disconnected';
-    final bool canStop = cStatus == 'connected' || cStatus == 'connecting';
+    final bool canStop = cStatus == 'connected' || cStatus == 'connecting' || cStatus == 'reconnecting';
     debugPrint('_buildClientButton: index=$index id=${client.id} running=${client.running} status=$cStatus');
     return SizedBox(
       width: double.infinity,
@@ -717,7 +773,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _clients[index] = client.copyWith(name: v);
-                        _hasChanges = true;
                       });
                     },
                     decoration: const InputDecoration(
@@ -747,7 +802,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _clients[index] = client.copyWith(serverHost: v);
-                        _hasChanges = true;
                       });
                     },
                     decoration: const InputDecoration(
@@ -767,7 +821,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _clients[index] = client.copyWith(serverPort: int.tryParse(v) ?? 33891);
-                        _hasChanges = true;
                       });
                     },
                     keyboardType: TextInputType.number,
@@ -791,15 +844,33 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _clients[index] = client.copyWith(password: v);
-                        _hasChanges = true;
                       });
                     },
-                    obscureText: true,
-                    decoration: const InputDecoration(
+                    obscureText: !_visiblePasswords.contains('client_${client.id}_password'),
+                    decoration: InputDecoration(
                       labelText: '密码',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _visiblePasswords.contains('client_${client.id}_password')
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          size: 18,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            if (_visiblePasswords.contains('client_${client.id}_password')) {
+                              _visiblePasswords.remove('client_${client.id}_password');
+                            } else {
+                              _visiblePasswords.add('client_${client.id}_password');
+                            }
+                          });
+                        },
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                      ),
                     ),
                     style: const TextStyle(fontSize: 13),
                   ),
@@ -811,7 +882,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                     onChanged: (v) {
                       setState(() {
                         _clients[index] = client.copyWith(clientId: v);
-                        _hasChanges = true;
                       });
                     },
                     decoration: const InputDecoration(
@@ -831,7 +901,6 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
               onChanged: (v) {
                 setState(() {
                   _clients[index] = client.copyWith(sni: v);
-                  _hasChanges = true;
                 });
               },
               decoration: const InputDecoration(
@@ -850,9 +919,11 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
               (updated) {
                 setState(() {
                   _clients[index] = client.copyWith(portForwards: updated);
-                  _hasChanges = true;
                 });
+                _autoSave();
               },
+              running: client.running,
+              instanceId: client.id,
             ),
             const SizedBox(height: 8),
             _buildClientButton(index, client),

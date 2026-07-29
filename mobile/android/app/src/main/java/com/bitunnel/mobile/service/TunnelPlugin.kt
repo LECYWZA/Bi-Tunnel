@@ -2,8 +2,10 @@ package com.bitunnel.mobile.service
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -31,6 +33,8 @@ class TunnelPlugin(private val context: Context, private val flutterEngine: Flut
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 eventSink = events
                 val mainHandler = Handler(Looper.getMainLooper())
+                // Send current status immediately on subscribe
+                mainHandler.post { events?.success(TunnelService.currentStatus) }
                 TunnelService.statusCallback = { map ->
                     mainHandler.post { events?.success(map) }
                 }
@@ -38,7 +42,7 @@ class TunnelPlugin(private val context: Context, private val flutterEngine: Flut
 
             override fun onCancel(arguments: Any?) {
                 eventSink = null
-                TunnelService.statusCallback = null
+                // Don't null out statusCallback — keep pushing updates
             }
         })
     }
@@ -136,6 +140,59 @@ class TunnelPlugin(private val context: Context, private val flutterEngine: Flut
                 }
                 "getStatus" -> {
                     result.success(TunnelService.currentStatus)
+                }
+                "startPortForward" -> {
+                    val args = call.arguments as? Map<*, *> ?: run {
+                        result.error("INVALID_ARGS", "Missing args", null); return
+                    }
+                    val instanceId = args["instanceId"] as? String ?: run {
+                        result.error("INVALID_ARGS", "Missing instanceId", null); return
+                    }
+                    val rule = args["rule"] as? Map<*, *> ?: run {
+                        result.error("INVALID_ARGS", "Missing rule", null); return
+                    }
+                    val json = mapToJson(rule)
+                    val intent = Intent(context, TunnelService::class.java).apply {
+                        action = TunnelService.ACTION_START_PORT_FORWARD
+                        putExtra("instanceId", instanceId)
+                        putExtra("rule_json", json.toString())
+                    }
+                    context.startService(intent)
+                    result.success(true)
+                }
+                "stopPortForward" -> {
+                    val args = call.arguments as? Map<*, *> ?: run {
+                        result.error("INVALID_ARGS", "Missing args", null); return
+                    }
+                    val instanceId = args["instanceId"] as? String ?: run {
+                        result.error("INVALID_ARGS", "Missing instanceId", null); return
+                    }
+                    val ruleId = args["ruleId"] as? String ?: run {
+                        result.error("INVALID_ARGS", "Missing ruleId", null); return
+                    }
+                    val intent = Intent(context, TunnelService::class.java).apply {
+                        action = TunnelService.ACTION_STOP_PORT_FORWARD
+                        putExtra("instanceId", instanceId)
+                        putExtra("ruleId", ruleId)
+                    }
+                    context.startService(intent)
+                    result.success(true)
+                }
+                "openAppSettings" -> {
+                    val intent = Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:${context.packageName}")
+                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                    context.startActivity(intent)
+                    result.success(true)
+                }
+                "openNotificationSettings" -> {
+                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    result.success(true)
                 }
                 else -> result.notImplemented()
             }
