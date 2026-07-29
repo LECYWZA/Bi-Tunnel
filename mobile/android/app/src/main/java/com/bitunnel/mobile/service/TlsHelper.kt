@@ -1,6 +1,7 @@
 package com.bitunnel.mobile.service
 
 import android.content.Context
+import android.util.Log
 import java.io.InputStream
 import java.net.InetSocketAddress
 import java.security.KeyStore
@@ -10,6 +11,7 @@ import java.security.cert.X509Certificate
 import javax.net.ssl.*
 
 object TlsHelper {
+    private const val TAG = "TlsHelper"
 
     private var serverContext: SSLContext? = null
     private val clientTrustAll = object : X509TrustManager {
@@ -18,73 +20,66 @@ object TlsHelper {
         override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
     }
 
-    fun getClientContext(): SSLContext {
+    private fun sslContext(km: Array<KeyManager>? = null): SSLContext {
         val ctx = SSLContext.getInstance("TLS")
-        ctx.init(null, arrayOf(clientTrustAll), SecureRandom())
+        ctx.init(km, arrayOf(clientTrustAll), SecureRandom())
         return ctx
     }
 
-    fun getServerContext(context: Context): SSLContext {
-        serverContext?.let { return it }
-        val certPem = context.resources.openRawResource(
-            context.resources.getIdentifier("tunnel_cert", "raw", context.packageName)
-        )
-        val keyPem = context.resources.openRawResource(
-            context.resources.getIdentifier("tunnel_key", "raw", context.packageName)
-        )
-        val ctx = createSSLContext(certPem, keyPem)
-        serverContext = ctx
-        return ctx
+    private fun configSocket(s: SSLSocket, sni: String) {
+        s.soTimeout = 15000
+        val p = s.sslParameters
+        p.endpointIdentificationAlgorithm = ""
+        if (android.os.Build.VERSION.SDK_INT >= 24 && sni.isNotEmpty()) {
+            p.serverNames = listOf(SNIHostName(sni))
+        }
+        @Suppress("DEPRECATION")
+        s.enabledProtocols = s.supportedProtocols.filter { it.startsWith("TLSv1") || it.startsWith("TLSv1.") }.toTypedArray()
+        s.sslParameters = p
     }
 
     fun createClientSocket(host: String, port: Int, timeout: Int, sni: String): SSLSocket {
-        val ctx = getClientContext()
+        val ctx = sslContext()
         val s = ctx.socketFactory.createSocket() as SSLSocket
         s.connect(InetSocketAddress(host, port), timeout)
-        s.soTimeout = timeout
-        if (android.os.Build.VERSION.SDK_INT >= 24) {
-            val p = s.sslParameters
-            p.endpointIdentificationAlgorithm = ""
-            p.serverNames = listOf(SNIHostName(sni))
-            s.sslParameters = p
-        }
+        configSocket(s, sni)
         s.startHandshake()
-        return s
-    }
-
-    fun createClientSocketDirect(host: String, port: Int, timeout: Int): java.net.Socket {
-        val s = java.net.Socket()
-        s.connect(InetSocketAddress(host, port), timeout)
-        s.soTimeout = timeout
+        Log.i(TAG, "TLS client connected to $host:$port sni=$sni")
         return s
     }
 
     fun createServerSocket(context: Context, port: Int, bindIp: String?): SSLServerSocket {
-        val ctx = getServerContext(context)
+        val ctx = serverContext ?: run {
+            val certId = context.resources.getIdentifier("tunnel_cert", "raw", context.packageName)
+            val keyId = context.resources.getIdentifier("tunnel_key", "raw", context.packageName)
+            if (certId == 0 || keyId == 0) throw IllegalStateException("TLS cert/key not found in raw resources")
+            context.resources.openRawResource(certId).use { certIn ->
+                context.resources.openRawResource(keyId).use { keyIn ->
+                    val certPem = certIn.readBytes().decodeToString()
+                    val keyPem = keyIn.readBytes().decodeToString()
+
+                    val cert = parsePemCertificate(certPem)
+                    val key = parsePemPrivateKey(keyPem)
+
+                    val ks = KeyStore.getInstance("PKCS12").apply { load(null, null) }
+                    ks.setKeyEntry("tunnel", key, "bitunnel".toCharArray(), arrayOf(cert))
+
+                    val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+                    kmf.init(ks, "bitunnel".toCharArray())
+
+                    sslContext(kmf.keyManagers).also { serverContext = it }
+                }
+            }
+        }
         val addr = bindIp?.takeIf { it.isNotBlank() && it != "0.0.0.0" }
             ?.let { InetSocketAddress(it, port) }
             ?: InetSocketAddress(port)
         val ss = ctx.serverSocketFactory.createServerSocket() as SSLServerSocket
+        @Suppress("DEPRECATION")
+        ss.enabledProtocols = ss.supportedProtocols.filter { it.startsWith("TLSv1") || it.startsWith("TLSv1.") }.toTypedArray()
         ss.bind(addr)
+        Log.i(TAG, "TLS server listening on $addr")
         return ss
-    }
-
-    private fun createSSLContext(certIn: InputStream, keyIn: InputStream): SSLContext {
-        val certPem = certIn.readBytes().decodeToString()
-        val keyPem = keyIn.readBytes().decodeToString()
-
-        val cert = parsePemCertificate(certPem)
-        val key = parsePemPrivateKey(keyPem)
-
-        val ks = KeyStore.getInstance("PKCS12").apply { load(null, null) }
-        ks.setKeyEntry("tunnel", key, "bitunnel".toCharArray(), arrayOf(cert))
-
-        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-        kmf.init(ks, "bitunnel".toCharArray())
-
-        val ctx = SSLContext.getInstance("TLS")
-        ctx.init(kmf.keyManagers, arrayOf(clientTrustAll), SecureRandom())
-        return ctx
     }
 
     private fun parsePemCertificate(pem: String): X509Certificate {

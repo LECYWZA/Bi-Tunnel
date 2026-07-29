@@ -317,11 +317,7 @@ class TunnelService : Service() {
 
                     Log.i(TAG, "Client $clientId connecting to $host:$port")
 
-                    val socket = try {
-                        TlsHelper.createClientSocket(host, port, 10000, sni)
-                    } catch (_: Exception) {
-                        TlsHelper.createClientSocketDirect(host, port, 10000)
-                    }
+                    val socket = TlsHelper.createClientSocket(host, port, 10000, sni)
 
                     val input: InputStream = socket.getInputStream()
                     val output: OutputStream = socket.getOutputStream()
