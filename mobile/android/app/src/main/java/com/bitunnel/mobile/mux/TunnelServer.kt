@@ -17,9 +17,10 @@ class TunnelServer(
     private val bindIp: String = "127.0.0.1",
     private val sni: String = "mail.qq.com",
     private val onClientConnect: ((String) -> Unit)? = null,
-    private val onClientDisconnect: ((String) -> Unit)? = null
+    private val onClientDisconnect: ((String) -> Unit)? = null,
+    private val serverSocketFactory: (() -> java.net.ServerSocket)? = null
 ) {
-    private var serverSocket: ServerSocket? = null
+    private var serverSocket: java.net.ServerSocket? = null
     @Volatile
     var running = false
         private set
@@ -31,8 +32,12 @@ class TunnelServer(
         running = true
         thread(isDaemon = false, name = "tunnel-server-${listenPort}") {
             try {
-                val addr = if (bindIp.isNotEmpty()) InetAddress.getByName(bindIp) else null
-                val ss = if (addr != null) ServerSocket(listenPort, 50, addr) else ServerSocket(listenPort)
+                val ss = if (serverSocketFactory != null) {
+                    serverSocketFactory()
+                } else {
+                    val addr = if (bindIp.isNotEmpty()) InetAddress.getByName(bindIp) else null
+                    if (addr != null) java.net.ServerSocket(listenPort, 50, addr) else java.net.ServerSocket(listenPort)
+                }
                 serverSocket = ss
 
                 while (running) {
