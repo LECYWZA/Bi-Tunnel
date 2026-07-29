@@ -138,6 +138,7 @@ class TunnelClientConfig {
   String password;
   String sni;
   String clientId;
+  bool useTls;
   List<PortForwardRule> portForwards;
   bool running;
 
@@ -150,6 +151,7 @@ class TunnelClientConfig {
     this.password = 'admin',
     this.sni = 'mail.qq.com',
     this.clientId = 'mobile-1',
+    this.useTls = false,
     List<PortForwardRule>? portForwards,
     this.running = false,
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -164,6 +166,7 @@ class TunnelClientConfig {
     String? password,
     String? sni,
     String? clientId,
+    bool? useTls,
     List<PortForwardRule>? portForwards,
     bool? running,
   }) {
@@ -176,6 +179,7 @@ class TunnelClientConfig {
       password: password ?? this.password,
       sni: sni ?? this.sni,
       clientId: clientId ?? this.clientId,
+      useTls: useTls ?? this.useTls,
       portForwards: portForwards ?? this.portForwards,
       running: running ?? this.running,
     );
@@ -190,6 +194,7 @@ class TunnelClientConfig {
         'password': password,
         'sni': sni,
         'clientId': clientId,
+        'useTls': useTls,
         'portForwards': portForwards.map((p) => p.toJson()).toList(),
       };
 
@@ -202,6 +207,7 @@ class TunnelClientConfig {
         password: json['password'] as String? ?? 'admin',
         sni: json['sni'] as String? ?? 'mail.qq.com',
         clientId: json['clientId'] as String? ?? 'mobile-1',
+        useTls: json['useTls'] as bool? ?? false,
         portForwards: json['portForwards'] != null
             ? (json['portForwards'] as List)
                 .map((e) => PortForwardRule.fromJson(e as Map<String, dynamic>))
@@ -447,6 +453,7 @@ class AppConfig {
       'password': client.password,
       'clientId': client.clientId,
       'sni': client.sni,
+      'useTls': client.useTls,
       'localProxyPort': 1080,
       'portForwards': client.portForwards.map((p) => p.toJson()).toList(),
       'rules': rules.where((r) => r.enabled).map((r) => r.toJson()).toList(),

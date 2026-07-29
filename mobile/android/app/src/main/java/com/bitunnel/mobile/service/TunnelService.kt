@@ -23,9 +23,15 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SNIHostName
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.X509TrustManager
 import kotlin.concurrent.thread
 
 data class ClientState(
@@ -317,9 +323,32 @@ class TunnelService : Service() {
 
                     Log.i(TAG, "Client $clientId connecting to $host:$port")
 
-                    val socket = Socket()
-                    socket.connect(InetSocketAddress(host, port), 10000)
-                    socket.soTimeout = 10000
+                    val useTls = config["useTls"] as? Boolean ?: false
+                    val socket = if (useTls) {
+                        val trustAll = object : X509TrustManager {
+                            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+                            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+                            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+                        }
+                        val sslCtx = SSLContext.getInstance("TLS")
+                        sslCtx.init(null, arrayOf(trustAll), SecureRandom())
+                        val s = sslCtx.socketFactory.createSocket() as SSLSocket
+                        s.connect(InetSocketAddress(host, port), 10000)
+                        s.soTimeout = 10000
+                        if (Build.VERSION.SDK_INT >= 24) {
+                            val p = s.sslParameters
+                            p.endpointIdentificationAlgorithm = ""
+                            p.serverNames = listOf(SNIHostName(sni))
+                            s.sslParameters = p
+                        }
+                        s.startHandshake()
+                        s
+                    } else {
+                        val s = Socket()
+                        s.connect(InetSocketAddress(host, port), 10000)
+                        s.soTimeout = 10000
+                        s
+                    }
 
                     val input: InputStream = socket.getInputStream()
                     val output: OutputStream = socket.getOutputStream()

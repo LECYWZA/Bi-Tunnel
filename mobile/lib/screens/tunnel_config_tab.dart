@@ -843,6 +843,23 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
               style: const TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 8),
+            CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('使用 TLS 加密', style: TextStyle(fontSize: 13)),
+              subtitle: Text(
+                client.useTls ? '连接 Node.js 服务端' : '连接手机端服务端',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+              ),
+              value: client.useTls,
+              onChanged: (v) {
+                setState(() {
+                  _clients[index] = client.copyWith(useTls: v ?? false);
+                  _hasChanges = true;
+                });
+              },
+            ),
+            const SizedBox(height: 8),
             _buildPfRuleList(
               client.portForwards,
               'client_${client.id}',
