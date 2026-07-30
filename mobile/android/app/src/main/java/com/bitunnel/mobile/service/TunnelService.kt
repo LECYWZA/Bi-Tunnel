@@ -676,14 +676,12 @@ class TunnelService : Service() {
                 try {
                     val listenPort = (config["listenPort"] as? Number)?.toInt() ?: 1080
                     val accounts = parseAccounts(config["accounts"])
-                    val rules = parseRules(config["rules"])
 
                     val p = Socks5Proxy(
                         port = listenPort,
                         accounts = accounts,
                         onForwardRequest = { _, _, _ -> },
-                        rules = rules,
-                        defaultAction = config["defaultAction"] as? String ?: "forward"
+                        defaultAction = "direct"
                     )
                     proxy = p
                     p.start()

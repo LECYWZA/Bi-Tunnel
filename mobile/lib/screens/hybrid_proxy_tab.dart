@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/connection_config.dart';
 import '../services/platform_service.dart';
@@ -22,6 +23,23 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
   final Map<String, TextEditingController> _ctrls = {};
   StreamSubscription<Map<String, dynamic>>? _statusSub;
   final Set<String> _visiblePasswords = {};
+  List<String> _availableIps = ['0.0.0.0', '127.0.0.1'];
+
+  Future<void> _loadNetworkIps() async {
+    try {
+      final ips = <String>['0.0.0.0', '127.0.0.1'];
+      final interfaces = await NetworkInterface.list();
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          if (addr.type == InternetAddressType.IPv4) {
+            final ip = addr.address;
+            if (!ips.contains(ip)) ips.add(ip);
+          }
+        }
+      }
+      if (mounted) setState(() => _availableIps = ips);
+    } catch (_) {}
+  }
 
   TextEditingController _getCtrl(String key, String initialText) {
     if (!_ctrls.containsKey(key)) {
@@ -42,6 +60,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
     _proxies = List.from(widget.config.proxies);
     _statusSub = PlatformService.statusStream.listen(_onStatus);
     _syncInitialStatus();
+    _loadNetworkIps();
   }
 
   Future<void> _syncInitialStatus() async {
@@ -235,42 +254,23 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _getCtrl('proxy_${proxy.id}_bindIp', proxy.bindIp),
-                    onChanged: (v) {
-                      setState(() {
-                        _proxies[index] = proxy.copyWith(bindIp: v);
-                        _autoSave();
-                      });
-                    },
+                  child: DropdownButtonFormField<String>(
+                    value: _availableIps.contains(proxy.bindIp) ? proxy.bindIp : null,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: '绑定IP',
                       border: OutlineInputBorder(),
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                     ),
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: proxy.mode,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: '模式',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 'client', child: Text('客户端', style: TextStyle(fontSize: 12))),
-                      DropdownMenuItem(value: 'server', child: Text('服务端', style: TextStyle(fontSize: 12))),
-                    ],
+                    items: _availableIps.map((ip) => DropdownMenuItem(
+                      value: ip,
+                      child: Text(ip, style: const TextStyle(fontSize: 13)),
+                    )).toList(),
                     onChanged: (v) {
                       if (v == null) return;
                       setState(() {
-                        _proxies[index] = proxy.copyWith(mode: v);
+                        _proxies[index] = proxy.copyWith(bindIp: v);
                         _autoSave();
                       });
                     },
@@ -282,16 +282,21 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                   child: TextField(
                     controller: _getCtrl('proxy_${proxy.id}_listenPort', proxy.listenPort.toString()),
                     onChanged: (v) {
-                      final newPort = int.tryParse(v) ?? 0;
+                      final filtered = v.replaceAll(RegExp(r'[^0-9]'), '');
+                      final newPort = int.tryParse(filtered) ?? 0;
+                      final clamped = newPort.clamp(1, 65535);
+                      if (filtered != v || clamped != newPort) {
+                        _getCtrl('proxy_${proxy.id}_listenPort', '').text = clamped.toString();
+                      }
                       final conflict = _proxies.asMap().entries.any((e) =>
-                        e.key != index && e.value.listenPort == newPort);
-                      if (conflict && newPort > 0) {
+                        e.key != index && e.value.listenPort == clamped);
+                      if (conflict && clamped > 0) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('端口已被其他代理使用'), duration: Duration(seconds: 2)),
                         );
                       }
                       setState(() {
-                        _proxies[index] = proxy.copyWith(listenPort: newPort > 0 ? newPort : 1080);
+                        _proxies[index] = proxy.copyWith(listenPort: clamped);
                         _autoSave();
                       });
                     },
@@ -308,48 +313,6 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
               ],
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<ProxyAction>(
-              value: proxy.defaultAction,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: '默认动作（未匹配规则时）',
-                border: OutlineInputBorder(),
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              ),
-              items: const [
-                DropdownMenuItem(value: ProxyAction.forward, child: Text('转发（通过隧道）', style: TextStyle(fontSize: 12))),
-                DropdownMenuItem(value: ProxyAction.direct, child: Text('直连（本地网络）', style: TextStyle(fontSize: 12))),
-                DropdownMenuItem(value: ProxyAction.reject, child: Text('拒绝', style: TextStyle(fontSize: 12))),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() {
-                  _proxies[index] = proxy.copyWith(defaultAction: v);
-                  _autoSave();
-                });
-              },
-            ),
-            if (proxy.mode == 'server') ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: _getCtrl('proxy_${proxy.id}_targetClientId', proxy.targetClientId ?? ''),
-                onChanged: (v) {
-                  setState(() {
-                    _proxies[index] = proxy.copyWith(targetClientId: v.isEmpty ? null : v);
-                    _autoSave();
-                  });
-                },
-                decoration: const InputDecoration(
-                  labelText: '目标客户端ID',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                ),
-                style: const TextStyle(fontSize: 13),
-              ),
-            ],
-            const SizedBox(height: 8),
             ...proxy.accounts.asMap().entries.map((ae) {
               final ac = ae.value;
               return Padding(
@@ -360,8 +323,13 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                       child: TextField(
                         controller: _getCtrl('proxy_${proxy.id}_account_${ae.key}_username', ac.username),
                         onChanged: (v) {
+                          final trimmed = v.trim();
+                          final username = trimmed;
+                          if (username != v) {
+                            _getCtrl('proxy_${proxy.id}_account_${ae.key}_username', '').text = username;
+                          }
                           final accounts = List<ProxyAccount>.from(proxy.accounts);
-                          accounts[ae.key] = ProxyAccount(username: v, password: ac.password, enabled: ac.enabled);
+                          accounts[ae.key] = ProxyAccount(username: username, password: ac.password, enabled: ac.enabled);
                           setState(() {
                             _proxies[index] = proxy.copyWith(accounts: accounts);
                             _autoSave();
@@ -381,44 +349,47 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                       child: TextField(
                         controller: _getCtrl('proxy_${proxy.id}_account_${ae.key}_password', ac.password),
                         onChanged: (v) {
+                          final pw = v.trim().isEmpty ? '' : v;
+                          if (pw != v) {
+                            _getCtrl('proxy_${proxy.id}_account_${ae.key}_password', '').text = pw;
+                          }
                           final accounts = List<ProxyAccount>.from(proxy.accounts);
-                          accounts[ae.key] = ProxyAccount(username: ac.username, password: v, enabled: ac.enabled);
+                          accounts[ae.key] = ProxyAccount(username: ac.username, password: pw, enabled: ac.enabled);
                           setState(() {
                             _proxies[index] = proxy.copyWith(accounts: accounts);
                             _autoSave();
                           });
                         },
                         obscureText: !_visiblePasswords.contains('proxy_${proxy.id}_account_${ae.key}_password'),
-                        decoration: InputDecoration(
+                        decoration: const InputDecoration(
                           labelText: '密码',
-                          border: const OutlineInputBorder(),
+                          border: OutlineInputBorder(),
                           isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _visiblePasswords.contains('proxy_${proxy.id}_account_${ae.key}_password')
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                              size: 16,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                final key = 'proxy_${proxy.id}_account_${ae.key}_password';
-                                if (_visiblePasswords.contains(key)) {
-                                  _visiblePasswords.remove(key);
-                                } else {
-                                  _visiblePasswords.add(key);
-                                }
-                              });
-                            },
-                            constraints: const BoxConstraints(),
-                            padding: EdgeInsets.zero,
-                          ),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                         ),
                         style: const TextStyle(fontSize: 12),
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: Icon(
+                        _visiblePasswords.contains('proxy_${proxy.id}_account_${ae.key}_password')
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        size: 18,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          final key = 'proxy_${proxy.id}_account_${ae.key}_password';
+                          if (_visiblePasswords.contains(key)) {
+                            _visiblePasswords.remove(key);
+                          } else {
+                            _visiblePasswords.add(key);
+                          }
+                        });
+                      },
+                      constraints: const BoxConstraints(minWidth: 32),
+                      padding: EdgeInsets.zero,
+                    ),
                     IconButton(
                       icon: Icon(Icons.remove_circle_outline, color: Colors.red.shade400, size: 18),
                       onPressed: () {
@@ -439,7 +410,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
             TextButton.icon(
               onPressed: () {
                 final accounts = List<ProxyAccount>.from(proxy.accounts)
-                  ..add(ProxyAccount());
+                  ..add(ProxyAccount(username: 'admin', password: 'admin', enabled: true));
                 setState(() {
                   _proxies[index] = proxy.copyWith(accounts: accounts);
                   _autoSave();
@@ -452,43 +423,6 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-            ),
-            const SizedBox(height: 8),
-            ExpansionTile(
-              title: Text('关联规则 (${proxy.ruleIds.length})', style: const TextStyle(fontSize: 13)),
-              initiallyExpanded: false,
-              children: widget.config.rules.isEmpty
-                  ? [
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Text('暂无规则，请先在"代理规则"中创建',
-                            style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-                      ),
-                    ]
-                  : widget.config.rules.map((rule) {
-                      return CheckboxListTile(
-                        dense: true,
-                        title: Text(rule.name, style: const TextStyle(fontSize: 13)),
-                        subtitle: Text(
-                          rule.matchType.name,
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
-                        ),
-                        value: proxy.ruleIds.contains(rule.id),
-                        onChanged: (v) {
-                          final ids = List<String>.from(proxy.ruleIds);
-                          if (v == true) {
-                            ids.add(rule.id);
-                          } else {
-                            ids.remove(rule.id);
-                          }
-                          setState(() {
-                            _proxies[index] = proxy.copyWith(ruleIds: ids);
-                            _autoSave();
-                          });
-                        },
-                        controlAffinity: ListTileControlAffinity.leading,
-                      );
-                    }).toList(),
             ),
             const SizedBox(height: 8),
             SizedBox(

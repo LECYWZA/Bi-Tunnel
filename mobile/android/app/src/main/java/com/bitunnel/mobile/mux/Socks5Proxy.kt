@@ -1,11 +1,14 @@
 package com.bitunnel.mobile.mux
 
+import android.util.Log
 import java.io.InputStream
 import java.io.PushbackInputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 data class ProxyRule(
@@ -29,29 +32,34 @@ class Socks5Proxy(
     private val rules: List<ProxyRule> = emptyList(),
     private val defaultAction: String = "forward"
 ) {
+    private val TAG = "Socks5Proxy"
     private var serverSocket: ServerSocket? = null
     @Volatile
     var running = false
         private set
 
-    private val useAuth: Boolean get() = accounts.isNotEmpty() && accounts.any { it.enabled }
+    private val useAuth: Boolean get() = accounts.isNotEmpty() && accounts.any { it.username.isNotEmpty() }
 
     fun start() {
         running = true
+        System.out.println("Socks5Proxy start: port=$port")
         thread(isDaemon = true, name = "proxy-${port}") {
             try {
                 val ss = ServerSocket()
                 serverSocket = ss
                 ss.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port))
+                System.out.println("Socks5Proxy bound: port=$port")
                 while (running) {
                     try {
                         val client = ss.accept()
+                        System.out.println("Socks5Proxy accept: from ${client.remoteSocketAddress}")
                         thread(isDaemon = true) { handleClient(client) }
                     } catch (_: Exception) {
                         if (!running) break
                     }
                 }
             } catch (_: Exception) {
+                System.out.println("Socks5Proxy start error")
                 running = false
             }
         }
@@ -63,10 +71,12 @@ class Socks5Proxy(
     }
 
     private fun handleClient(socket: Socket) {
+        System.out.println("Socks5Proxy handleClient")
         try {
             val input = socket.getInputStream()
             val pushback = PushbackInputStream(input, 1)
             val firstByte = pushback.read()
+            System.out.println("Socks5Proxy firstByte=$firstByte")
             if (firstByte < 0) { socket.close(); return }
             pushback.unread(firstByte)
             when {
@@ -75,31 +85,39 @@ class Socks5Proxy(
                     handleHttp(socket, pushback)
                 else -> socket.close()
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            System.out.println("Socks5Proxy handleClient error: $e")
             try { socket.close() } catch (_: Exception) {}
         }
     }
 
     private fun handleSocks5(socket: Socket, input: PushbackInputStream) {
+        System.out.println("Socks5Proxy handleSocks5 entry")
         val output = socket.getOutputStream()
+        Log.i(TAG, "handleSocks5: start")
 
         val buf = ByteArray(4096)
         var n = input.read(buf)
         if (n < 3 || buf[0].toInt() != 0x05) {
+            Log.i(TAG, "handleSocks5: bad version n=$n first=${buf[0].toInt()}")
             socket.close()
             return
         }
 
         val nmethods = buf[1].toInt()
         val methods = (2 until 2 + nmethods).map { buf[it].toInt() }
+        Log.i(TAG, "handleSocks5: nmethods=$nmethods methods=$methods useAuth=$useAuth accounts=${accounts.size}")
 
         if (useAuth) {
             if (methods.any { it == 0x02 }) {
                 output.write(byteArrayOf(0x05, 0x02))
                 output.flush()
+                Log.i(TAG, "handleSocks5: sent method=0x02, waiting auth...")
 
                 n = input.read(buf)
+                Log.i(TAG, "handleSocks5: auth read n=$n first=${if (n>0) buf[0].toInt() else -1}")
                 if (n < 5 || buf[0].toInt() != 0x01) {
+                    Log.i(TAG, "handleSocks5: bad auth")
                     output.write(byteArrayOf(0x01, 0x01))
                     socket.close()
                     return
@@ -108,8 +126,10 @@ class Socks5Proxy(
                 val uname = String(buf, 2, ulen)
                 val plen = buf[2 + ulen].toInt()
                 val pass = String(buf, 3 + ulen, plen)
+                Log.i(TAG, "handleSocks5: auth uname='$uname' pass='$pass'")
 
-                val ok = accounts.any { it.enabled && it.username == uname && it.password == pass }
+                val ok = accounts.any { it.username == uname && it.password == pass }
+                Log.i(TAG, "handleSocks5: auth ok=$ok")
                 if (!ok) {
                     output.write(byteArrayOf(0x01, 0x01))
                     socket.close()
@@ -117,7 +137,9 @@ class Socks5Proxy(
                 }
                 output.write(byteArrayOf(0x01, 0x00))
                 output.flush()
+                Log.i(TAG, "handleSocks5: auth success sent")
             } else {
+                Log.i(TAG, "handleSocks5: no auth method found")
                 output.write(byteArrayOf(0x05, (-1).toByte()))
                 socket.close()
                 return
@@ -126,6 +148,7 @@ class Socks5Proxy(
             if (methods.any { it == 0x00 }) {
                 output.write(byteArrayOf(0x05, 0x00))
                 output.flush()
+                Log.i(TAG, "handleSocks5: no auth needed")
             } else {
                 output.write(byteArrayOf(0x05, (-1).toByte()))
                 socket.close()
@@ -134,7 +157,9 @@ class Socks5Proxy(
         }
 
         n = input.read(buf)
+        Log.i(TAG, "handleSocks5: connect read n=$n first=${if (n>0) buf[0].toInt() else -1}")
         if (n < 4 || buf[0].toInt() != 0x05 || buf[1].toInt() != 0x01) {
+            Log.i(TAG, "handleSocks5: bad connect request n=$n v=${if(n>0)buf[0].toInt() else -1} cmd=${if(n>1)buf[1].toInt() else -1}")
             socket.close()
             return
         }
@@ -164,8 +189,10 @@ class Socks5Proxy(
             }
             else -> { socket.close(); return }
         }
+        Log.i(TAG, "handleSocks5: connect host=$host port=$port")
 
         val resolvedAction = evaluateRules(host) ?: defaultAction
+        Log.i(TAG, "handleSocks5: action=$resolvedAction")
         when (resolvedAction) {
             "reject" -> {
                 val reply = byteArrayOf(0x05, 0x02.toByte(), 0x00, 0x01, 0, 0, 0, 0, 0, 0)
@@ -177,6 +204,7 @@ class Socks5Proxy(
                 val reply = byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0)
                 output.write(reply)
                 output.flush()
+                Log.i(TAG, "handleSocks5: direct connect to $host:$port")
                 if (onDirectRequest != null) {
                     onDirectRequest(host, port, socket)
                 } else {
@@ -187,6 +215,7 @@ class Socks5Proxy(
                 val reply = byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0)
                 output.write(reply)
                 output.flush()
+                Log.i(TAG, "handleSocks5: forward to $host:$port")
                 onForwardRequest(host, port, socket)
             }
         }
@@ -210,7 +239,7 @@ class Socks5Proxy(
                 val decoded = String(java.util.Base64.getDecoder().decode(encoded))
                 val parts = decoded.split(":", limit = 2)
                 parts.size == 2 && accounts.any {
-                    it.enabled && it.username == parts[0] && it.password == parts[1]
+                    it.username == parts[0] && it.password == parts[1]
                 }
             } else false
 
@@ -349,11 +378,24 @@ class Socks5Proxy(
     }
 
     private fun directConnect(host: String, port: Int, clientSocket: Socket) {
+        System.out.println("Socks5Proxy directConnect: start host=$host port=$port")
         thread(isDaemon = true) {
             var remote: Socket? = null
             try {
+                System.out.println("Socks5Proxy directConnect: resolving DNS for $host")
+                val addrFuture = FutureTask { InetAddress.getByName(host) }
+                Thread(addrFuture).apply { isDaemon = true; start() }
+                val addr = try {
+                    addrFuture.get(10, TimeUnit.SECONDS)
+                } catch (e: Exception) {
+                    System.out.println("Socks5Proxy directConnect: DNS error: ${e.javaClass.simpleName} $e")
+                    throw java.net.UnknownHostException("DNS failed for $host: $e")
+                }
+                System.out.println("Socks5Proxy directConnect: DNS resolved $host -> ${addr.hostAddress}")
                 remote = Socket()
-                remote.connect(InetSocketAddress(host, port), 15000)
+                System.out.println("Socks5Proxy directConnect: connecting to ${addr.hostAddress}:$port")
+                remote.connect(InetSocketAddress(addr, port), 15000)
+                System.out.println("Socks5Proxy directConnect: connected to ${addr.hostAddress}:$port")
                 remote.soTimeout = 30000
                 val remoteInput = remote.getInputStream()
                 val remoteOutput = remote.getOutputStream()
@@ -387,10 +429,13 @@ class Socks5Proxy(
                 toRemote.join()
                 try { remote.shutdownOutput() } catch (_: Exception) {}
                 toClient.join()
-            } catch (_: Exception) {
+                System.out.println("Socks5Proxy directConnect: done")
+            } catch (e: Exception) {
+                System.out.println("Socks5Proxy directConnect: error ${e.javaClass.simpleName}: $e")
             } finally {
                 try { remote?.close() } catch (_: Exception) {}
                 try { clientSocket.close() } catch (_: Exception) {}
+                System.out.println("Socks5Proxy directConnect: closed client socket")
             }
         }
     }

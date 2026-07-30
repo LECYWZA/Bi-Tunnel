@@ -230,7 +230,7 @@ class ProxyAccount {
   factory ProxyAccount.fromJson(Map<String, dynamic> json) => ProxyAccount(
         username: json['username'] as String? ?? '',
         password: json['password'] as String? ?? '',
-        enabled: json['enabled'] as bool? ?? true,
+        enabled: (json['enabled'] as bool?) ?? ((json['username'] as String?)?.isNotEmpty ?? false),
       );
 }
 
@@ -239,41 +239,28 @@ class ProxyInstance {
   final String name;
   bool enabled;
   String bindIp;
-  String mode;
   int listenPort;
-  ProxyAction defaultAction;
   List<ProxyAccount> accounts;
-  List<String> ruleIds;
-  String? targetClientId;
   bool running;
 
   ProxyInstance({
     String? id,
-    this.name = '混合代理',
+    this.name = 'SOCKS5 代理',
     this.enabled = false,
     this.bindIp = '127.0.0.1',
-    this.mode = 'client',
     this.listenPort = 1080,
-    this.defaultAction = ProxyAction.forward,
     List<ProxyAccount>? accounts,
-    List<String>? ruleIds,
-    this.targetClientId,
     this.running = false,
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        accounts = accounts ?? [],
-        ruleIds = ruleIds ?? [];
+        accounts = accounts ?? [];
 
   ProxyInstance copyWith({
     String? id,
     String? name,
     bool? enabled,
     String? bindIp,
-    String? mode,
     int? listenPort,
-    ProxyAction? defaultAction,
     List<ProxyAccount>? accounts,
-    List<String>? ruleIds,
-    String? targetClientId,
     bool? running,
   }) {
     return ProxyInstance(
@@ -281,12 +268,8 @@ class ProxyInstance {
       name: name ?? this.name,
       enabled: enabled ?? this.enabled,
       bindIp: bindIp ?? this.bindIp,
-      mode: mode ?? this.mode,
       listenPort: listenPort ?? this.listenPort,
-      defaultAction: defaultAction ?? this.defaultAction,
       accounts: accounts ?? this.accounts,
-      ruleIds: ruleIds ?? this.ruleIds,
-      targetClientId: targetClientId ?? this.targetClientId,
       running: running ?? this.running,
     );
   }
@@ -296,34 +279,21 @@ class ProxyInstance {
         'name': name,
         'enabled': enabled,
         'bindIp': bindIp,
-        'mode': mode,
         'listenPort': listenPort,
-        'defaultAction': defaultAction.name,
         'accounts': accounts.map((a) => a.toJson()).toList(),
-        'ruleIds': ruleIds,
-        'targetClientId': targetClientId,
       };
 
   factory ProxyInstance.fromJson(Map<String, dynamic> json) => ProxyInstance(
         id: json['id'] as String?,
-        name: json['name'] as String? ?? '混合代理',
+        name: json['name'] as String? ?? 'SOCKS5 代理',
         enabled: json['enabled'] as bool? ?? true,
         bindIp: json['bindIp'] as String? ?? '127.0.0.1',
-        mode: json['mode'] as String? ?? 'client',
         listenPort: json['listenPort'] as int? ?? 1080,
-        defaultAction: ProxyAction.values.firstWhere(
-          (e) => e.name == json['defaultAction'],
-          orElse: () => ProxyAction.forward,
-        ),
         accounts: json['accounts'] != null
             ? (json['accounts'] as List)
                 .map((e) => ProxyAccount.fromJson(e as Map<String, dynamic>))
                 .toList()
             : [],
-        ruleIds: json['ruleIds'] != null
-            ? (json['ruleIds'] as List).map((e) => e as String).toList()
-            : [],
-        targetClientId: json['targetClientId'] as String?,
       );
 }
 
@@ -483,14 +453,8 @@ class AppConfig {
     return {
       'id': proxy.id,
       'bindIp': proxy.bindIp,
-      'mode': proxy.mode,
       'listenPort': proxy.listenPort,
-      'defaultAction': proxy.defaultAction.name,
       'accounts': proxy.accounts.map((a) => a.toJson()).toList(),
-      'targetClientId': proxy.targetClientId,
-      'rules': proxy.ruleIds.isEmpty
-          ? rules.where((r) => r.enabled).map((r) => r.toJson()).toList()
-          : rules.where((r) => proxy.ruleIds.contains(r.id)).map((r) => r.toJson()).toList(),
     };
   }
 }

@@ -4,7 +4,6 @@ import '../services/platform_service.dart';
 import '../services/secure_storage_service.dart';
 import 'tunnel_config_tab.dart';
 import 'hybrid_proxy_tab.dart';
-import 'proxy_rules_tab.dart';
 import 'proxy_test_tab.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -47,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          ['隧道配置', '混合代理', '代理规则', '代理测试台'][_currentIndex],
+          ['隧道配置', '混合代理', '代理测试台'][_currentIndex],
         ),
         centerTitle: true,
       ),
@@ -61,14 +60,6 @@ class _HomeScreenState extends State<HomeScreen> {
           HybridProxyTab(
             config: _config,
             onSave: _saveConfig,
-          ),
-          ProxyRulesTab(
-            config: _config,
-            onChanged: (rules) {
-              final newConfig = _config.copyWith(rules: rules);
-              SecureStorageService.saveConfig(newConfig);
-              setState(() => _config = newConfig);
-            },
           ),
           const ProxyTestTab(),
         ],
@@ -86,11 +77,6 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.swap_horiz_rounded),
             selectedIcon: Icon(Icons.swap_horiz_rounded),
             label: '混合代理',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.alt_route_rounded),
-            selectedIcon: Icon(Icons.alt_route_rounded),
-            label: '代理规则',
           ),
           NavigationDestination(
             icon: Icon(Icons.science_rounded),

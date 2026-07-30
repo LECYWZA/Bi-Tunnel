@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/connection_config.dart';
 import '../services/platform_service.dart';
@@ -25,6 +26,23 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
   Map<String, String> _clientStatuses = {};
   Map<String, List<String>> _serverClients = {};
   final Set<String> _visiblePasswords = {};
+  List<String> _availableIps = ['0.0.0.0', '127.0.0.1'];
+
+  Future<void> _loadNetworkIps() async {
+    try {
+      final ips = <String>['0.0.0.0', '127.0.0.1'];
+      final interfaces = await NetworkInterface.list();
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          if (addr.type == InternetAddressType.IPv4) {
+            final ip = addr.address;
+            if (!ips.contains(ip)) ips.add(ip);
+          }
+        }
+      }
+      if (mounted) setState(() => _availableIps = ips);
+    } catch (_) {}
+  }
 
   TextEditingController _getCtrl(String key, String initialText) {
     if (!_ctrls.containsKey(key)) {
@@ -39,6 +57,27 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
     }
   }
 
+  void _onPortChanged(String value, TextEditingController ctrl, void Function(int) onSet) {
+    final filtered = value.replaceAll(RegExp(r'[^0-9]'), '');
+    final newPort = int.tryParse(filtered) ?? 0;
+    final clamped = newPort.clamp(1, 65535);
+    if (filtered != value || clamped != newPort) {
+      ctrl.text = clamped.toString();
+    }
+    onSet(clamped);
+  }
+
+  String _validateUsername(String v) {
+    final trimmed = v.trim();
+    if (trimmed.isEmpty && v.isNotEmpty) return '';
+    return trimmed;
+  }
+
+  String _validatePassword(String v) {
+    if (v.trim().isEmpty) return '';
+    return v;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +85,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
     _clients = List.from(widget.config.clients);
     _statusSub = PlatformService.statusStream.listen(_onStatus);
     _syncInitialStatus();
+    _loadNetworkIps();
   }
 
   Future<void> _syncInitialStatus() async {
@@ -336,9 +376,11 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                           child: TextField(
                             controller: _getCtrl('${prefix}_pf_${rule.id}_listenPort', rule.listenPort.toString()),
                             onChanged: (v) {
-                              final updated = List<PortForwardRule>.from(rules);
-                              updated[i] = rule.copyWith(listenPort: int.tryParse(v) ?? 8080);
-                              onUpdate(updated);
+                              _onPortChanged(v, _getCtrl('${prefix}_pf_${rule.id}_listenPort', ''), (newPort) {
+                                final updated = List<PortForwardRule>.from(rules);
+                                updated[i] = rule.copyWith(listenPort: newPort);
+                                onUpdate(updated);
+                              });
                             },
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
@@ -374,9 +416,11 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                           child: TextField(
                             controller: _getCtrl('${prefix}_pf_${rule.id}_targetPort', rule.targetPort.toString()),
                             onChanged: (v) {
-                              final updated = List<PortForwardRule>.from(rules);
-                              updated[i] = rule.copyWith(targetPort: int.tryParse(v) ?? 80);
-                              onUpdate(updated);
+                              _onPortChanged(v, _getCtrl('${prefix}_pf_${rule.id}_targetPort', ''), (newPort) {
+                                final updated = List<PortForwardRule>.from(rules);
+                                updated[i] = rule.copyWith(targetPort: newPort);
+                                onUpdate(updated);
+                              });
                             },
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
@@ -595,20 +639,25 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _getCtrl('server_${server.id}_bindIp', server.bindIp),
-                    onChanged: (v) {
-                      setState(() {
-                        _servers[index] = server.copyWith(bindIp: v);
-                      });
-                    },
+                  child: DropdownButtonFormField<String>(
+                    value: _availableIps.contains(server.bindIp) ? server.bindIp : null,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: '绑定IP',
                       border: OutlineInputBorder(),
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                     ),
-                    style: const TextStyle(fontSize: 13),
+                    items: _availableIps.map((ip) => DropdownMenuItem(
+                      value: ip,
+                      child: Text(ip, style: const TextStyle(fontSize: 13)),
+                    )).toList(),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() {
+                        _servers[index] = server.copyWith(bindIp: v);
+                      });
+                    },
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -616,16 +665,17 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                   child: TextField(
                     controller: _getCtrl('server_${server.id}_listenPort', server.listenPort.toString()),
                     onChanged: (v) {
-                      final newPort = int.tryParse(v) ?? 0;
-                      final conflict = _servers.asMap().entries.any((e) =>
-                        e.key != index && e.value.listenPort == newPort);
-                      if (conflict && newPort > 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('端口已被其他服务端使用'), duration: Duration(seconds: 2)),
-                        );
-                      }
-                      setState(() {
-                        _servers[index] = server.copyWith(listenPort: newPort > 0 ? newPort : 33891);
+                      _onPortChanged(v, _getCtrl('server_${server.id}_listenPort', ''), (newPort) {
+                        final conflict = _servers.asMap().entries.any((e) =>
+                          e.key != index && e.value.listenPort == newPort);
+                        if (conflict) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('端口已被其他服务端使用'), duration: Duration(seconds: 2)),
+                          );
+                        }
+                        setState(() {
+                          _servers[index] = server.copyWith(listenPort: newPort);
+                        });
                       });
                     },
                     keyboardType: TextInputType.number,
@@ -647,8 +697,12 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                   child: TextField(
                     controller: _getCtrl('server_${server.id}_password', server.password),
                     onChanged: (v) {
+                      final pw = _validatePassword(v);
+                      if (pw != v) {
+                        _getCtrl('server_${server.id}_password', '').text = pw;
+                      }
                       setState(() {
-                        _servers[index] = server.copyWith(password: v);
+                        _servers[index] = server.copyWith(password: pw);
                       });
                     },
                     obscureText: !_visiblePasswords.contains('server_${server.id}_password'),
@@ -841,20 +895,42 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _getCtrl('client_${client.id}_serverHost', client.serverHost),
-                    onChanged: (v) {
+                  child: Autocomplete<String>(
+                    initialValue: TextEditingValue(text: client.serverHost),
+                    optionsBuilder: (textEditingValue) {
+                      final available = <String>{'127.0.0.1'};
+                      for (final s in _servers) {
+                        if (s.bindIp.isNotEmpty) available.add(s.bindIp);
+                      }
+                      if (textEditingValue.text.isEmpty) return available.toList();
+                      return available.where((o) => o.contains(textEditingValue.text)).toList();
+                    },
+                    fieldViewBuilder: (context, textEditingValue, focusNode, onSubmitted) {
+                      return TextField(
+                        controller: textEditingValue,
+                        focusNode: focusNode,
+                        onSubmitted: (v) => onSubmitted(),
+                        onChanged: (v) {
+                          _syncCtrl('client_${client.id}_serverHost', v);
+                          setState(() {
+                            _clients[index] = client.copyWith(serverHost: v);
+                          });
+                        },
+                        decoration: const InputDecoration(
+                          labelText: '服务器地址',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        ),
+                        style: const TextStyle(fontSize: 13),
+                      );
+                    },
+                    onSelected: (v) {
+                      _syncCtrl('client_${client.id}_serverHost', v);
                       setState(() {
                         _clients[index] = client.copyWith(serverHost: v);
                       });
                     },
-                    decoration: const InputDecoration(
-                      labelText: '服务器地址',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    ),
-                    style: const TextStyle(fontSize: 13),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -863,8 +939,10 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                   child: TextField(
                     controller: _getCtrl('client_${client.id}_serverPort', client.serverPort.toString()),
                     onChanged: (v) {
-                      setState(() {
-                        _clients[index] = client.copyWith(serverPort: int.tryParse(v) ?? 33891);
+                      _onPortChanged(v, _getCtrl('client_${client.id}_serverPort', ''), (newPort) {
+                        setState(() {
+                          _clients[index] = client.copyWith(serverPort: newPort);
+                        });
                       });
                     },
                     keyboardType: TextInputType.number,
@@ -886,8 +964,12 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                   child: TextField(
                     controller: _getCtrl('client_${client.id}_password', client.password),
                     onChanged: (v) {
+                      final pw = _validatePassword(v);
+                      if (pw != v) {
+                        _getCtrl('client_${client.id}_password', '').text = pw;
+                      }
                       setState(() {
-                        _clients[index] = client.copyWith(password: v);
+                        _clients[index] = client.copyWith(password: pw);
                       });
                     },
                     obscureText: !_visiblePasswords.contains('client_${client.id}_password'),
