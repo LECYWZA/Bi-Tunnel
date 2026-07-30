@@ -4,27 +4,42 @@ import UIKit
 import Network
 import CryptoKit
 
+// MARK: - Data Models
+
+struct ClientState {
+    let id: String
+    let host: String
+    let port: Int
+    let password: String
+    let clientId: String
+    let sni: String
+    let proxyPort: Int
+    let rules: [ProxyRule]
+    let portForwards: [[String: Any]]
+}
+
+struct ServerState {
+    let id: String
+    let listenPort: Int
+    let password: String
+    let sni: String
+    let bindIp: String
+}
+
+// MARK: - TunnelService
+
 class TunnelService: NSObject {
     static var statusCallback: (([String: Any]) -> Void)?
 
-    private var connection: NWConnection?
     private var audioPlayer: AVAudioPlayer?
-    private var proxyListener: NWListener?
-    @Published private(set) var state = "disconnected"
-    private(set) var bytesSent: Int64 = 0
-    private(set) var bytesReceived: Int64 = 0
-    private(set) var connectedDuration: Int64 = 0
-    private var connectedSince: Date?
-
-    var statusCallback: (([String: Any]) -> Void)?
-
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
-    private var pendingData = Data()
-    private var encryptionKey: SymmetricKey?
 
-    private let headerSize = 9
-    private let aesIVLen = 12
-    private let aesTagLen = 16
+    // Runners
+    var clientRunners: [String: ClientRunner] = [:]
+    var serverRunners: [String: ServerRunner] = [:]
+    var proxyRunners: [String: ProxyRunner] = [:]
+    var pfRunners: [String: [String: PfRunnerInfo]] = [:]
+    private let runnersLock = NSLock()
 
     override init() {
         super.init()
@@ -32,33 +47,24 @@ class TunnelService: NSObject {
         observeLifecycle()
     }
 
+    // MARK: - Audio Keepalive
+
     private func setupAudio() {
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleAudioInterruption),
-            name: AVAudioSession.interruptionNotification,
-            object: nil
-        )
+            self, selector: #selector(handleAudioInterruption),
+            name: AVAudioSession.interruptionNotification, object: nil)
     }
 
     private func observeLifecycle() {
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(willEnterForeground),
-            name: UIApplication.willEnterForegroundNotification,
-            object: nil
-        )
+            self, selector: #selector(willEnterForeground),
+            name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(didEnterBackground),
-            name: UIApplication.didEnterBackgroundNotification,
-            object: nil
-        )
+            self, selector: #selector(didEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification, object: nil)
     }
 
-    @objc private func willEnterForeground() {
-        ensureAudioSession()
-    }
+    @objc private func willEnterForeground() { ensureAudioSession() }
 
     @objc private func didEnterBackground() {
         startBackgroundTask()
@@ -78,15 +84,13 @@ class TunnelService: NSObject {
         guard let info = notification.userInfo,
               let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
-        if type == .ended {
-            startSilentAudio()
-        }
+        if type == .ended { startSilentAudio() }
     }
 
     private func startSilentAudio() {
         ensureAudioSession()
         guard let path = Bundle.main.path(forResource: "silence", ofType: "mp3") else {
-            print("[BiTunnel] silence.mp3 not found in bundle")
+            print("[BiTunnel] silence.mp3 not found")
             return
         }
         do {
@@ -104,306 +108,7 @@ class TunnelService: NSObject {
         audioPlayer = nil
     }
 
-    func connect(config: [String: Any]) {
-        let host = config["tunnelHost"] as? String ?? ""
-        let port = (config["tunnelPort"] as? NSNumber)?.intValue ?? 33891
-        let password = config["password"] as? String ?? ""
-        let clientId = config["clientId"] as? String ?? "mobile-1"
-        proxyPort = (config["localProxyPort"] as? NSNumber)?.intValue ?? 1080
-
-        guard !host.isEmpty else {
-            state = "failed"
-            emitStatus()
-            return
-        }
-
-        if !password.isEmpty {
-            let keyData = SHA256.hash(data: password.data(using: .utf8)!)
-            encryptionKey = SymmetricKey(data: keyData)
-        }
-
-        state = "connecting"
-        emitStatus()
-
-        startBackgroundTask()
-        startSilentAudio()
-
-        let params = NWParameters.tls
-        let endpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: UInt16(port))!
-        )
-
-        let conn = NWConnection(to: endpoint, using: params)
-        self.connection = conn
-
-        conn.stateUpdateHandler = { [weak self] newState in
-            guard let self = self else { return }
-            switch newState {
-            case .ready:
-                print("[BiTunnel] TLS connected")
-                self.sendAuth(password: password, clientId: clientId)
-            case .failed(let error):
-                print("[BiTunnel] Connection failed: \(error)")
-                self.state = "failed"
-                self.emitStatus()
-                self.cleanup()
-            case .cancelled:
-                self.state = "disconnected"
-                self.emitStatus()
-                self.cleanup()
-            default:
-                break
-            }
-        }
-
-        conn.start(queue: .global())
-    }
-
-    private func sendAuth(password: String, clientId: String) {
-        guard let conn = connection else { return }
-
-        let payload = "{\"password\":\"\(password)\",\"clientId\":\"\(clientId)\"}"
-        guard let payloadData = payload.data(using: .utf8) else { return }
-
-        let frame = buildFrame(type: MuxTypes.TYPE_AUTH, channelId: 0, payload: payloadData)
-        conn.send(content: frame, completion: .contentProcessed { [weak self] error in
-            guard let self = self else { return }
-            if error != nil {
-                self.state = "failed"
-                self.emitStatus()
-                return
-            }
-            self.readAuthResponse()
-        })
-    }
-
-    private func readAuthResponse() {
-        readHeader { [weak self] header in
-            guard let self = self, let hdr = header else {
-                self?.state = "failed"
-                self?.emitStatus()
-                return
-            }
-            let type = Int(hdr[0])
-            let payloadLen = hdr.withUnsafeBytes { $0.load(fromByteOffset: 5, as: UInt32.self) }.bigEndian
-
-            guard type == MuxTypes.TYPE_AUTH_RES, payloadLen > 0 else {
-                self.state = "failed"
-                self.emitStatus()
-                return
-            }
-
-            self.readPayload(length: Int(payloadLen)) { payload in
-                guard let data = payload, data.first == 1 else {
-                    self.state = "failed"
-                    self.emitStatus()
-                    return
-                }
-                print("[BiTunnel] Auth OK")
-                self.state = "connected"
-                self.connectedSince = Date()
-                self.emitStatus()
-                self.startLocalProxy(port: proxyPort)
-                self.readLoop()
-            }
-        }
-    }
-
-    private var proxyPort = 1080
-
-    private func startLocalProxy(port: Int) {
-        proxyPort = port
-        do {
-            let params = NWParameters.tcp
-            proxyListener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: UInt16(port))!)
-            proxyListener?.newConnectionHandler = { [weak self] conn in
-                self?.handleSocks5(conn)
-            }
-            proxyListener?.start(queue: .global())
-            print("[BiTunnel] SOCKS5 proxy on 127.0.0.1:\(port)")
-        } catch {
-            print("[BiTunnel] Proxy error: \(error)")
-        }
-    }
-
-    private func handleSocks5(_ conn: NWConnection) {
-        conn.start(queue: .global())
-        conn.receive(minimumIncompleteLength: 3, maximumLength: 3) { [weak self] data, _, _, _ in
-            guard let d = data, d.count >= 3, d[0] == 5 else { return }
-            // No auth
-            conn.send(content: Data([0x05, 0x00]), completion: .contentProcessed { _ in
-                self?.readSocks5Request(conn)
-            })
-        }
-    }
-
-    private func readSocks5Request(_ conn: NWConnection) {
-        conn.receive(minimumIncompleteLength: 4, maximumLength: 260) { [weak self] data, _, _, _ in
-            guard let self = self, let buf = data, buf.count >= 4 else { return }
-            let atyp = buf[3]
-            var host = ""
-            var port = 0
-
-            switch atyp {
-            case 1: // IPv4
-                guard buf.count >= 10 else { return }
-                host = (4...7).map { "\(buf[$0])" }.joined(separator: ".")
-                port = (Int(buf[8]) << 8) | Int(buf[9])
-            case 3: // Domain
-                let len = Int(buf[4])
-                guard buf.count >= 5 + len + 2 else { return }
-                host = String(data: buf[5..<(5+len)], encoding: .utf8) ?? ""
-                port = (Int(buf[5+len]) << 8) | Int(buf[6+len])
-            case 4: // IPv6
-                guard buf.count >= 22 else { return }
-                let parts = stride(from: 0, to: 16, by: 2).map { String(format: "%02x%02x", buf[4+$0], buf[5+$0]) }
-                host = parts.joined(separator: ":")
-                port = (Int(buf[20]) << 8) | Int(buf[21])
-            default: return
-            }
-
-            conn.send(content: Data([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]), completion: .contentProcessed { _ in
-                self.forwardOverTunnel(conn, host: host, port: port)
-            })
-        }
-    }
-
-    private var nextChannelId: UInt32 = 1
-    private var channels: [UInt32: NWConnection] = [:]
-
-    private func forwardOverTunnel(_ conn: NWConnection, host: String, port: Int) {
-        guard let tlsConn = connection else { return }
-        let channelId = nextChannelId
-        nextChannelId += 2
-        channels[channelId] = conn
-
-        let meta = "{\"type\":\"forward\",\"host\":\"\(host)\",\"port\":\(port)}"
-        guard let metaData = meta.data(using: .utf8) else { return }
-
-        let frame = buildFrame(type: MuxTypes.TYPE_CREATE, channelId: channelId, payload: metaData)
-        tlsConn.send(content: frame, completion: .contentProcessed(nil))
-
-        // Read from local and send over tunnel
-        readLocalAndSend(conn, channelId: channelId)
-    }
-
-    private func readLocalAndSend(_ conn: NWConnection, channelId: UInt32) {
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, error in
-            guard let self = self, let tlsConn = self.connection else { return }
-
-            if let d = data, !d.isEmpty {
-                let frame = self.buildFrame(type: MuxTypes.TYPE_DATA, channelId: channelId, payload: d)
-                tlsConn.send(content: frame, completion: .contentProcessed(nil))
-                self.bytesSent += Int64(d.count)
-                self.emitStatus()
-                self.readLocalAndSend(conn, channelId: channelId)
-            } else if error != nil {
-                let closeFrame = self.buildFrame(type: MuxTypes.TYPE_CLOSE, channelId: channelId, payload: Data())
-                tlsConn.send(content: closeFrame, completion: .contentProcessed(nil))
-                self.channels.removeValue(forKey: channelId)
-            }
-        }
-    }
-
-    private func readLoop() {
-        readHeader { [weak self] header in
-            guard let self = self, let hdr = header else {
-                self?.state = "disconnected"
-                self?.emitStatus()
-                return
-            }
-
-            let type = Int(hdr[0])
-            let channelId = hdr.withUnsafeBytes { $0.load(fromByteOffset: 1, as: UInt32.self) }.bigEndian
-            let payloadLen = hdr.withUnsafeBytes { $0.load(fromByteOffset: 5, as: UInt32.self) }.bigEndian
-
-            self.readPayload(length: Int(payloadLen)) { payload in
-                guard let data = payload else {
-                    self.state = "disconnected"
-                    self.emitStatus()
-                    return
-                }
-
-                if type == MuxTypes.TYPE_DATA {
-                    if let localConn = self.channels[channelId] {
-                        localConn.send(content: data, completion: .contentProcessed(nil))
-                        self.bytesReceived += Int64(data.count)
-                        self.emitStatus()
-                    }
-                } else if type == MuxTypes.TYPE_CLOSE {
-                    self.channels[channelId]?.cancel()
-                    self.channels.removeValue(forKey: channelId)
-                }
-
-                self.readLoop()
-            }
-        }
-    }
-
-    private func readHeader(completion: @escaping (Data?) -> Void) {
-        connection?.receive(minimumIncompleteLength: headerSize, maximumLength: headerSize) { data, _, _, error in
-            completion(data)
-        }
-    }
-
-    private func readPayload(length: Int, completion: @escaping (Data?) -> Void) {
-        guard length > 0 else { completion(Data()); return }
-        connection?.receive(minimumIncompleteLength: length, maximumLength: length) { data, _, _, _ in
-            completion(data)
-        }
-    }
-
-    private func buildFrame(type: Int, channelId: UInt32, payload: Data) -> Data {
-        let encrypted = encrypt(payload)
-        var header = Data(count: headerSize)
-        header[0] = UInt8(type)
-        header.withUnsafeMutableBytes { ptr in
-            ptr.storeBytes(of: channelId.bigEndian, toByteOffset: 1, as: UInt32.self)
-            ptr.storeBytes(of: UInt32(encrypted.count).bigEndian, toByteOffset: 5, as: UInt32.self)
-        }
-        return header + encrypted
-    }
-
-    private func encrypt(_ plaintext: Data) -> Data {
-        guard let key = encryptionKey else { return plaintext }
-        do {
-            let sealedBox = try AES.GCM.seal(plaintext, using: key)
-            return sealedBox.nonce + sealedBox.ciphertext + sealedBox.tag
-        } catch {
-            return plaintext
-        }
-    }
-
-    private func decrypt(_ data: Data) -> Data {
-        guard let key = encryptionKey else { return data }
-        guard data.count > aesIVLen + aesTagLen else { return data }
-        do {
-            let nonce = try AES.GCM.Nonce(data: data.prefix(aesIVLen))
-            let box = try AES.GCM.SealedBox(nonce: nonce, ciphertext: data.dropFirst(aesIVLen).dropLast(aesTagLen), tag: data.suffix(aesTagLen))
-            return try AES.GCM.open(box, using: key)
-        } catch {
-            return data
-        }
-    }
-
-    func disconnect() {
-        cleanup()
-        state = "disconnected"
-        connectedSince = nil
-        emitStatus()
-    }
-
-    private func cleanup() {
-        stopSilentAudio()
-        endBackgroundTask()
-        for (_, conn) in channels { conn.cancel() }
-        channels.removeAll()
-        proxyListener?.cancel()
-        proxyListener = nil
-        connection?.cancel()
-        connection = nil
-    }
+    // MARK: - Background Task
 
     private func startBackgroundTask() {
         backgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
@@ -418,15 +123,627 @@ class TunnelService: NSObject {
         }
     }
 
-    private func emitStatus() {
-        let duration = connectedSince.map { Int64(Date().timeIntervalSince($0) * 1000) } ?? 0
-        let status: [String: Any] = [
-            "state": state,
-            "bytesSent": bytesSent,
-            "bytesReceived": bytesReceived,
-            "connectedDuration": duration,
-        ]
-        statusCallback?(status)
-        Self.statusCallback?(status)
+    // MARK: - Client Operations
+
+    func startClient(config: [String: Any]) {
+        let id = config["id"] as? String ?? UUID().uuidString
+        runnersLock.lock()
+        if clientRunners[id] != nil {
+            runnersLock.unlock()
+            print("[BiTunnel] Client runner already exists: \(id)")
+            return
+        }
+        let runner = ClientRunner(service: self, config: config)
+        clientRunners[id] = runner
+        runnersLock.unlock()
+        runner.start()
+        emitAllStatus()
+    }
+
+    func stopClient(id: String) {
+        runnersLock.lock()
+        let runner = clientRunners.removeValue(forKey: id)
+        pfRunners.removeValue(forKey: id)?.values.forEach { $0.stop() }
+        runnersLock.unlock()
+        runner?.stop()
+        emitAllStatus()
+    }
+
+    // MARK: - Server Operations
+
+    func startServer(config: [String: Any]) {
+        let id = config["id"] as? String ?? UUID().uuidString
+        runnersLock.lock()
+        if serverRunners[id] != nil {
+            runnersLock.unlock()
+            return
+        }
+        let runner = ServerRunner(service: self, config: config)
+        serverRunners[id] = runner
+        runnersLock.unlock()
+        runner.start()
+        emitAllStatus()
+    }
+
+    func stopServer(id: String) {
+        runnersLock.lock()
+        let runner = serverRunners.removeValue(forKey: id)
+        runnersLock.unlock()
+        runner?.stop()
+        emitAllStatus()
+    }
+
+    // MARK: - Proxy Operations
+
+    func startProxy(config: [String: Any]) {
+        let id = config["id"] as? String ?? UUID().uuidString
+        runnersLock.lock()
+        if proxyRunners[id] != nil {
+            runnersLock.unlock()
+            return
+        }
+        let runner = ProxyRunner(service: self, config: config)
+        proxyRunners[id] = runner
+        runnersLock.unlock()
+        runner.start()
+        emitAllStatus()
+    }
+
+    func stopProxy(id: String) {
+        runnersLock.lock()
+        let runner = proxyRunners.removeValue(forKey: id)
+        runnersLock.unlock()
+        runner?.stop()
+        emitAllStatus()
+    }
+
+    // MARK: - Port Forward
+
+    func startPortForward(instanceId: String, rule: [String: Any]) {
+        let ruleId = rule["id"] as? String ?? UUID().uuidString
+        var session: MuxSession?
+        runnersLock.lock()
+        if let client = clientRunners[instanceId] {
+            session = client.session
+        }
+        runnersLock.unlock()
+        guard let mux = session else {
+            print("[BiTunnel] startPortForward: no session for \(instanceId)")
+            return
+        }
+        stopPortForward(instanceId: instanceId, ruleId: ruleId)
+
+        guard let pfListenPort = rule["listenPort"] as? Int else { return }
+        guard let pfTargetHost = rule["targetHost"] as? String else { return }
+        guard let pfTargetPort = rule["targetPort"] as? Int else { return }
+
+        do {
+            let params = NWParameters.tcp
+            let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: UInt16(pfListenPort))!)
+            let info = PfRunnerInfo(listener: listener)
+            runnersLock.lock()
+            var runners = pfRunners[instanceId] ?? [:]
+            runners[ruleId] = info
+            pfRunners[instanceId] = runners
+            runnersLock.unlock()
+
+            listener.newConnectionHandler = { [weak self] conn in
+                guard let self = self else { return }
+                TunnelService.handleProxyRequest(mux: mux, targetHost: pfTargetHost, targetPort: pfTargetPort, clientConn: conn)
+            }
+            listener.start(queue: DispatchQueue.global())
+            print("[BiTunnel] Port forward \(ruleId) on \(pfListenPort) -> \(pfTargetHost):\(pfTargetPort)")
+        } catch {
+            print("[BiTunnel] Port forward error: \(error)")
+        }
+    }
+
+    func stopPortForward(instanceId: String, ruleId: String) {
+        runnersLock.lock()
+        let info = pfRunners[instanceId]?.removeValue(forKey: ruleId)
+        if pfRunners[instanceId]?.isEmpty == true {
+            pfRunners.removeValue(forKey: instanceId)
+        }
+        runnersLock.unlock()
+        info?.stop()
+    }
+
+    // MARK: - Handle Proxy Request (forward over mux)
+
+    static var channelIdCounter: UInt32 = 1
+    private static let channelIdLock = NSLock()
+
+    static func handleProxyRequest(mux: MuxSession, targetHost: String, targetPort: Int, clientConn: NWConnection) {
+        channelIdLock.lock()
+        let channelId = channelIdCounter
+        channelIdCounter += 2
+        channelIdLock.unlock()
+
+        let queue = mux.subscribeChannel(channelId)
+        let relayQueue = DispatchQueue(label: "mux-relay-\(channelId)")
+
+        relayQueue.async {
+            mux.sendCreate(channelId: channelId, host: targetHost, port: targetPort)
+
+            // Wait for ACK
+            let ackTimeout: TimeInterval = 15.0
+            let ackDeadline = Date().addingTimeInterval(ackTimeout)
+            var ackOk = false
+            while Date() < ackDeadline {
+                guard let frame = queue.poll(timeout: .now() + .milliseconds(500)) else { continue }
+                if frame.type == MuxSession.TYPE_CREATE_ACK {
+                    ackOk = frame.payload.count > 0 && frame.payload[0] == 1
+                    break
+                }
+            }
+
+            guard ackOk else {
+                mux.unsubscribeChannel(channelId)
+                clientConn.cancel()
+                return
+            }
+
+            clientConn.start(queue: relayQueue)
+
+            // Write from mux queue to client
+            let writeQueue = DispatchQueue(label: "write-client-\(channelId)")
+            writeQueue.async {
+                while mux.isAuthenticated && !mux.isClosed {
+                    guard let frame = queue.poll(timeout: .now() + .milliseconds(500)) else { continue }
+                    switch frame.type {
+                    case MuxSession.TYPE_DATA:
+                        clientConn.send(content: frame.payload, completion: .contentProcessed { _ in })
+                    case MuxSession.TYPE_CLOSE:
+                        clientConn.cancel()
+                        mux.unsubscribeChannel(channelId)
+                        return
+                    default:
+                        break
+                    }
+                }
+            }
+
+            // Read from client and send over mux
+            func readClient() {
+                guard mux.isAuthenticated && !mux.isClosed else {
+                    mux.sendClose(channelId: channelId)
+                    mux.unsubscribeChannel(channelId)
+                    clientConn.cancel()
+                    return
+                }
+                clientConn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, error in
+                    guard let d = data, !d.isEmpty, error == nil else {
+                        mux.sendClose(channelId: channelId)
+                        mux.unsubscribeChannel(channelId)
+                        clientConn.cancel()
+                        return
+                    }
+                    mux.sendData(channelId: channelId, data: d)
+                    readClient()
+                }
+            }
+            readClient()
+        }
+    }
+
+    // MARK: - Status
+
+    func getStatus() -> [String: Any] {
+        var instances: [[String: Any]] = []
+        runnersLock.lock()
+        for (id, runner) in clientRunners {
+            instances.append([
+                "id": id, "type": "client",
+                "running": runner.running, "status": runner.status,
+                "error": runner.error ?? NSNull()
+            ])
+        }
+        for (id, runner) in serverRunners {
+            instances.append([
+                "id": id, "type": "server",
+                "running": runner.running,
+                "connectedClients": runner.connectedClients,
+                "error": runner.error ?? NSNull()
+            ])
+        }
+        for (id, runner) in proxyRunners {
+            instances.append([
+                "id": id, "type": "proxy",
+                "running": runner.running,
+                "error": runner.error ?? NSNull()
+            ])
+        }
+        runnersLock.unlock()
+        return ["state": "running", "instances": instances]
+    }
+
+    func emitAllStatus() {
+        Self.statusCallback?(getStatus())
+    }
+}
+
+// MARK: - ClientRunner
+
+class ClientRunner {
+    let id: String
+    private let config: [String: Any]
+    weak var service: TunnelService?
+
+    private(set) var running = false
+    private(set) var status = "disconnected"
+    private(set) var error: String?
+    private(set) var session: MuxSession?
+
+    private var proxy: Socks5Proxy?
+    private var workerQueue: DispatchQueue?
+    private var tlsConnection: NWConnection?
+
+    init(service: TunnelService, config: [String: Any]) {
+        self.service = service
+        self.config = config
+        self.id = config["id"] as? String ?? UUID().uuidString
+    }
+
+    func start() {
+        running = true
+        status = "connecting"
+        service?.emitAllStatus()
+
+        let queue = DispatchQueue(label: "client-runner-\(id)")
+        workerQueue = queue
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            var reconnectAttempt = 0
+
+            while self.running {
+                do {
+                    let host = self.config["serverHost"] as? String ?? ""
+                    guard !host.isEmpty else { throw NSError(domain: "BiTunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing serverHost"]) }
+                    let port = self.config["serverPort"] as? Int ?? 33891
+                    let password = self.config["password"] as? String ?? ""
+                    let clientId = self.config["clientId"] as? String ?? "mobile-1"
+                    let sni = self.config["sni"] as? String ?? "mail.qq.com"
+                    let proxyPort = self.config["localProxyPort"] as? Int ?? 1080
+                    let rules = self.parseRules(self.config["rules"])
+
+                    print("[ClientRunner] \(clientId) connecting to \(host):\(port) (attempt \(reconnectAttempt + 1))")
+                    self.status = "connecting"
+                    self.service?.emitAllStatus()
+
+                    // TLS connection (trust all certs, matching Android's clientTrustAll)
+                    let tlsOpts = NWProtocolTLS.Options()
+                    sec_protocol_options_set_verify_block(tlsOpts.securityProtocolOptions) { _, _, completion in
+                        completion(true) // trust all
+                    }
+                    let params = NWParameters(tls: tlsOpts)
+                    let endpoint = NWEndpoint.hostPort(
+                        host: NWEndpoint.Host(host),
+                        port: NWEndpoint.Port(rawValue: UInt16(port))!)
+                    let tlsConn = NWConnection(to: endpoint, using: params)
+                    self.tlsConnection = tlsConn
+
+                    let connectSem = DispatchSemaphore(value: 0)
+                    var connectError: NWError?
+
+                    tlsConn.stateUpdateHandler = { state in
+                        switch state {
+                        case .ready:
+                            connectSem.signal()
+                        case .failed(let err):
+                            connectError = err
+                            connectSem.signal()
+                        default:
+                            break
+                        }
+                    }
+                    tlsConn.start(queue: queue)
+                    _ = connectSem.wait(timeout: .now() + .seconds(15))
+
+                    if let err = connectError {
+                        throw err
+                    }
+
+                    print("[ClientRunner] TLS connected")
+
+                    let mux = MuxSession(connection: tlsConn, password: password)
+                    self.session = mux
+
+                    mux.sendAuth(password: password, clientId: clientId)
+
+                    // Wait for auth response
+                    let authTimeout: TimeInterval = 30.0
+                    let authDeadline = Date().addingTimeInterval(authTimeout)
+                    var authenticated = false
+                    while self.running && Date() < authDeadline {
+                        guard let frame = mux.readFrame() else { break }
+                        if frame.type == MuxSession.TYPE_AUTH_RES {
+                            authenticated = frame.payload.count > 0 && frame.payload[0] == 1
+                            break
+                        }
+                    }
+
+                    guard authenticated else {
+                        throw NSError(domain: "BiTunnel", code: 2, userInfo: [NSLocalizedDescriptionKey: "Authentication failed"])
+                    }
+
+                    print("[ClientRunner] \(clientId) authenticated")
+                    self.status = "connected"
+                    self.service?.emitAllStatus()
+                    self.error = nil
+                    reconnectAttempt = 0
+
+                    // Start local SOCKS5 proxy
+                    let p = Socks5Proxy(
+                        port: proxyPort,
+                        onForwardRequest: { [weak self] targetHost, targetPort, clientConn in
+                            guard let self = self, let mux = self.session else { return }
+                            TunnelService.handleProxyRequest(mux: mux, targetHost: targetHost, targetPort: targetPort, clientConn: clientConn)
+                        },
+                        rules: rules,
+                        defaultAction: "forward"
+                    )
+                    self.proxy = p
+                    p.start()
+
+                    // Start mux reader
+                    mux.startReader { frame in
+                        // Handle incoming CREATE from server
+                        print("[ClientRunner] mux frame type=\(frame.type)")
+                    }
+
+                    // Restart port forwards
+                    if let pfRules = self.config["portForwards"] as? [[String: Any]] {
+                        for pf in pfRules {
+                            if pf["enabled"] as? Bool == true {
+                                self.service?.startPortForward(instanceId: self.id, rule: pf)
+                            }
+                        }
+                    }
+
+                    // Wait for disconnect
+                    while self.running {
+                        Thread.sleep(forTimeInterval: 1.0)
+                        if mux.isClosed {
+                            print("[ClientRunner] \(clientId) connection lost")
+                            throw NSError(domain: "BiTunnel", code: 3, userInfo: [NSLocalizedDescriptionKey: "Connection lost"])
+                        }
+                    }
+                    break
+
+                } catch {
+                    guard self.running else { break }
+                    reconnectAttempt += 1
+                    print("[ClientRunner] error: \(error.localizedDescription) (attempt \(reconnectAttempt))")
+
+                    if self.running {
+                        self.status = "reconnecting"
+                        self.error = nil
+                        self.service?.emitAllStatus()
+                    }
+
+                    self.proxy?.stop()
+                    self.proxy = nil
+                    self.session?.close()
+                    self.session = nil
+                    self.tlsConnection?.cancel()
+                    self.tlsConnection = nil
+
+                    // Stop stale port forwards
+                    self.service?.stopAllPortForwards(instanceId: self.id)
+
+                    // Exponential backoff
+                    let delay = min(1.0 * pow(2.0, Double(reconnectAttempt - 1)), 30.0)
+                    let deadline = Date().addingTimeInterval(delay)
+                    while self.running && Date() < deadline {
+                        Thread.sleep(forTimeInterval: min(1.0, deadline.timeIntervalSinceNow))
+                    }
+                }
+            }
+
+            // Cleanup
+            self.running = false
+            self.status = "disconnected"
+            self.proxy?.stop()
+            self.proxy = nil
+            self.session?.close()
+            self.session = nil
+            self.tlsConnection?.cancel()
+            self.tlsConnection = nil
+            self.service?.stopAllPortForwards(instanceId: self.id)
+            self.service?.clientRunners.removeValue(forKey: self.id)
+            self.service?.emitAllStatus()
+        }
+    }
+
+    func stop() {
+        running = false
+        proxy?.stop()
+        proxy = nil
+        session?.close()
+        session = nil
+        tlsConnection?.cancel()
+        tlsConnection = nil
+    }
+
+    private func parseRules(_ raw: Any?) -> [ProxyRule] {
+        guard let list = raw as? [[String: Any]] else { return [] }
+        return list.compactMap { r in
+            guard let matchType = r["matchType"] as? String else { return nil }
+            return ProxyRule(
+                matchType: matchType,
+                matchValue: r["matchValue"] as? String ?? "",
+                enabled: r["enabled"] as? Bool ?? true,
+                action: r["action"] as? String ?? "forward"
+            )
+        }
+    }
+}
+
+// MARK: - ServerRunner
+
+class ServerRunner {
+    let id: String
+    private let config: [String: Any]
+    weak var service: TunnelService?
+
+    private(set) var running = false
+    private(set) var connectedClients: [String] = []
+    private(set) var error: String?
+
+    private var tunnelServer: TunnelServer?
+    private var workerQueue: DispatchQueue?
+
+    init(service: TunnelService, config: [String: Any]) {
+        self.service = service
+        self.config = config
+        self.id = config["id"] as? String ?? UUID().uuidString
+    }
+
+    func start() {
+        running = true
+        let queue = DispatchQueue(label: "server-runner-\(id)")
+        workerQueue = queue
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let listenPort = self.config["listenPort"] as? Int ?? 33891
+                let password = self.config["password"] as? String ?? ""
+                let sni = self.config["sni"] as? String ?? "mail.qq.com"
+                let bindIp = self.config["bindIp"] as? String ?? "127.0.0.1"
+
+                let server = TunnelServer(
+                    listenPort: listenPort,
+                    password: password,
+                    bindIp: bindIp,
+                    sni: sni,
+                    onClientConnect: { [weak self] clientId in
+                        guard let self = self else { return }
+                        self.connectedClients.append(clientId)
+                        self.service?.emitAllStatus()
+                    },
+                    onClientDisconnect: { [weak self] clientId in
+                        guard let self = self else { return }
+                        self.connectedClients.removeAll { $0 == clientId }
+                        self.service?.emitAllStatus()
+                    }
+                )
+                self.tunnelServer = server
+                server.start()
+                self.error = nil
+
+                while self.running && server.running {
+                    Thread.sleep(forTimeInterval: 1.0)
+                }
+            } catch {
+                print("[ServerRunner] error: \(error.localizedDescription)")
+                if self.running {
+                    self.error = error.localizedDescription
+                }
+            }
+            self.running = false
+            self.tunnelServer?.stop()
+            self.tunnelServer = nil
+            self.service?.serverRunners.removeValue(forKey: self.id)
+            self.service?.emitAllStatus()
+        }
+    }
+
+    func stop() {
+        running = false
+        tunnelServer?.stop()
+        tunnelServer = nil
+    }
+}
+
+// MARK: - ProxyRunner
+
+class ProxyRunner {
+    let id: String
+    private let config: [String: Any]
+    weak var service: TunnelService?
+
+    private(set) var running = false
+    private(set) var error: String?
+    private var proxy: Socks5Proxy?
+    private var workerQueue: DispatchQueue?
+
+    init(service: TunnelService, config: [String: Any]) {
+        self.service = service
+        self.config = config
+        self.id = config["id"] as? String ?? UUID().uuidString
+    }
+
+    func start() {
+        running = true
+        let queue = DispatchQueue(label: "proxy-runner-\(id)")
+        workerQueue = queue
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let listenPort = self.config["listenPort"] as? Int ?? 1080
+                let accounts = self.parseAccounts(self.config["accounts"])
+
+                let p = Socks5Proxy(
+                    port: listenPort,
+                    accounts: accounts,
+                    onForwardRequest: { _, _, _ in },
+                    defaultAction: "direct"
+                )
+                self.proxy = p
+                p.start()
+                self.error = nil
+
+                while self.running && p.running {
+                    Thread.sleep(forTimeInterval: 1.0)
+                }
+            } catch {
+                print("[ProxyRunner] error: \(error.localizedDescription)")
+                if self.running {
+                    self.error = error.localizedDescription
+                }
+            }
+            self.running = false
+            self.proxy?.stop()
+            self.proxy = nil
+            self.service?.proxyRunners.removeValue(forKey: self.id)
+            self.service?.emitAllStatus()
+        }
+    }
+
+    func stop() {
+        running = false
+        proxy?.stop()
+        proxy = nil
+    }
+
+    private func parseAccounts(_ raw: Any?) -> [ProxyAccount] {
+        guard let list = raw as? [[String: Any]] else { return [] }
+        return list.map { r in
+            ProxyAccount(
+                username: r["username"] as? String ?? "",
+                password: r["password"] as? String ?? "",
+                enabled: r["enabled"] as? Bool ?? true
+            )
+        }
+    }
+}
+
+// MARK: - Port Forward Runner
+
+struct PfRunnerInfo {
+    let listener: NWListener
+    func stop() {
+        listener.cancel()
+    }
+}
+
+// MARK: - TunnelService extension for port forward cleanup
+
+extension TunnelService {
+    func stopAllPortForwards(instanceId: String) {
+        runnersLock.lock()
+        let runners = pfRunners.removeValue(forKey: instanceId)
+        runnersLock.unlock()
+        runners?.values.forEach { $0.stop() }
     }
 }
