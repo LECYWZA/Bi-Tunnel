@@ -258,7 +258,7 @@ class TunnelService : Service() {
 
     private fun startProxyInstance(config: Map<String, Any?>) {
         val id = config["id"] as? String ?: return
-        if (proxyRunners.containsKey(id)) return
+        proxyRunners.remove(id)?.stop()
 
         val runner = ProxyRunner(config)
         proxyRunners[id] = runner
@@ -579,11 +579,72 @@ class TunnelService : Service() {
         private fun handleControlFrame(mux: MuxSession, frame: MuxFrame) {
             when (frame.type) {
                 MuxSession.TYPE_CREATE -> {
-                    Log.i(TAG, "Incoming channel create: ${String(frame.payload)}")
+                    // 服务端发来的反向信道请求（服务端端口转发 → 本机目标）
+                    val metaStr = String(frame.payload)
+                    try {
+                        val json = org.json.JSONObject(metaStr)
+                        val host = json.optString("host", "")
+                        val port = json.optInt("port", 0)
+                        if (host.isNotEmpty() && port > 0) {
+                            val queue = mux.subscribeChannel(frame.channelId)
+                            thread(isDaemon = true) {
+                                connectTarget(mux, frame.channelId, host, port, queue)
+                            }
+                        } else {
+                            mux.sendCreateAck(frame.channelId, false)
+                        }
+                    } catch (_: Exception) {
+                        mux.sendCreateAck(frame.channelId, false)
+                    }
                 }
                 MuxSession.TYPE_CREATE_ACK -> {
                     Log.i(TAG, "Channel ack: success=${frame.payload.isNotEmpty() && frame.payload[0].toInt() == 1}")
                 }
+            }
+        }
+
+        private fun connectTarget(mux: MuxSession, channelId: Long, host: String, port: Int, queue: java.util.concurrent.BlockingQueue<MuxFrame>) {
+            var remote: Socket? = null
+            try {
+                remote = Socket()
+                remote.connect(InetSocketAddress(host, port), 15000)
+                remote.soTimeout = 30000
+
+                mux.sendCreateAck(channelId, true)
+                val remoteInput = remote.getInputStream()
+                val remoteOutput = remote.getOutputStream()
+                val buf = ByteArray(8192)
+
+                val writeThread = thread(isDaemon = true) {
+                    try {
+                        while (!mux.isClosed) {
+                            val frame = queue.poll(500, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+                            when (frame.type) {
+                                MuxSession.TYPE_DATA -> {
+                                    remoteOutput.write(frame.payload)
+                                    remoteOutput.flush()
+                                }
+                                MuxSession.TYPE_CLOSE -> break
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                try {
+                    while (!mux.isClosed) {
+                        val n = remoteInput.read(buf)
+                        if (n < 0) break
+                        mux.sendData(channelId, buf.copyOfRange(0, n))
+                    }
+                } catch (_: Exception) {}
+
+                mux.sendClose(channelId)
+                writeThread.join(3000)
+            } catch (_: Exception) {
+                mux.sendCreateAck(channelId, false)
+            } finally {
+                mux.unsubscribeChannel(channelId)
+                try { remote?.close() } catch (_: Exception) {}
             }
         }
     }
@@ -681,7 +742,11 @@ class TunnelService : Service() {
                         port = listenPort,
                         accounts = accounts,
                         onForwardRequest = { _, _, _ -> },
-                        defaultAction = "direct"
+                        defaultAction = "direct",
+                        onError = { msg ->
+                            error = msg
+                            this@TunnelService.emitAllStatus()
+                        }
                     )
                     proxy = p
                     p.start()
@@ -696,10 +761,18 @@ class TunnelService : Service() {
                         error = e.message ?: "代理错误"
                     }
                 } finally {
+                    val failed = running
                     running = false
                     proxy?.stop()
                     proxy = null
-                    this@TunnelService.proxyRunners.remove(config["id"] as? String)
+                    if (!failed) {
+                        // 启动失败时保留 runner，让 UI 能看到错误信息；仅用户主动停止才移除
+                        // 身份校验防止旧 runner 线程误删同 id 的新 runner
+                        val id = config["id"] as? String
+                        if (id != null && proxyRunners[id] === this) {
+                            this@TunnelService.proxyRunners.remove(id)
+                        }
+                    }
                     emitAllStatus()
                 }
             }

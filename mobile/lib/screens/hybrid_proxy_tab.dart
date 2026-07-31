@@ -21,9 +21,11 @@ class HybridProxyTab extends StatefulWidget {
 class _HybridProxyTabState extends State<HybridProxyTab> {
   late List<ProxyInstance> _proxies;
   final Map<String, TextEditingController> _ctrls = {};
+  final Map<String, String> _errors = {};
   StreamSubscription<Map<String, dynamic>>? _statusSub;
   final Set<String> _visiblePasswords = {};
   List<String> _availableIps = ['0.0.0.0', '127.0.0.1'];
+  bool _clientRunning = false;
 
   Future<void> _loadNetworkIps() async {
     try {
@@ -76,16 +78,32 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
     try {
       final instances = (status['instances'] as List?) ?? [];
       var changed = false;
+      var clientRunning = false;
       for (final inst in instances) {
         final instMap = Map<String, dynamic>.from(inst as Map);
-        if ((instMap['type'] as String?) != 'proxy') continue;
+        final type = instMap['type'] as String?;
         final id = instMap['id'] as String? ?? '';
         final isRunning = instMap['running'] as bool? ?? false;
+        if (type == 'client') {
+          if (isRunning) clientRunning = true;
+          continue;
+        }
+        if (type != 'proxy') continue;
         final pi = _proxies.indexWhere((p) => p.id == id);
         if (pi >= 0) {
           _proxies[pi] = _proxies[pi].copyWith(running: isRunning);
+          final err = instMap['error'] as String?;
+          if (err != null && err.isNotEmpty) {
+            _errors[id] = err;
+          } else {
+            _errors.remove(id);
+          }
           changed = true;
         }
+      }
+      if (clientRunning != _clientRunning) {
+        _clientRunning = clientRunning;
+        changed = true;
       }
       if (mounted && changed) setState(() {});
     } catch (e) {
@@ -142,35 +160,50 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
     );
     if (confirm != true) return;
     setState(() {
+      _errors.remove(_proxies[index].id);
       _proxies.removeAt(index);
     });
     _autoSave();
   }
 
-  Widget _buildStatus(bool running) {
-    return Row(
+  Widget _buildStatus(bool running, String? error) {
+    return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: running ? Colors.green : Colors.grey,
-            boxShadow: running
-                ? [BoxShadow(color: Colors.green.withValues(alpha: 0.5), blurRadius: 6)]
-                : null,
-          ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: running ? Colors.green : Colors.grey,
+                boxShadow: running
+                    ? [BoxShadow(color: Colors.green.withValues(alpha: 0.5), blurRadius: 6)]
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              running ? '运行中' : '已停止',
+              style: TextStyle(
+                color: running ? Colors.green : Colors.grey,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 4),
-        Text(
-          running ? '运行中' : '已停止',
-          style: TextStyle(
-            color: running ? Colors.green : Colors.grey,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
+        if (error != null && error.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              error,
+              style: TextStyle(color: Colors.red.shade400, fontSize: 11),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -241,7 +274,7 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                _buildStatus(proxy.running),
+                _buildStatus(proxy.running, _errors[proxy.id]),
                 IconButton(
                   icon: Icon(Icons.delete_outline, color: theme.colorScheme.error, size: 20),
                   onPressed: () => _removeProxy(index),
@@ -430,12 +463,24 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
               child: FilledButton.icon(
                 onPressed: proxy.running
                     ? () async {
+                        _errors.remove(proxy.id);
                         await PlatformService.stopProxy(proxy);
                         setState(() => _proxies[index] = proxy.copyWith(running: false));
                       }
                     : () async {
-                        setState(() => _proxies[index] = proxy.copyWith(running: true));
-                        await PlatformService.startProxy(proxy, widget.config);
+                        if (_clientRunning && proxy.listenPort == kClientLocalProxyPort) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('端口 $kClientLocalProxyPort 与客户端本地代理冲突，请更换监听端口'),
+                              duration: const Duration(seconds: 3),
+                            ),
+                          );
+                          return;
+                        }
+                        final ok = await PlatformService.startProxy(proxy, widget.config);
+                        if (ok) {
+                          setState(() => _proxies[index] = proxy.copyWith(running: true));
+                        }
                       },
                 icon: Icon(proxy.running ? Icons.stop_rounded : Icons.play_arrow_rounded, size: 18),
                 label: Text(proxy.running ? '停止' : '启动'),

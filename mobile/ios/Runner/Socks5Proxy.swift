@@ -34,6 +34,7 @@ class Socks5Proxy {
     private let onDirectRequest: ((String, Int, NWConnection) -> Void)?
     private let rules: [ProxyRule]
     private let defaultAction: String
+    private let onError: ((String) -> Void)?
 
     private var listener: NWListener?
     private let proxyQueue = DispatchQueue(label: "socks5-proxy-queue")
@@ -49,13 +50,15 @@ class Socks5Proxy {
          onForwardRequest: @escaping (String, Int, NWConnection) -> Void,
          onDirectRequest: ((String, Int, NWConnection) -> Void)? = nil,
          rules: [ProxyRule] = [],
-         defaultAction: String = "forward") {
+         defaultAction: String = "forward",
+         onError: ((String) -> Void)? = nil) {
         self.port = port
         self.accounts = accounts
         self.onForwardRequest = onForwardRequest
         self.onDirectRequest = onDirectRequest
         self.rules = rules
         self.defaultAction = defaultAction
+        self.onError = onError
     }
 
     func start() {
@@ -70,13 +73,15 @@ class Socks5Proxy {
                 listener.newConnectionHandler = { [weak self] conn in
                     self?.handleClient(conn)
                 }
-                listener.stateUpdateHandler = { state in
+                listener.stateUpdateHandler = { [weak self] state in
+                    guard let self = self else { return }
                     switch state {
                     case .ready:
-                        print("[Socks5Proxy] bound on 127.0.0.1:\(self?.port ?? 0)")
+                        print("[Socks5Proxy] bound on 127.0.0.1:\(self.port)")
                     case .failed(let error):
                         print("[Socks5Proxy] listener error: \(error)")
-                        self?.running = false
+                        self.onError?(error.localizedDescription)
+                        self.running = false
                     default:
                         break
                     }
@@ -84,6 +89,7 @@ class Socks5Proxy {
                 listener.start(queue: self.acceptQueue)
             } catch {
                 print("[Socks5Proxy] start error: \(error)")
+                self.onError?(error.localizedDescription)
                 self.running = false
             }
         }

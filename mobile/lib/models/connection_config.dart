@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+/// 客户端内置本地代理的固定监听端口
+const int kClientLocalProxyPort = 1080;
+
 class PortForwardRule {
   final String id;
   bool enabled;
@@ -248,7 +251,7 @@ class ProxyInstance {
     this.name = 'SOCKS5 代理',
     this.enabled = false,
     this.bindIp = '127.0.0.1',
-    this.listenPort = 1080,
+    this.listenPort = 10000,
     List<ProxyAccount>? accounts,
     this.running = false,
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -288,7 +291,7 @@ class ProxyInstance {
         name: json['name'] as String? ?? 'SOCKS5 代理',
         enabled: json['enabled'] as bool? ?? true,
         bindIp: json['bindIp'] as String? ?? '127.0.0.1',
-        listenPort: json['listenPort'] as int? ?? 1080,
+        listenPort: json['listenPort'] as int? ?? 10000,
         accounts: json['accounts'] != null
             ? (json['accounts'] as List)
                 .map((e) => ProxyAccount.fromJson(e as Map<String, dynamic>))
@@ -432,7 +435,7 @@ class AppConfig {
       'password': client.password,
       'clientId': client.clientId,
       'sni': client.sni,
-      'localProxyPort': 1080,
+      'localProxyPort': kClientLocalProxyPort,
       'portForwards': client.portForwards.map((p) => p.toJson()).toList(),
       'rules': rules.where((r) => r.enabled).map((r) => r.toJson()).toList(),
     };

@@ -30,7 +30,8 @@ class Socks5Proxy(
     private val onForwardRequest: (host: String, port: Int, clientSocket: Socket) -> Unit,
     private val onDirectRequest: ((host: String, port: Int, clientSocket: Socket) -> Unit)? = null,
     private val rules: List<ProxyRule> = emptyList(),
-    private val defaultAction: String = "forward"
+    private val defaultAction: String = "forward",
+    private val onError: ((String) -> Unit)? = null
 ) {
     private val TAG = "Socks5Proxy"
     private var serverSocket: ServerSocket? = null
@@ -58,8 +59,9 @@ class Socks5Proxy(
                         if (!running) break
                     }
                 }
-            } catch (_: Exception) {
-                System.out.println("Socks5Proxy start error")
+            } catch (e: Exception) {
+                System.out.println("Socks5Proxy start error: ${e.message}")
+                onError?.invoke(e.message ?: "bind failed")
                 running = false
             }
         }

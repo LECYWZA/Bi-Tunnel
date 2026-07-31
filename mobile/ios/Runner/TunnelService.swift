@@ -178,13 +178,11 @@ class TunnelService: NSObject {
     func startProxy(config: [String: Any]) {
         let id = config["id"] as? String ?? UUID().uuidString
         runnersLock.lock()
-        if proxyRunners[id] != nil {
-            runnersLock.unlock()
-            return
-        }
+        let old = proxyRunners.removeValue(forKey: id)
         let runner = ProxyRunner(service: self, config: config)
         proxyRunners[id] = runner
         runnersLock.unlock()
+        old?.stop()
         runner.start()
         emitAllStatus()
     }
@@ -486,9 +484,12 @@ class ClientRunner {
                     p.start()
 
                     // Start mux reader
-                    mux.startReader { frame in
-                        // Handle incoming CREATE from server
-                        print("[ClientRunner] mux frame type=\(frame.type)")
+                    mux.startReader { [weak self] frame in
+                        guard let self = self else { return }
+                        // Handle incoming CREATE from server (server PF -> local target)
+                        if frame.type == MuxSession.TYPE_CREATE {
+                            self.handleIncomingCreate(mux, frame: frame)
+                        }
                     }
 
                     // Restart port forwards
@@ -563,6 +564,98 @@ class ClientRunner {
         session = nil
         tlsConnection?.cancel()
         tlsConnection = nil
+    }
+
+    private func handleIncomingCreate(_ mux: MuxSession, frame: MuxFrame) {
+        let metaStr = String(data: frame.payload, encoding: .utf8) ?? ""
+        guard let json = try? JSONSerialization.jsonObject(with: metaStr.data(using: .utf8)!) as? [String: Any] else {
+            mux.sendCreateAck(channelId: frame.channelId, success: false)
+            return
+        }
+        let host = json["host"] as? String ?? ""
+        let port = json["port"] as? Int ?? 0
+        guard !host.isEmpty, port > 0 else {
+            mux.sendCreateAck(channelId: frame.channelId, success: false)
+            return
+        }
+        let queue = mux.subscribeChannel(frame.channelId)
+        let relayQueue = DispatchQueue(label: "client-relay-\(frame.channelId)")
+        relayQueue.async { [weak self] in
+            self?.connectTarget(mux: mux, channelId: frame.channelId, host: host, port: port, queue: queue)
+        }
+    }
+
+    private func connectTarget(mux: MuxSession, channelId: UInt32, host: String, port: Int, queue: BlockingQueue<MuxFrame>) {
+        var remote: NWConnection? = nil
+        let sem = DispatchSemaphore(value: 0)
+        var connectError: NWError?
+
+        let params = NWParameters.tcp
+        let remoteConn = NWConnection(to: NWEndpoint.hostPort(
+            host: NWEndpoint.Host(host),
+            port: NWEndpoint.Port(rawValue: UInt16(port))!
+        ), using: params)
+        remote = remoteConn
+
+        remoteConn.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                print("[ClientRunner] connected target \(host):\(port)")
+                sem.signal()
+            case .failed(let error):
+                print("[ClientRunner] target connect error: \(error)")
+                connectError = error
+                sem.signal()
+            default:
+                break
+            }
+        }
+        remoteConn.start(queue: DispatchQueue(label: "client-target-connect-\(channelId)"))
+
+        let waitResult = sem.wait(timeout: .now() + .seconds(15))
+        if waitResult == .timedOut || connectError != nil {
+            mux.sendCreateAck(channelId: channelId, success: false)
+            remoteConn.cancel()
+            return
+        }
+
+        mux.sendCreateAck(channelId: channelId, success: true)
+
+        let writeQueue = DispatchQueue(label: "client-write-target-\(channelId)")
+        writeQueue.async {
+            while !mux.isClosed {
+                guard let frame = queue.poll(timeout: .now() + .milliseconds(500)) else { continue }
+                switch frame.type {
+                case MuxSession.TYPE_DATA:
+                    remoteConn.send(content: frame.payload, completion: .contentProcessed { _ in })
+                case MuxSession.TYPE_CLOSE:
+                    remoteConn.cancel()
+                    return
+                default:
+                    break
+                }
+            }
+        }
+
+        func readRemote() {
+            guard !mux.isClosed else {
+                mux.sendClose(channelId: channelId)
+                mux.unsubscribeChannel(channelId)
+                remoteConn.cancel()
+                return
+            }
+            remoteConn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, error in
+                guard let d = data, !d.isEmpty, error == nil else {
+                    mux.sendClose(channelId: channelId)
+                    mux.unsubscribeChannel(channelId)
+                    remoteConn.cancel()
+                    return
+                }
+                mux.sendData(channelId: channelId, data: d)
+                readRemote()
+            }
+        }
+        readRemote()
     }
 
     private func parseRules(_ raw: Any?) -> [ProxyRule] {
@@ -687,7 +780,12 @@ class ProxyRunner {
                     port: listenPort,
                     accounts: accounts,
                     onForwardRequest: { _, _, _ in },
-                    defaultAction: "direct"
+                    defaultAction: "direct",
+                    onError: { [weak self] msg in
+                        guard let self = self else { return }
+                        self.error = msg
+                        self.service?.emitAllStatus()
+                    }
                 )
                 self.proxy = p
                 p.start()
@@ -702,10 +800,17 @@ class ProxyRunner {
                     self.error = error.localizedDescription
                 }
             }
+            let failed = self.running
             self.running = false
             self.proxy?.stop()
             self.proxy = nil
-            self.service?.proxyRunners.removeValue(forKey: self.id)
+            if !failed {
+                // 启动失败时保留 runner，让 UI 能看到错误信息；仅用户主动停止才移除
+                // 身份校验防止旧 runner 线程误删同 id 的新 runner
+                if let current = self.service?.proxyRunners[self.id], current === self {
+                    self.service?.proxyRunners.removeValue(forKey: self.id)
+                }
+            }
             self.service?.emitAllStatus()
         }
     }

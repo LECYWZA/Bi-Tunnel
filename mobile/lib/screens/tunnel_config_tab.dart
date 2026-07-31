@@ -139,8 +139,8 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
   @override
   void didUpdateWidget(covariant TunnelConfigTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _servers = List.from(widget.config.servers);
-    _clients = List.from(widget.config.clients);
+    // 注意：不重置 _servers/_clients —— 本地状态是唯一数据源，
+    // widget.config 只会由本 tab 的 _autoSave 更新，重置会丢用户编辑
     for (final s in _servers) {
       _syncCtrl('server_${s.id}_name', s.name);
       _syncCtrl('server_${s.id}_bindIp', s.bindIp);
@@ -616,6 +616,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                       setState(() {
                         _servers[index] = server.copyWith(name: v);
                       });
+                      _autoSave();
                     },
                     decoration: const InputDecoration(
                       border: InputBorder.none,
@@ -657,6 +658,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                       setState(() {
                         _servers[index] = server.copyWith(bindIp: v);
                       });
+                      _autoSave();
                     },
                   ),
                 ),
@@ -676,6 +678,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                         setState(() {
                           _servers[index] = server.copyWith(listenPort: newPort);
                         });
+                        _autoSave();
                       });
                     },
                     keyboardType: TextInputType.number,
@@ -704,6 +707,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                       setState(() {
                         _servers[index] = server.copyWith(password: pw);
                       });
+                      _autoSave();
                     },
                     obscureText: !_visiblePasswords.contains('server_${server.id}_password'),
                     decoration: InputDecoration(
@@ -742,6 +746,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                       setState(() {
                         _servers[index] = server.copyWith(sni: v);
                       });
+                      _autoSave();
                     },
                     decoration: const InputDecoration(
                       labelText: 'SNI',
@@ -872,6 +877,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                       setState(() {
                         _clients[index] = client.copyWith(name: v);
                       });
+                      _autoSave();
                     },
                     decoration: const InputDecoration(
                       border: InputBorder.none,
@@ -915,6 +921,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                           setState(() {
                             _clients[index] = client.copyWith(serverHost: v);
                           });
+                          _autoSave();
                         },
                         decoration: const InputDecoration(
                           labelText: '服务器地址',
@@ -930,6 +937,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                       setState(() {
                         _clients[index] = client.copyWith(serverHost: v);
                       });
+                      _autoSave();
                     },
                   ),
                 ),
@@ -943,6 +951,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                         setState(() {
                           _clients[index] = client.copyWith(serverPort: newPort);
                         });
+                        _autoSave();
                       });
                     },
                     keyboardType: TextInputType.number,
@@ -971,6 +980,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                       setState(() {
                         _clients[index] = client.copyWith(password: pw);
                       });
+                      _autoSave();
                     },
                     obscureText: !_visiblePasswords.contains('client_${client.id}_password'),
                     decoration: InputDecoration(
@@ -1009,6 +1019,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                       setState(() {
                         _clients[index] = client.copyWith(clientId: v);
                       });
+                      _autoSave();
                     },
                     decoration: const InputDecoration(
                       labelText: '客户端ID',
@@ -1028,6 +1039,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
                 setState(() {
                   _clients[index] = client.copyWith(sni: v);
                 });
+                _autoSave();
               },
               decoration: const InputDecoration(
                 labelText: 'SNI',
