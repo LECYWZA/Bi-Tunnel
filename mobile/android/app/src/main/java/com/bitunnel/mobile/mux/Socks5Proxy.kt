@@ -35,6 +35,7 @@ class Socks5Proxy(
 ) {
     private val TAG = "Socks5Proxy"
     private var serverSocket: ServerSocket? = null
+    private val clientSockets = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
     @Volatile
     var running = false
         private set
@@ -54,7 +55,14 @@ class Socks5Proxy(
                     try {
                         val client = ss.accept()
                         System.out.println("Socks5Proxy accept: from ${client.remoteSocketAddress}")
-                        thread(isDaemon = true) { handleClient(client) }
+                        clientSockets.add(client)
+                        thread(isDaemon = true) {
+                            try {
+                                handleClient(client)
+                            } finally {
+                                clientSockets.remove(client)
+                            }
+                        }
                     } catch (_: Exception) {
                         if (!running) break
                     }
@@ -70,6 +78,11 @@ class Socks5Proxy(
     fun stop() {
         running = false
         try { serverSocket?.close() } catch (_: Exception) {}
+        // 关闭所有已建立的连接，避免停止后 keep-alive 连接仍可复用
+        for (s in clientSockets) {
+            try { s.close() } catch (_: Exception) {}
+        }
+        clientSockets.clear()
     }
 
     private fun handleClient(socket: Socket) {

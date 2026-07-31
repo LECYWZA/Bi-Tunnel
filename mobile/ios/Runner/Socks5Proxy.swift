@@ -37,6 +37,7 @@ class Socks5Proxy {
     private let onError: ((String) -> Void)?
 
     private var listener: NWListener?
+    private var activeConns: [NWConnection] = []
     private let proxyQueue = DispatchQueue(label: "socks5-proxy-queue")
     private let acceptQueue = DispatchQueue(label: "socks5-accept-queue")
     private(set) var running = false
