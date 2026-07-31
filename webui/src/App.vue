@@ -327,7 +327,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, watch, onUnmounted, provide } from 'vue';
+import { ref, reactive, onMounted, computed, watch, onUnmounted, provide, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
 import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank, Operation, Share, Lock, CircleClose } from '@element-plus/icons-vue';
@@ -409,6 +409,7 @@ provide('locale', locale);
 let statusTimer = null;
 let autoSaveTimer = null;
 let stopConfigAutoSaveWatch = null;
+let suppressAutoSave = false;
 
 const onLoginSuccess = (token) => {
   accessToken = token || '';
@@ -1067,6 +1068,8 @@ const fetchConfig = async () => {
     // Watch config once to show "Unsaved Changes" indicator and auto-save.
     if (!stopConfigAutoSaveWatch) {
       stopConfigAutoSaveWatch = watch(config, () => {
+        // WebSocket 推送的运行时数据(knownClients/connections)不视为用户修改，避免按钮闪烁与误自动保存
+        if (suppressAutoSave) return;
         hasUnsavedChanges.value = true;
         if (autoSaveTimer) clearTimeout(autoSaveTimer);
         autoSaveTimer = setTimeout(() => {
@@ -1204,9 +1207,13 @@ const connectWebSocket = () => {
     try {
       const msg = JSON.parse(event.data);
       if (msg.type === 'clients_update' && config.server) {
+        suppressAutoSave = true;
         config.server.knownClients = msg.data;
+        nextTick(() => { suppressAutoSave = false; });
       } else if (msg.type === 'connections_update' && config.client) {
+        suppressAutoSave = true;
         config.client.connections = msg.data;
+        nextTick(() => { suppressAutoSave = false; });
       } else if (msg.type === 'traffic_log') {
         // Dispatch to registered traffic log listeners
         if (trafficLogListeners.length > 0) {
