@@ -25,6 +25,7 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
   StreamSubscription<Map<String, dynamic>>? _statusSub;
   Map<String, String> _clientStatuses = {};
   Map<String, List<String>> _serverClients = {};
+  final Map<String, String> _serverErrors = {};
   final Set<String> _visiblePasswords = {};
   List<String> _availableIps = ['0.0.0.0', '127.0.0.1'];
 
@@ -123,6 +124,12 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
           if (si >= 0) {
             _servers[si] = _servers[si].copyWith(running: isRunning);
           }
+          final err = instMap['error'] as String?;
+          if (err != null && err.isNotEmpty) {
+            _serverErrors[id] = err;
+          } else {
+            _serverErrors.remove(id);
+          }
         }
       }
       if (mounted) {
@@ -201,6 +208,19 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
       ),
     );
     if (confirm != true) return;
+    final client = _clients[index];
+    if (client.running) {
+      final ok = await PlatformService.stopClient(client);
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('停止客户端失败，请先手动停止后再删除'), duration: Duration(seconds: 3)),
+          );
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
     setState(() {
       _clients.removeAt(index);
     });
@@ -220,8 +240,22 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
       ),
     );
     if (confirm != true) return;
+    final server = _servers[index];
+    if (server.running) {
+      final ok = await PlatformService.stopServer(server);
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('停止服务端失败，请先手动停止后再删除'), duration: Duration(seconds: 3)),
+          );
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
     setState(() {
       _servers.removeAt(index);
+      _serverErrors.remove(server.id);
     });
     _autoSave();
   }
@@ -797,15 +831,32 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
               ),
             ],
             const SizedBox(height: 8),
+            if (_serverErrors[server.id] != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  _serverErrors[server.id]!,
+                  style: TextStyle(color: Colors.red.shade400, fontSize: 12),
+                ),
+              ),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: server.running
                     ? () async {
                         await PlatformService.stopServer(server);
-                        setState(() => _servers[index] = server.copyWith(running: false));
+                        setState(() {
+                          _servers[index] = server.copyWith(running: false);
+                          _serverErrors.remove(server.id);
+                        });
                       }
                     : () async {
+                        if (server.password.trim().isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('服务端密码不能为空，请先填写密码'), duration: Duration(seconds: 2)),
+                          );
+                          return;
+                        }
                         setState(() => _servers[index] = server.copyWith(running: true));
                         await PlatformService.startServer(server, widget.config);
                       },
@@ -839,6 +890,12 @@ class _TunnelConfigTabState extends State<TunnelConfigTab> {
               }
             : () async {
                 debugPrint('startClient pressed: ${client.id}');
+                if (client.password.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('客户端密码不能为空，请先填写密码'), duration: Duration(seconds: 2)),
+                  );
+                  return;
+                }
                 setState(() => _clients[index] = client.copyWith(running: true));
                 await PlatformService.startClient(client, widget.config);
                 debugPrint('startClient completed');

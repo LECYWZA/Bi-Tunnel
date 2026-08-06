@@ -207,6 +207,15 @@ function createWebServer(statusCallback) {
         const tunnelServer = require('../core/tunnelServer');
         const currentConfig = configManager.getConfig();
 
+        const serverPassword = req.body.server ? req.body.server.password : undefined;
+        const clientPassword = req.body.client ? req.body.client.password : undefined;
+        if (!serverPassword || !String(serverPassword).trim()) {
+            return res.status(400).json({ success: false, message: '服务端密码不能为空' });
+        }
+        if (!clientPassword || !String(clientPassword).trim()) {
+            return res.status(400).json({ success: false, message: '客户端密码不能为空' });
+        }
+
         if (req.body.server && req.body.server.knownClients) {
             req.body.server.knownClients.forEach(incoming => {
                 // Calculate live online status
@@ -1411,6 +1420,7 @@ function createWebServer(statusCallback) {
     });
 
     // Switch web protocol (HTTP <-> HTTPS) on same port
+    let isSwitching = false;
     app.post('/api/switch-protocol', (req, res) => {
         const { protocol } = req.body;
         if (!['http', 'https'].includes(protocol)) {
@@ -1421,44 +1431,100 @@ function createWebServer(statusCallback) {
         if (oldProtocol === protocol) {
             return res.json({ success: true, message: 'Already using ' + protocol, protocol });
         }
-        config.webProtocol = protocol;
-        configManager.saveConfig(config);
-        getLogger().info(`[Service] Switching web protocol to ${protocol.toUpperCase()}, restarting web server...`);
+        if (protocol === 'https' && (!certs.key || !certs.cert)) {
+            return res.status(500).json({ success: false, message: 'TLS 证书缺失，无法切换到 HTTPS' });
+        }
+        if (isSwitching) {
+            return res.status(409).json({ success: false, message: '正在切换中，请稍候再试' });
+        }
+        isSwitching = true;
+
+        // 先返回成功响应再异步执行切换：
+        // closeAllConnections 会销毁所有连接（含当前请求 socket），若先关连接再写响应，前端将收不到响应而失联
         res.json({ success: true, message: `正在切换到 ${protocol.toUpperCase()}...`, protocol });
 
-        setTimeout(() => {
-            // Close both servers
-            if (app.locals.server) {
-                if (app.locals.server.closeAllConnections) app.locals.server.closeAllConnections();
-                app.locals.server.close();
-            }
-            if (app.locals.httpServer) {
-                if (app.locals.httpServer.closeAllConnections) app.locals.httpServer.closeAllConnections();
-                app.locals.httpServer.close();
-            }
-            // Use same restart script approach
-            const { writeFileSync } = require('fs');
-            const { join } = require('path');
-            const os = require('os');
-            const cwd = process.cwd();
-            let restartScript, runCmd;
-            if (process.platform === 'win32') {
-                restartScript = join(os.tmpdir(), 'nb-plus-restart.bat');
-                writeFileSync(restartScript, `@echo off\r\ntimeout /t 3 /nobreak > nul\r\ncd /d "${cwd}"\r\nnpm start\r\n`);
-                runCmd = `cmd /c start "" "${restartScript}"`;
-            } else {
-                restartScript = join(os.tmpdir(), 'nb-plus-restart.sh');
-                writeFileSync(restartScript, `#!/bin/bash\nsleep 3\ncd "${cwd}"\nnpm start\n`);
-                require('fs').chmodSync(restartScript, '755');
-                runCmd = `bash "${restartScript}"`;
-            }
-            const { exec } = require('child_process');
-            const { closeDb } = require('../db/sqlite');
-            exec(runCmd, { detached: true, cwd });
-            getLogger().info('[Service] Protocol switch script executed, exiting current process...');
-            try { closeDb(); } catch (e) {}
-            process.exit(0);
-        }, 500);
+        // 按目标协议在当前进程内重建一对监听（主端口 + 次端口），
+        // 任一端口绑定失败则回滚旧协议，避免切换失败导致 WebUI 失联
+        const createServers = (proto, cb) => {
+            const mainTls = proto === 'https';
+            const mk = (useTls) => useTls ? https.createServer({ key: certs.key, cert: certs.cert }, app) : http.createServer(app);
+            const mainSrv = mk(mainTls);
+            const secSrv = mk(!mainTls);
+            let done = false;
+            const fail = (msg) => {
+                if (done) return;
+                done = true;
+                try { mainSrv.close(); } catch (e) {}
+                try { secSrv.close(); } catch (e) {}
+                cb({ ok: false, error: msg });
+            };
+            mainSrv.once('error', (err) => fail(`端口 ${port} 绑定失败：${err.message}`));
+            secSrv.once('error', (err) => fail(`端口 ${httpPort} 绑定失败：${err.message}`));
+            mainSrv.listen(port, '0.0.0.0', () => {
+                secSrv.listen(httpPort, '0.0.0.0', () => {
+                    if (done) return;
+                    done = true;
+                    cb({ ok: true, mainSrv, secSrv });
+                });
+            });
+        };
+
+        const applyServers = (mainSrv, secSrv) => {
+            server = mainSrv;
+            httpServer = secSrv;
+            app.locals.server = server;
+            app.locals.httpServer = httpServer;
+            wss = new WebSocket.Server({ server });
+            wssHttp = new WebSocket.Server({ server: httpServer });
+            app.locals.wss = wss;
+            app.locals.wssHttp = wssHttp;
+            wss.on('connection', handleWsConnection);
+            wssHttp.on('connection', handleWsConnection);
+        };
+
+        const closeAll = (cb) => {
+            const list = [app.locals.server, app.locals.httpServer].filter(Boolean);
+            let pending = list.length;
+            let fired = false;
+            const done = () => {
+                if (fired) return;
+                fired = true;
+                cb();
+            };
+            if (pending === 0) return done();
+            list.forEach(s => {
+                if (s.closeAllConnections) s.closeAllConnections();
+                s.close(() => {
+                    if (--pending === 0) done();
+                });
+            });
+            // 兜底：连接迟迟不关闭时避免切换流程卡死
+            setTimeout(done, 3000);
+        };
+
+        closeAll(() => {
+            createServers(protocol, (result) => {
+                if (!result.ok) {
+                    getLogger().error(`[Service] Protocol switch failed: ${result.error}`);
+                    createServers(oldProtocol, (rollback) => {
+                        if (!rollback.ok) {
+                            getLogger().error(`[Service] Protocol rollback failed: ${rollback.error}，请重启服务`);
+                            isSwitching = false;
+                            return;
+                        }
+                        applyServers(rollback.mainSrv, rollback.secSrv);
+                        isSwitching = false;
+                        getLogger().error(`[Service] Protocol switch to ${protocol.toUpperCase()} failed, rolled back to ${oldProtocol.toUpperCase()}`);
+                    });
+                    return;
+                }
+                applyServers(result.mainSrv, result.secSrv);
+                config.webProtocol = protocol;
+                configManager.saveConfig(config);
+                isSwitching = false;
+                getLogger().info(`[Service] Web protocol switched to ${protocol.toUpperCase()} in place`);
+            });
+        });
     });
 
     const port = configManager.getConfig().webPort || 8899;
@@ -1499,6 +1565,7 @@ function createWebServer(statusCallback) {
     app.locals.server = server;
     app.locals.httpServer = httpServer;
     app.locals.wss = wss;
+    app.locals.wssHttp = wssHttp;
 
     // Helper: broadcast updated knownClients to all connected WS clients
     const broadcastClientsUpdate = () => {

@@ -28,7 +28,7 @@
         <template #title>
           <span style="font-weight: 600;">{{ t('router.interfaceWarnTitle') }}</span>
         </template>
-        <div class="text-xs" style="line-height: 1.6;" v-html="t('router.interfaceWarnBody', { iface: cfg.interface })"></div>
+        <div class="text-xs" style="line-height: 1.6;">{{ t('router.interfaceWarnBody', { iface: cfg.interface }) }}</div>
       </el-alert>
 
       <el-form label-position="top" class="mt-2">
@@ -299,13 +299,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, computed } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, computed, inject } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   Share, Connection, Filter, EditPen, Plus, Delete, Monitor, Refresh,
   VideoPlay, VideoPause, Check, InfoFilled
 } from '@element-plus/icons-vue';
 import { t } from '../i18n';
+
+const authFetch = inject('authFetch', fetch);
 
 const props = defineProps({ config: Object });
 
@@ -370,7 +372,7 @@ const formatTime = (ts) => {
 
 async function fetchConfig() {
   try {
-    const res = await fetch('/api/router/config');
+    const res = await authFetch('/api/router/config');
     const data = await res.json();
     if (data.success && data.config) {
       Object.assign(cfg, data.config);
@@ -387,7 +389,7 @@ async function fetchConfig() {
 
 async function fetchInterfaces() {
   try {
-    const res = await fetch('/api/router/interfaces');
+    const res = await authFetch('/api/router/interfaces');
     const data = await res.json();
     if (data.success) interfaces.value = data.interfaces || [];
   } catch (e) {}
@@ -396,7 +398,7 @@ async function fetchInterfaces() {
 async function fetchDevices() {
   loadingDevices.value = true;
   try {
-    const res = await fetch('/api/router/devices');
+    const res = await authFetch('/api/router/devices');
     const data = await res.json();
     if (data.success) devices.value = data.devices || [];
   } catch (e) {} finally {
@@ -406,7 +408,7 @@ async function fetchDevices() {
 
 async function saveConfig() {
   try {
-    const res = await fetch('/api/router/config', {
+    const res = await authFetch('/api/router/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg)
@@ -422,7 +424,7 @@ async function saveConfig() {
 async function startRouter() {
   starting.value = true;
   try {
-    const res = await fetch('/api/router/start', { method: 'POST' });
+    const res = await authFetch('/api/router/start', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
       ElMessage.success(t('router.startSuccess'));
@@ -441,7 +443,7 @@ async function startRouter() {
 async function stopRouter() {
   stopping.value = true;
   try {
-    const res = await fetch('/api/router/stop', { method: 'POST' });
+    const res = await authFetch('/api/router/stop', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
       ElMessage.success(t('router.stopSuccess'));
@@ -459,7 +461,7 @@ async function stopRouter() {
 async function toggleDevice(row) {
   const newEnabled = row.enabled === false;
   try {
-    const res = await fetch(`/api/router/devices/${encodeURIComponent(row.mac)}/toggle`, {
+    const res = await authFetch(`/api/router/devices/${encodeURIComponent(row.mac)}/toggle`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: newEnabled })
@@ -479,7 +481,7 @@ async function toggleDevice(row) {
 async function kickDevice(row) {
   try {
     await ElMessageBox.confirm(t('router.kickConfirm', { mac: row.mac, ip: row.ip }), t('common.warning'), { type: 'warning' });
-    const res = await fetch(`/api/router/devices/${encodeURIComponent(row.mac)}/kick`, { method: 'POST' });
+    const res = await authFetch(`/api/router/devices/${encodeURIComponent(row.mac)}/kick`, { method: 'POST' });
     const data = await res.json();
     if (data.success) ElMessage.success(t('router.kickDevice'));
     else ElMessage.error(data.message || t('router.operationFailed'));
@@ -492,7 +494,7 @@ async function kickDevice(row) {
 async function deleteDevice(row) {
   try {
     await ElMessageBox.confirm(t('router.deleteConfirm', { mac: row.mac }), t('common.warning'), { type: 'warning' });
-    const res = await fetch(`/api/router/devices/${encodeURIComponent(row.mac)}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/router/devices/${encodeURIComponent(row.mac)}`, { method: 'DELETE' });
     const data = await res.json();
     if (data.success) ElMessage.success(t('common.success'));
     else ElMessage.error(data.message || t('common.failed'));
@@ -537,9 +539,14 @@ function statusClass(row) {
 
 // WS 消息处理
 let ws = null;
+let wsRetryCount = 0;
+let wsClosed = false;
 function setupWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}`);
+  ws.onopen = () => {
+    wsRetryCount = 0;
+  };
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data);
@@ -550,6 +557,19 @@ function setupWs() {
       }
     } catch (e) {}
   };
+  ws.onclose = () => {
+    if (wsClosed) return;
+    const delay = Math.min(1000 * Math.pow(2, wsRetryCount), 15000);
+    wsRetryCount += 1;
+    setTimeout(() => {
+      if (wsClosed) return;
+      setupWs();
+    }, delay);
+  };
+  ws.onerror = () => {
+    if (wsClosed) return;
+    try { ws.close(); } catch (e) {}
+  };
 }
 
 onMounted(() => {
@@ -559,6 +579,7 @@ onMounted(() => {
   setupWs();
 });
 onUnmounted(() => {
+  wsClosed = true;
   if (ws) try { ws.close(); } catch (e) {}
 });
 </script>

@@ -154,13 +154,11 @@ class TunnelService: NSObject {
     func startServer(config: [String: Any]) {
         let id = config["id"] as? String ?? UUID().uuidString
         runnersLock.lock()
-        if serverRunners[id] != nil {
-            runnersLock.unlock()
-            return
-        }
+        let old = serverRunners.removeValue(forKey: id)
         let runner = ServerRunner(service: self, config: config)
         serverRunners[id] = runner
         runnersLock.unlock()
+        old?.stop()
         runner.start()
         emitAllStatus()
     }
@@ -356,7 +354,14 @@ class TunnelService: NSObject {
     }
 
     func emitAllStatus() {
-        Self.statusCallback?(getStatus())
+        let status = getStatus()
+        if Thread.isMainThread {
+            Self.statusCallback?(status)
+        } else {
+            DispatchQueue.main.async {
+                Self.statusCallback?(status)
+            }
+        }
     }
 }
 
@@ -721,8 +726,12 @@ class ServerRunner {
                     }
                 )
                 self.tunnelServer = server
-                server.start()
-                self.error = nil
+                server.start(onError: { [weak self] msg in
+                    guard let self = self, self.running else { return }
+                    print("[ServerRunner] error: \(msg)")
+                    self.error = msg
+                    self.service?.emitAllStatus()
+                })
 
                 while self.running && server.running {
                     Thread.sleep(forTimeInterval: 1.0)
@@ -733,10 +742,16 @@ class ServerRunner {
                     self.error = error.localizedDescription
                 }
             }
+            let failed = self.running
             self.running = false
             self.tunnelServer?.stop()
             self.tunnelServer = nil
-            self.service?.serverRunners.removeValue(forKey: self.id)
+            if !failed {
+                // 启动失败时保留 runner，让 UI 能看到错误信息；仅用户主动停止才移除
+                if let current = self.service?.serverRunners[self.id], current === self {
+                    self.service?.serverRunners.removeValue(forKey: self.id)
+                }
+            }
             self.service?.emitAllStatus()
         }
     }
@@ -789,7 +804,6 @@ class ProxyRunner {
                 )
                 self.proxy = p
                 p.start()
-                self.error = nil
 
                 while self.running && p.running {
                     Thread.sleep(forTimeInterval: 1.0)

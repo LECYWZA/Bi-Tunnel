@@ -218,11 +218,18 @@ const searchQuery = ref({
 
 const sendWsMessage = inject('sendWsMessage', null);
 const onTrafficLog = inject('onTrafficLog', null);
+const authFetch = inject('authFetch', fetch);
 let unsubscribeTrafficLog = null;
+let fetchLogsPending = false;
 
 const fetchLogs = async () => {
-  if (loading.value) return;
+  if (loading.value) {
+    // 加载期间有新的分页/筛选请求：记录待处理，加载完成后自动重拉
+    fetchLogsPending = true;
+    return;
+  }
   loading.value = true;
+  fetchLogsPending = false;
   try {
     const offset = (currentPage.value - 1) * pageSize.value;
     const query = new URLSearchParams({ limit: pageSize.value, offset });
@@ -233,17 +240,28 @@ const fetchLogs = async () => {
     if (searchQuery.value.status) query.append('status', searchQuery.value.status);
     if (searchQuery.value.rulePattern) query.append('rulePattern', searchQuery.value.rulePattern);
 
-    const res = await fetch(`/api/traffic-logs?${query.toString()}`);
+    const res = await authFetch(`/api/traffic-logs?${query.toString()}`);
+    if (!res.ok) {
+      logs.value = [];
+      total.value = 0;
+      return;
+    }
     const data = await res.json();
-    logs.value = data.logs;
-    total.value = data.total;
-    if (logs.value.length > 0) {
-      newestId.value = logs.value[0].id;
+    if (data && Array.isArray(data.logs)) {
+      logs.value = data.logs;
+      total.value = data.total || 0;
+      if (logs.value.length > 0) {
+        newestId.value = logs.value[0].id;
+      }
     }
   } catch (e) {
     console.error('Failed to fetch logs:', e);
   } finally {
     loading.value = false;
+    if (fetchLogsPending) {
+      fetchLogsPending = false;
+      fetchLogs();
+    }
   }
 };
 
@@ -263,7 +281,7 @@ const unsubscribeWs = () => {
 // Toggle backend recording
 const setRecording = async (enabled) => {
   try {
-    await fetch('/api/traffic-logs/recording', {
+    await authFetch('/api/traffic-logs/recording', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled })
@@ -294,7 +312,7 @@ const clearLogs = async () => {
       cancelButtonText: t('common.cancel'),
       type: 'warning'
     });
-    await fetch('/api/traffic-logs', { method: 'DELETE' });
+    await authFetch('/api/traffic-logs', { method: 'DELETE' });
     logs.value = [];
     total.value = 0;
     newestId.value = 0;

@@ -448,7 +448,8 @@ const toggleProtocol = async () => {
       ElMessage.success(data.message);
       // Wait for server to restart, then redirect to same port with new protocol
       setTimeout(() => {
-        window.location.href = `${newProtocol}://${location.hostname}:${location.port}`;
+        const host = location.port ? `${location.hostname}:${location.port}` : location.hostname;
+        window.location.href = `${newProtocol}://${host}`;
       }, 3000);
     }
   } catch (e) {

@@ -159,8 +159,21 @@ class _HybridProxyTabState extends State<HybridProxyTab> {
       ),
     );
     if (confirm != true) return;
+    final proxy = _proxies[index];
+    if (proxy.running) {
+      final ok = await PlatformService.stopProxy(proxy);
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('停止代理失败，请先手动停止后再删除'), duration: Duration(seconds: 3)),
+          );
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
     setState(() {
-      _errors.remove(_proxies[index].id);
+      _errors.remove(proxy.id);
       _proxies.removeAt(index);
     });
     _autoSave();

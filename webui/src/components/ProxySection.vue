@@ -363,11 +363,13 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, inject } from 'vue';
 import { ElMessage } from 'element-plus';
 import draggable from 'vuedraggable';
 import { Delete, Plus, User, Lock, Switch, HelpFilled, InfoFilled, Sort, Right, Setting, Guide, ArrowDown } from '@element-plus/icons-vue';
 import { t } from '../i18n';
+
+const authFetch = inject('authFetch', fetch);
 
 const props = defineProps({
   config: Object,
@@ -504,7 +506,7 @@ const toggleProxyEnabled = async (px) => {
   }
   // 2) 后端校验：检查端口是否被系统其他进程占用
   try {
-    const res = await fetch(`/api/check-port/${px.listenPort}`);
+    const res = await authFetch(`/api/check-port/${px.listenPort}`);
     const data = await res.json();
     if (data.success && !data.available) {
       ElMessage.error(data.message || t('proxies.portOccupied', { port: px.listenPort }));

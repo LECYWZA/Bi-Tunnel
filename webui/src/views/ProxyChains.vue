@@ -179,7 +179,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, inject } from 'vue';
 import { ElMessage } from 'element-plus';
 import draggable from 'vuedraggable';
 import { Plus, Delete, Link, InfoFilled, Sort, Connection, Clock, Odometer, Edit } from '@element-plus/icons-vue';
@@ -188,6 +188,8 @@ import { t } from '../i18n';
 const props = defineProps({
   config: Object
 });
+
+const authFetch = inject('authFetch', fetch);
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const testingChain = ref(null);
@@ -265,7 +267,7 @@ const testChain = async (chainId, silent = false) => {
     const targetHost = parts[0] || 'www.bing.com';
     const targetPort = parseInt(parts[1]) || 443;
 
-    const res = await fetch('/api/test-latency', {
+    const res = await authFetch('/api/test-latency', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'chain', id: chainId, targetHost, targetPort, networkMode: testNetworkMode.value, targetClientId: testTargetClientId.value }),
@@ -309,7 +311,7 @@ const testSpeedChain = async (chainId, silent = false) => {
     const parts = testTargetSpeed.value.split(':');
     const targetHost = parts[0] || 'speed.cloudflare.com';
     const targetPort = parseInt(parts[1]) || 443;
-    const res = await fetch('/api/test-speed', {
+    const res = await authFetch('/api/test-speed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'chain', id: chainId, targetHost, targetPort, networkMode: testNetworkMode.value, targetClientId: testTargetClientId.value }),

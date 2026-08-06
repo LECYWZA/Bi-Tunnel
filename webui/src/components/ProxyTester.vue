@@ -147,6 +147,7 @@ import { ref, onMounted, inject } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Odometer, User, Lock, VideoPlay, Monitor, Plus, Delete, CopyDocument, CircleClose } from '@element-plus/icons-vue';
 import { t } from '../i18n';
+import { base64EncodeUtf8, base64DecodeUtf8 } from '../utils/v2rayParser';
 
 const authFetch = inject('authFetch', fetch);
 const STORAGE_KEY = 'nb_plus_tester_profiles';
@@ -160,14 +161,22 @@ const loadProfiles = () => {
     if (saved) {
       const parsed = JSON.parse(saved);
       // Re-inject transient properties
-      profiles.value = parsed.map(p => ({
-        ...p,
-        tls: !!p.tls,
-        sni: p.sni || '',
-        testing: false,
-        logs: [],
-        testResult: null
-      }));
+      profiles.value = parsed.map(p => {
+        // 兼容旧版本明文存储的密码
+        let password = p.password || '';
+        if (password.startsWith('b64:')) {
+          try { password = base64DecodeUtf8(password.slice(4)); } catch (e) { password = password.slice(4); }
+        }
+        return {
+          ...p,
+          password,
+          tls: !!p.tls,
+          sni: p.sni || '',
+          testing: false,
+          logs: [],
+          testResult: null
+        };
+      });
     }
   } catch (e) {
     console.error('Failed to load tester profiles', e);
@@ -185,6 +194,10 @@ const saveProfiles = () => {
   // Strip transient properties before saving
   const toSave = profiles.value.map(p => {
     const { testing, logs, testResult, ...rest } = p;
+    // 密码不落明文（localStorage），以 b64: 前缀标记编码存储
+    if (rest.password) {
+      rest.password = 'b64:' + base64EncodeUtf8(rest.password);
+    }
     return rest;
   });
   localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));

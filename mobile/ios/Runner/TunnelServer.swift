@@ -31,12 +31,12 @@ class TunnelServer {
         self.onClientDisconnect = onClientDisconnect
     }
 
-    func start() {
+    func start(onError: ((String) -> Void)? = nil) {
         running = true
         serverQueue.async { [weak self] in
             guard let self = self else { return }
             do {
-                let params = self.createTLSParams()
+                let params = try self.createTLSParams()
                 let port = NWEndpoint.Port(rawValue: UInt16(self.listenPort))!
                 let listener = try NWListener(using: params, on: port)
                 self.listener = listener
@@ -44,13 +44,15 @@ class TunnelServer {
                 listener.newConnectionHandler = { [weak self] conn in
                     self?.handleClient(conn)
                 }
-                listener.stateUpdateHandler = { state in
+                listener.stateUpdateHandler = { [weak self] state in
+                    guard let self = self else { return }
                     switch state {
                     case .ready:
                         print("[TunnelServer] listening on port \(self.listenPort)")
                     case .failed(let error):
                         print("[TunnelServer] listener error: \(error)")
-                        self?.running = false
+                        self.running = false
+                        onError?(error.localizedDescription)
                     default:
                         break
                     }
@@ -63,6 +65,7 @@ class TunnelServer {
             } catch {
                 print("[TunnelServer] start error: \(error)")
                 self.running = false
+                onError?(error.localizedDescription)
             }
         }
     }
@@ -106,10 +109,16 @@ class TunnelServer {
             while !mux.isClosed && (self?.running ?? false) {
                 Thread.sleep(forTimeInterval: 1.0)
             }
-            self?.sessionsLock.lock()
-            self?.sessions.removeValue(forKey: clientId)
-            self?.sessionsLock.unlock()
-            self?.onClientDisconnect?(clientId)
+            guard let self = self else { return }
+            self.sessionsLock.lock()
+            // 仅当 sessions[clientId] 仍是本连接时才移除，防止同 clientId 新连接覆盖后被旧连接误删
+            guard self.sessions[clientId] === mux else {
+                self.sessionsLock.unlock()
+                return
+            }
+            self.sessions.removeValue(forKey: clientId)
+            self.sessionsLock.unlock()
+            self.onClientDisconnect?(clientId)
             print("[TunnelServer] client disconnected: \(clientId)")
         }
     }
@@ -230,25 +239,24 @@ class TunnelServer {
         readRemote()
     }
 
-    private func createTLSParams() -> NWParameters {
+    private func createTLSParams() throws -> NWParameters {
         guard let certURL = Bundle.main.url(forResource: "tunnel_cert", withExtension: "pem"),
-              let keyURL = Bundle.main.url(forResource: "tunnel_key", withExtension: "pem"),
-              let certPem = try? String(contentsOf: certURL, encoding: .utf8),
+              let keyURL = Bundle.main.url(forResource: "tunnel_key", withExtension: "pem") else {
+            throw NSError(domain: "BiTunnel", code: 1001, userInfo: [NSLocalizedDescriptionKey: "证书缺失，隧道无法启动"])
+        }
+        guard let certPem = try? String(contentsOf: certURL, encoding: .utf8),
               let keyPem = try? String(contentsOf: keyURL, encoding: .utf8) else {
-            print("[TunnelServer] PEM files missing, using TCP")
-            return NWParameters.tcp
+            throw NSError(domain: "BiTunnel", code: 1002, userInfo: [NSLocalizedDescriptionKey: "证书读取失败，隧道无法启动"])
         }
 
         let certDer = parsePEM(certPem)
         let keyDer = parsePEM(keyPem)
         guard !certDer.isEmpty, !keyDer.isEmpty else {
-            print("[TunnelServer] PEM parse failed, using TCP")
-            return NWParameters.tcp
+            throw NSError(domain: "BiTunnel", code: 1003, userInfo: [NSLocalizedDescriptionKey: "证书解析失败，隧道无法启动"])
         }
 
         guard let cert = SecCertificateCreateWithData(nil, certDer as CFData) else {
-            print("[TunnelServer] invalid cert, using TCP")
-            return NWParameters.tcp
+            throw NSError(domain: "BiTunnel", code: 1004, userInfo: [NSLocalizedDescriptionKey: "证书无效，隧道无法启动"])
         }
 
         let keyAttrs: [String: Any] = [
@@ -257,8 +265,7 @@ class TunnelServer {
         ]
         var error: Unmanaged<CFError>?
         guard let key = SecKeyCreateWithData(keyDer as CFData, keyAttrs as CFDictionary, &error) else {
-            print("[TunnelServer] invalid key: \(error.debugDescription), using TCP")
-            return NWParameters.tcp
+            throw NSError(domain: "BiTunnel", code: 1005, userInfo: [NSLocalizedDescriptionKey: "私钥无效，隧道无法启动"])
         }
 
         // Add to keychain temporarily to create identity
@@ -291,9 +298,8 @@ class TunnelServer {
         SecItemDelete(addQuery as CFDictionary)
         SecItemDelete(keyAddQuery as CFDictionary)
 
-        guard status == errSecSuccess, let identity = identityRef as! SecIdentity? else {
-            print("[TunnelServer] identity query failed: \(status), using TCP")
-            return NWParameters.tcp
+        guard status == errSecSuccess, let identity = identityRef as? SecIdentity else {
+            throw NSError(domain: "BiTunnel", code: 1006, userInfo: [NSLocalizedDescriptionKey: "证书身份创建失败，隧道无法启动"])
         }
 
         let tlsOpts = NWProtocolTLS.Options()

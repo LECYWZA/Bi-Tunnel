@@ -100,20 +100,43 @@ function init() {
             if (webApp.locals.broadcastClientsUpdate) {
                 webApp.locals.broadcastClientsUpdate();
             }
-            // 服务端关停时清理 xray（仅当客户端也不在运行时）
-            if (!tunnelClient.shouldRetry) {
-                stopXray();
-                getLogger().info('[Xray] Core stopped with server tunnel.');
-            }
         } else if (mode === 'client') {
             if (tunnelClient.stop) tunnelClient.stop();
             clientForwarder.clearSessions();
             clientProxy.clearSessions();
-            // 客户端关停时清理 xray（仅当服务端也不在运行时）
-            if (!tunnelServer.server) {
-                stopXray();
-                getLogger().info('[Xray] Core stopped with client tunnel.');
-            }
+        }
+        // 仅当隧道两端都已停止、且未启用 TUN 模式时才清理 xray，
+        // 避免一侧仍运行或 TUN 模式占用 xray 时被误杀。
+        // 存在被启用代理引用的 v2ray 节点或代理链时同样不清理，
+        // 避免用户仅用 v2ray 节点做全局代理（未开隧道）时被误杀。
+        const cfg = configManager.getConfig();
+        const hasV2rayUsage = () => {
+            const referenced = { nodes: new Set(), chains: new Set(), legacyChain: false };
+            [cfg.server, cfg.client].forEach(modeCfg => {
+                (modeCfg?.proxies || []).forEach(px => {
+                    if (px.enabled === false) return;
+                    const actions = [];
+                    (px.proxyRules || []).forEach(r => {
+                        if (Array.isArray(r.action)) actions.push(...r.action);
+                        else if (r.action) actions.push(r.action);
+                    });
+                    (px.defaultRuleActions || []).forEach(d => { if (d && d.action) actions.push(d.action); });
+                    (px.defaultRuleAction || []).forEach(a => actions.push(a));
+                    (px.chainNodes || []).forEach(id => referenced.nodes.add(id));
+                    actions.forEach(a => {
+                        if (a.startsWith('node:')) referenced.nodes.add(a.substring(5));
+                        else if (a.startsWith('chain:')) referenced.chains.add(a.substring(6));
+                        else if (a === 'proxy_chain') referenced.legacyChain = true;
+                    });
+                });
+            });
+            const hasV2rayNode = [...referenced.nodes].some(id => (cfg.proxyNodes || []).some(n => n.id === id && n.type === 'v2ray'));
+            const hasChain = referenced.legacyChain || [...referenced.chains].some(id => (cfg.proxyChains || []).some(c => c.id === id));
+            return hasV2rayNode || hasChain;
+        };
+        if (!tunnelServer.server && !tunnelClient.shouldRetry && !cfg.tunModeEnabled && !hasV2rayUsage()) {
+            stopXray();
+            getLogger().info('[Xray] Core stopped (no active tunnel or TUN mode).');
         }
     };
 
@@ -136,7 +159,9 @@ function init() {
         if (serverCoreChanged && tunnelServer.server) {
             getLogger().info('Server core config changed, restarting server tunnel...');
             stopTunnel('server');
-            startTunnel('server');
+            startTunnel('server').catch(err => {
+                getLogger().error('Restart server tunnel failed: ' + (err.message || err));
+            });
         }
 
         // 广播端口映射启动错误给前端（携带 mode + port 以便前端回滚对应开关）

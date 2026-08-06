@@ -28,6 +28,13 @@ class TunnelServer extends EventEmitter {
     return new Promise((resolve, reject) => {
       const config = configManager.getConfig();
       const serverConfig = config.server || {};
+
+      if (!serverConfig.password || !String(serverConfig.password).trim()) {
+        getLogger().error('服务端密码未配置，隧道服务端无法启动');
+        reject(new Error('服务端密码未配置，隧道服务端无法启动'));
+        return;
+      }
+
       const certs = getCertificates(serverConfig.tlsCommonName || 'mail.qq.com');
       const encryptionKey = serverConfig.password
         ? crypto.createHash('sha256').update(serverConfig.password).digest()

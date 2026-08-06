@@ -18,6 +18,7 @@ class TunnelServer(
     private val sni: String = "mail.qq.com",
     private val onClientConnect: ((String) -> Unit)? = null,
     private val onClientDisconnect: ((String) -> Unit)? = null,
+    private val onError: ((String) -> Unit)? = null,
     private val serverSocketFactory: (() -> java.net.ServerSocket)? = null
 ) {
     private var serverSocket: java.net.ServerSocket? = null
@@ -48,8 +49,9 @@ class TunnelServer(
                         if (!running) break
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 running = false
+                onError?.invoke(e.message ?: "隧道启动失败")
             }
         }
     }
@@ -85,7 +87,8 @@ class TunnelServer(
         } catch (_: Exception) {
             try { socket.close() } catch (_: Exception) {}
         } finally {
-            if (clientId != null) {
+            // 仅当 sessions[clientId] 仍是本连接时才移除，防止同 clientId 新连接覆盖后被旧连接误删
+            if (clientId != null && sessions[clientId] === mux) {
                 sessions.remove(clientId)
                 onClientDisconnect?.invoke(clientId)
             }

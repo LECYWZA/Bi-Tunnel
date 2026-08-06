@@ -235,9 +235,6 @@ const deleteCard = (cardId, idx) => {
             delete r.ruleCardId;
           }
         });
-        px.proxyRules = px.proxyRules.filter(r =>
-          (r.ruleCardIds && r.ruleCardIds.length > 0) || r.ruleCardId
-        );
       }
     });
   };

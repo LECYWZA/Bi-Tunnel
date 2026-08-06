@@ -415,7 +415,7 @@
 import { ref, computed, nextTick, inject } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, Delete, Monitor, Connection, DocumentCopy, Check, Edit, Search, FolderOpened, Folder, ArrowDown, ArrowRight, Clock, Odometer, Share, FullScreen } from '@element-plus/icons-vue';
-import { parseProxyUrl, decodeV2RayUrl, encodeV2RayUrl } from '../utils/v2rayParser';
+import { parseProxyUrl, decodeV2RayUrl, encodeV2RayUrl, base64DecodeUtf8 } from '../utils/v2rayParser';
 import jsQR from 'jsqr';
 import QrcodeVue from 'qrcode.vue';
 import { t } from '../i18n';
@@ -947,7 +947,7 @@ const doImportText = () => {
   let textToParse = importText.value;
   if (!textToParse.includes('://') && /^[A-Za-z0-9+/=\s]+$/.test(textToParse.trim())) {
     try {
-      textToParse = atob(textToParse.replace(/\s/g, ''));
+      textToParse = base64DecodeUtf8(textToParse.replace(/\s/g, ''));
     } catch (e) {}
   }
   

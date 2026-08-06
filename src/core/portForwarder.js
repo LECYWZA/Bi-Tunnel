@@ -164,8 +164,7 @@ class PortForwarder {
           const timer = setTimeout(() => {
             if (!channelResolved) {
               channelResolved = true;
-              getLogger().warn(`[Forward-${this.mode}] No ACK from remote for ${targetHost}:${targetPort}, proceeding anyway (timeout)`);
-              resolveChannel();
+              rejectChannel(new Error(`隧道通道建立超时（${CHANNEL_ACK_TIMEOUT}ms），目标 ${targetHost}:${targetPort} 无响应`));
             }
           }, CHANNEL_ACK_TIMEOUT);
 

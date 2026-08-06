@@ -62,8 +62,8 @@ class ProxyDialer {
           const timer = setTimeout(() => {
             if (!resolved) {
               resolved = true;
-              getLogger().warn(`[ProxyChain] No ACK from remote for ${connectHost}:${connectPort}, proceeding anyway (timeout)`);
-              onFirstConnected(channel);
+              try { channel.destroy(); } catch (e) {}
+              callback(new Error(`Remote tunnel channel establishment timed out for ${connectHost}:${connectPort}`));
             }
           }, 5000);
           channel.once('ack', (success) => {
@@ -95,7 +95,6 @@ class ProxyDialer {
               host: connectHost,
               port: connectPort,
               servername: sni,
-              // 自签名证书也允许（用户负责验证）
               rejectUnauthorized: false
             }, () => {
               socket.removeAllListeners('error');

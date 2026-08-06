@@ -1,3 +1,22 @@
+// Base64 解码为 UTF-8 字符串（atob 直接解码非 ASCII 内容会乱码）
+export function base64DecodeUtf8(str) {
+  if (!str) return '';
+  // 兼容 URL-safe base64（-/_ 是 +// 的 URL 安全变体），并补齐 padding 后再解
+  let normalized = str.trim().replace(/-/g, '+').replace(/_/g, '/');
+  while (normalized.length % 4 !== 0) normalized += '=';
+  const binary = atob(normalized);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder('utf-8').decode(bytes);
+}
+
+// UTF-8 字符串编码为 Base64（btoa 直接编码非 ASCII 内容会抛异常）
+export function base64EncodeUtf8(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
 export function parseProxyUrl(url) {
   try {
     if (!url || typeof url !== 'string') return null;
@@ -5,7 +24,7 @@ export function parseProxyUrl(url) {
     // vmess://
     if (url.startsWith('vmess://')) {
       const base64str = url.replace('vmess://', '');
-      const jsonStr = decodeURIComponent(escape(atob(base64str)));
+      const jsonStr = base64DecodeUtf8(base64str);
       const vmessConfig = JSON.parse(jsonStr);
       return {
         type: 'v2ray',
@@ -91,7 +110,7 @@ export function decodeV2RayUrl(url) {
     if (!url) return null;
     if (url.startsWith('vmess://')) {
       const base64str = url.replace('vmess://', '');
-      const jsonStr = decodeURIComponent(escape(atob(base64str)));
+      const jsonStr = base64DecodeUtf8(base64str);
       const v = JSON.parse(jsonStr);
       return {
         v2rayType: 'vmess',

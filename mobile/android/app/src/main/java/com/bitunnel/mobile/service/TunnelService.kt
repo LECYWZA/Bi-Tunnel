@@ -241,7 +241,7 @@ class TunnelService : Service() {
 
     private fun startServerInstance(config: Map<String, Any?>) {
         val id = config["id"] as? String ?: return
-        if (serverRunners.containsKey(id)) return
+        serverRunners.remove(id)?.stop()
 
         val runner = ServerRunner(config)
         serverRunners[id] = runner
@@ -685,6 +685,12 @@ class TunnelService : Service() {
                             connectedClients = connectedClients - clientId
                             this@TunnelService.emitAllStatus()
                         },
+                        onError = { msg ->
+                            if (running) {
+                                error = msg
+                                this@TunnelService.emitAllStatus()
+                            }
+                        },
                         serverSocketFactory = sslFactory
                     )
                     tunnelServer = server
@@ -700,10 +706,17 @@ class TunnelService : Service() {
                         error = e.message ?: "服务器错误"
                     }
                 } finally {
+                    val failed = running
                     running = false
                     tunnelServer?.stop()
                     tunnelServer = null
-                    this@TunnelService.serverRunners.remove(config["id"] as? String)
+                    if (!failed) {
+                        // 启动失败时保留 runner，让 UI 能看到错误信息；仅用户主动停止才移除
+                        val id = config["id"] as? String
+                        if (id != null && this@TunnelService.serverRunners[id] === this) {
+                            this@TunnelService.serverRunners.remove(id)
+                        }
+                    }
                     emitAllStatus()
                 }
             }

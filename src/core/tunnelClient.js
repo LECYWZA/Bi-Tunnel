@@ -21,6 +21,11 @@ class SingleTunnelClient extends EventEmitter {
   }
 
   start() {
+    if (!this.config.password) {
+      getLogger().error(`[TLS] [${this.config.alias}] 隧道密码未配置，客户端无法启动`);
+      this.status = 'failed';
+      return;
+    }
     this.shouldRetry = true;
     this.connect();
   }
@@ -46,6 +51,11 @@ class SingleTunnelClient extends EventEmitter {
     if (this.session || this.pendingSocket) return;
     
     const clientConfig = this.config;
+    if (!clientConfig.password || !String(clientConfig.password).trim()) {
+      getLogger().error(`[TLS] [${clientConfig.alias}] 隧道密码未配置，客户端无法连接`);
+      this.status = 'failed';
+      return;
+    }
     getLogger().info(`[TLS] [${clientConfig.alias}] Connecting to ${clientConfig.tunnelHost}:${clientConfig.tunnelPort}...`);
     this.status = 'connecting';
     
@@ -127,6 +137,11 @@ class TunnelClientManager extends EventEmitter {
   start() {
     this.shouldRetry = true;
     const config = configManager.getConfig();
+    if (!config.client || !config.client.password || !String(config.client.password).trim()) {
+      getLogger().error('客户端密码未配置，隧道客户端无法启动');
+      this.shouldRetry = false;
+      return;
+    }
     let connections = config.client?.connections || [];
     
     // Legacy migration dynamically handled

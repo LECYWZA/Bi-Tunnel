@@ -322,6 +322,7 @@ const sendWsMessage = inject('sendWsMessage', (msg) => {
 
 // 监听后端推送的端口冲突错误，回滚对应开关并提示
 const onForwardError = inject('onForwardError', null);
+const authFetch = inject('authFetch', fetch);
 let unregisterForwardError = null;
 onMounted(() => {
   if (onForwardError) {
@@ -504,7 +505,7 @@ const openClientTraffic = async (client) => {
   currentTrafficClient.value = client;
   trafficDialogVisible.value = true;
   try {
-    const res = await fetch(`/api/traffic-logs?limit=100&clientId=${client.id}`);
+    const res = await authFetch(`/api/traffic-logs?limit=100&clientId=${client.id}`);
     const data = await res.json();
     clientTrafficLogs.value = data.logs || [];
   } catch (e) {
