@@ -67,11 +67,10 @@ class TunnelServer(
 
     private fun handleClient(socket: Socket) {
         var clientId: String? = null
+        val input: InputStream = socket.getInputStream()
+        val output: OutputStream = socket.getOutputStream()
+        val mux = MuxSession(input, output, password)
         try {
-            val input: InputStream = socket.getInputStream()
-            val output: OutputStream = socket.getOutputStream()
-
-            val mux = MuxSession(input, output, password)
             clientId = authenticateClient(mux) ?: run {
                 socket.close()
                 return
