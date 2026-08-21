@@ -494,13 +494,13 @@ class Socks5Proxy {
                     while !found {
                         guard let addrPtr = ptr.pointee.ai_addr else { break }
                         if ptr.pointee.ai_family == AF_INET {
-                            let sin = addrPtr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { (p: UnsafeMutablePointer<sockaddr_in>) -> sockaddr_in in p.pointee }
+                            var sin = addrPtr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { (p: UnsafeMutablePointer<sockaddr_in>) -> sockaddr_in in p.pointee }
                             var ipStr = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
                             inet_ntop(AF_INET, &sin.sin_addr, &ipStr, socklen_t(INET_ADDRSTRLEN))
                             resolvedAddr = String(cString: ipStr)
                             found = true
                         } else if ptr.pointee.ai_family == AF_INET6 {
-                            let sin6 = addrPtr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { (p: UnsafeMutablePointer<sockaddr_in6>) -> sockaddr_in6 in p.pointee }
+                            var sin6 = addrPtr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { (p: UnsafeMutablePointer<sockaddr_in6>) -> sockaddr_in6 in p.pointee }
                             var ipStr = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
                             inet_ntop(AF_INET6, &sin6.sin6_addr, &ipStr, socklen_t(INET6_ADDRSTRLEN))
                             resolvedAddr = String(cString: ipStr)
