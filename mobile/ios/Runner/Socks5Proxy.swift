@@ -430,13 +430,13 @@ class Socks5Proxy {
         // Try IPv4
         var sin = sockaddr_in()
         if inet_pton(AF_INET, addr, &sin.sin_addr) == 1 {
-            let data = withUnsafeBytes(of: sin.sin_addr) { Data($0) }
+            let data = withUnsafeBytes(of: sin.sin_addr)         { (buf: UnsafeRawBufferPointer) in Data(buf) }
             return [UInt8](data)
         }
         // Try IPv6
         var sin6 = sockaddr_in6()
         if inet_pton(AF_INET6, addr, &sin6.sin6_addr) == 1 {
-            let data = withUnsafeBytes(of: sin6.sin6_addr) { Data($0) }
+            let data = withUnsafeBytes(of: sin6.sin6_addr)         { (buf: UnsafeRawBufferPointer) in Data(buf) }
             return [UInt8](data)
         }
         // Resolve hostname
@@ -453,11 +453,11 @@ class Socks5Proxy {
         while true {
             if ptr.pointee.ai_family == AF_INET {
                 let sinPtr = ptr.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1)
-                let data = withUnsafeBytes(of: sinPtr.pointee.sin_addr) { Data($0) }
+                let data = withUnsafeBytes(of: sinPtr.pointee.sin_addr)         { (buf: UnsafeRawBufferPointer) in Data(buf) }
                 return [UInt8](data)
             } else if ptr.pointee.ai_family == AF_INET6 {
                 let sin6Ptr = ptr.pointee.ai_addr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1)
-                let data = withUnsafeBytes(of: sin6Ptr.pointee.sin6_addr) { Data($0) }
+                let data = withUnsafeBytes(of: sin6Ptr.pointee.sin6_addr)         { (buf: UnsafeRawBufferPointer) in Data(buf) }
                 return [UInt8](data)
             }
             guard let next = ptr.pointee.ai_next else { break }

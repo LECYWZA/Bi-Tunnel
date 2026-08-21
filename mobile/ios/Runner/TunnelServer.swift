@@ -298,9 +298,10 @@ class TunnelServer {
         SecItemDelete(addQuery as CFDictionary)
         SecItemDelete(keyAddQuery as CFDictionary)
 
-        guard status == errSecSuccess, let identity = identityRef as? SecIdentity else {
+        guard status == errSecSuccess else {
             throw NSError(domain: "BiTunnel", code: 1006, userInfo: [NSLocalizedDescriptionKey: "证书身份创建失败，隧道无法启动"])
         }
+        let identity = identityRef as! SecIdentity
 
         let tlsOpts = NWProtocolTLS.Options()
         guard let secIdentity = sec_identity_create(identity) else {

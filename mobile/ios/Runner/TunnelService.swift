@@ -392,7 +392,7 @@ class ClientRunner {
         status = "connecting"
         service?.emitAllStatus()
 
-        let queue = DispatchQueue(label: "client-runner-\(id)")
+        let queue: DispatchQueue = DispatchQueue(label: "client-runner-\(id)")
         workerQueue = queue
         queue.async { [weak self] in
             guard let self = self else { return }
