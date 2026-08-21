@@ -394,7 +394,7 @@ class ClientRunner {
 
         let queue: DispatchQueue = DispatchQueue(label: "client-runner-\(id)")
         workerQueue = queue
-        queue.async { [weak self] in
+        queue.async { [weak self] (_: Void) in
             guard let self = self else { return }
             var reconnectAttempt = 0
 
