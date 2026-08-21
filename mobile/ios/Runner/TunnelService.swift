@@ -558,7 +558,7 @@ class ClientRunner {
             self.service?.stopAllPortForwards(instanceId: self.id)
             self.service?.clientRunners.removeValue(forKey: self.id)
             self.service?.emitAllStatus()
-        }
+        })
     }
 
     func stop() {
