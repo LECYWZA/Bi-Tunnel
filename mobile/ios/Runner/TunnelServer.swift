@@ -303,7 +303,9 @@ class TunnelServer {
         }
 
         let tlsOpts = NWProtocolTLS.Options()
-        let secIdentity = sec_identity_create(identity)
+        guard let secIdentity = sec_identity_create(identity) else {
+            throw NSError(domain: "BiTunnel", code: 1007, userInfo: [NSLocalizedDescriptionKey: "TLS 身份创建失败，隧道无法启动"])
+        }
         sec_protocol_options_set_local_identity(tlsOpts.securityProtocolOptions, secIdentity)
         print("[TunnelServer] TLS configured with server identity")
         return NWParameters(tls: tlsOpts)
