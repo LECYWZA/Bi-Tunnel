@@ -99,7 +99,12 @@ jobs:
 
       - name: Build iOS (no codesign)
         working-directory: mobile
-        run: flutter build ios --release --no-codesign
+        run: |
+          set +e
+          flutter build ios --release --no-codesign --verbose 2>&1 | tee build-ios.log
+          FLUTTER_EXIT=${PIPESTATUS[0]}
+          grep -A6 "Swift Compiler Error\|error: " build-ios.log | head -120
+          exit $FLUTTER_EXIT
 
       - name: Package as IPA
         working-directory: mobile/build/ios/iphoneos
