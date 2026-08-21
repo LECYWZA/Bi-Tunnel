@@ -86,13 +86,43 @@ jobs:
           path: mobile/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
+  build-ios:
+    name: Build iOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build iOS (no codesign)
+        working-directory: mobile
+        run: flutter build ios --release --no-codesign
+
+      - name: Package as IPA
+        working-directory: mobile/build/ios/iphoneos
+        run: |
+          APP_NAME=$(ls -d *.app | head -1)
+          mkdir -p Payload
+          cp -R "$APP_NAME" Payload/
+          zip -qr BiTunnel.ipa Payload
+          ls -la BiTunnel.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BiTunnel.ipa
+          path: mobile/build/ios/iphoneos/BiTunnel.ipa
+          if-no-files-found: error
+
   release:
     name: Publish Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-web, build-android]
+    needs: [build-web, build-android, build-ios]
     steps:
       - uses: actions/download-artifact@v4
         with:
