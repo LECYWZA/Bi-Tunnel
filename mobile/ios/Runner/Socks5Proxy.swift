@@ -464,9 +464,6 @@ class Socks5Proxy {
             guard let next = ptr.pointee.ai_next else { break }
             ptr = next
         }
-            guard let next = ptr.pointee.ai_next else { break }
-            ptr = next
-        }
         return nil
     }
 
