@@ -451,15 +451,19 @@ class Socks5Proxy {
 
         var ptr = addrList
         while true {
+            guard let addrPtr = ptr.pointee.ai_addr else { break }
             if ptr.pointee.ai_family == AF_INET {
-                let sinPtr = ptr.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1)
-                let data = withUnsafeBytes(of: sinPtr.pointee.sin_addr)         { (buf: UnsafeRawBufferPointer) in Data(buf) }
+                let sin = addrPtr.withMemoryRebound(to: sockaddr_in.self, capacity: 1).pointee
+                let data = withUnsafeBytes(of: sin.sin_addr) { (buf: UnsafeRawBufferPointer) in Data(buf) }
                 return [UInt8](data)
             } else if ptr.pointee.ai_family == AF_INET6 {
-                let sin6Ptr = ptr.pointee.ai_addr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1)
-                let data = withUnsafeBytes(of: sin6Ptr.pointee.sin6_addr)         { (buf: UnsafeRawBufferPointer) in Data(buf) }
+                let sin6 = addrPtr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1).pointee
+                let data = withUnsafeBytes(of: sin6.sin6_addr) { (buf: UnsafeRawBufferPointer) in Data(buf) }
                 return [UInt8](data)
             }
+            guard let next = ptr.pointee.ai_next else { break }
+            ptr = next
+        }
             guard let next = ptr.pointee.ai_next else { break }
             ptr = next
         }
@@ -491,16 +495,17 @@ class Socks5Proxy {
                     var ptr = addrList
                     var found = false
                     while !found {
+                        guard let addrPtr = ptr.pointee.ai_addr else { break }
                         if ptr.pointee.ai_family == AF_INET {
-                            let sinPtr = ptr.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1)
+                            let sin = addrPtr.withMemoryRebound(to: sockaddr_in.self, capacity: 1).pointee
                             var ipStr = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                            inet_ntop(AF_INET, &sinPtr.pointee.sin_addr, &ipStr, socklen_t(INET_ADDRSTRLEN))
+                            inet_ntop(AF_INET, &sin.sin_addr, &ipStr, socklen_t(INET_ADDRSTRLEN))
                             resolvedAddr = String(cString: ipStr)
                             found = true
                         } else if ptr.pointee.ai_family == AF_INET6 {
-                            let sin6Ptr = ptr.pointee.ai_addr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1)
+                            let sin6 = addrPtr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1).pointee
                             var ipStr = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
-                            inet_ntop(AF_INET6, &sin6Ptr.pointee.sin6_addr, &ipStr, socklen_t(INET6_ADDRSTRLEN))
+                            inet_ntop(AF_INET6, &sin6.sin6_addr, &ipStr, socklen_t(INET6_ADDRSTRLEN))
                             resolvedAddr = String(cString: ipStr)
                             found = true
                         }
