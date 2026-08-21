@@ -415,9 +415,9 @@ class ClientRunner {
 
                     // TLS connection (trust all certs, matching Android's clientTrustAll)
                     let tlsOpts = NWProtocolTLS.Options()
-                    sec_protocol_options_set_verify_block(tlsOpts.securityProtocolOptions, DispatchQueue.main, { _, _, completion in
+                    sec_protocol_options_set_verify_block(tlsOpts.securityProtocolOptions, { _, _, completion in
                         completion(true) // trust all
-                    })
+                    }, DispatchQueue.main)
                     let params = NWParameters(tls: tlsOpts)
                     let endpoint = NWEndpoint.hostPort(
                         host: NWEndpoint.Host(host),
