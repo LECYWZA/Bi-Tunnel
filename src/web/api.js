@@ -1621,6 +1621,9 @@ function createWebServer(statusCallback) {
     app.locals.broadcastTrafficLog = broadcastTrafficLog;
 
     const handleWsConnection = (ws, req) => {
+        ws.isAlive = true;
+        ws.on('pong', () => { ws.isAlive = true; });
+
         const refreshToken = getCookieValue(req.headers.cookie, 'bt_refresh');
         let token = refreshToken;
         if (!token && req.url) {
@@ -1729,6 +1732,23 @@ function createWebServer(statusCallback) {
 
     wss.on('connection', handleWsConnection);
     wssHttp.on('connection', handleWsConnection);
+
+    // WebSocket 心跳：周期性 ping，剔除静默断开的僵尸连接，
+    // 避免其长期留在 clients 集合导致广播越积越慢（跑久后 Web 卡顿根因之一）
+    const wsHeartbeatTimer = setInterval(() => {
+        [wss, wssHttp].forEach(wsServer => {
+            if (!wsServer) return;
+            wsServer.clients.forEach(ws => {
+                if (ws.isAlive === false) {
+                    try { ws.terminate(); } catch (e) {}
+                    return;
+                }
+                ws.isAlive = false;
+                try { ws.ping(); } catch (e) {}
+            });
+        });
+    }, 30000);
+    if (wsHeartbeatTimer.unref) wsHeartbeatTimer.unref();
 
     return app;
 }

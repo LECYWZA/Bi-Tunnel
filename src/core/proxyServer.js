@@ -185,7 +185,7 @@ class ProxyServer {
       return;
     }
     
-    getLogger().info(`[Proxy] Accepted connection from ${clientIp} on port ${proxyConfig.listenPort}`);
+    getLogger().debug(`[Proxy] Accepted connection from ${clientIp} on port ${proxyConfig.listenPort}`);
 
     // Sniff protocol (SOCKS5 or HTTP)
     socket.once('data', (data) => {
@@ -765,7 +765,7 @@ class ProxyServer {
       return;
     }
 
-    getLogger().info(`[Proxy] Routing ${host}:${port} via ${successfulAction} (Rule: ${rulePattern})`);
+    getLogger().debug(`[Proxy] Routing ${host}:${port} via ${successfulAction} (Rule: ${rulePattern})`);
 
     // Add early log entry
     const logEntry = trafficLogger.addLog({

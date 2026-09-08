@@ -11,8 +11,13 @@ class TrafficLogger extends EventEmitter {
     this.recordingEnabled = true;
     this.pendingInserts = [];
     this.flushTimer = null;
-    this.flushIntervalMs = 100;
+    this.flushIntervalMs = 1000;
     this._migrated = false;
+    // 清理节流：避免每次 flush 都执行全表 DELETE，减少事件循环阻塞
+    this._lastCleanAt = 0;
+    this._flushesSinceClean = 0;
+    this._cleanIntervalMs = 60000;
+    this._cleanAfterFlushes = 50;
   }
 
   setEnabled(enabled) {
@@ -105,7 +110,12 @@ class TrafficLogger extends EventEmitter {
       });
 
       insertMany(itemsToFlush);
-      this.cleanLogs(db);
+      this._flushesSinceClean++;
+      if (this._flushesSinceClean >= this._cleanAfterFlushes || Date.now() - this._lastCleanAt >= this._cleanIntervalMs) {
+        this._flushesSinceClean = 0;
+        this._lastCleanAt = Date.now();
+        this.cleanLogs(db);
+      }
     } catch (err) {
       console.error('Failed to flush traffic logs to sqlite:', err);
     }
@@ -123,10 +133,12 @@ class TrafficLogger extends EventEmitter {
   cleanLogs(dbInstance) {
     try {
       const db = dbInstance || getDb();
-      // Count-based cleanup
+      // Count-based cleanup: 通过主键区间删除，避免 NOT IN (子查询) 全表反查
       const pruneStmt = db.prepare(`
-        DELETE FROM traffic_logs WHERE id NOT IN (
-          SELECT id FROM traffic_logs ORDER BY id DESC LIMIT ?
+        DELETE FROM traffic_logs WHERE id <= (
+          SELECT MIN(id) FROM (
+            SELECT id FROM traffic_logs ORDER BY id DESC LIMIT ?
+          )
         )
       `);
       pruneStmt.run(this.maxSize);

@@ -109,12 +109,13 @@ class MuxSession extends EventEmitter {
   }
 
   _onData(data) {
-    this.buffer = Buffer.concat([this.buffer, data]);
+    this.buffer = this.buffer.length === 0 ? data : Buffer.concat([this.buffer, data]);
 
-    while (this.buffer.length >= 9) { // 1(type) + 4(id) + 4(len)
-      const type = this.buffer.readUInt8(0);
-      const id = this.buffer.readUInt32BE(1);
-      const len = this.buffer.readUInt32BE(5);
+    let offset = 0;
+    while (this.buffer.length - offset >= 9) { // 1(type) + 4(id) + 4(len)
+      const type = this.buffer.readUInt8(offset);
+      const id = this.buffer.readUInt32BE(offset + 1);
+      const len = this.buffer.readUInt32BE(offset + 5);
 
       if (len > MAX_FRAME_SIZE + AES_IV_LEN + AES_TAG_LEN) {
         this.emit('error', new Error(`Mux frame too large: ${len}`));
@@ -122,12 +123,11 @@ class MuxSession extends EventEmitter {
         return;
       }
 
-      if (this.buffer.length < 9 + len) {
+      if (this.buffer.length - offset < 9 + len) {
         break; // Not enough data for payload
       }
 
-      const payload = this.buffer.slice(9, 9 + len);
-      this.buffer = this.buffer.slice(9 + len);
+      const payload = this.buffer.subarray(offset + 9, offset + 9 + len);
       let decrypted;
       try {
         decrypted = this._decrypt(payload);
@@ -137,6 +137,12 @@ class MuxSession extends EventEmitter {
         return;
       }
       this._handleFrame(type, id, decrypted);
+      offset += 9 + len;
+    }
+
+    // 用 subarray 保留未消费部分，避免每帧 Buffer.slice 拷贝
+    if (offset > 0) {
+      this.buffer = this.buffer.length === offset ? Buffer.alloc(0) : this.buffer.subarray(offset);
     }
   }
 

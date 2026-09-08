@@ -43,7 +43,8 @@ function getLogger() {
 // Function to safely log traffic sizes
 function logTraffic(type, info, bytes) {
   if (bytes > 0) {
-    getLogger().info(`[Traffic] ${type} | ${info} | Transferred: ${(bytes / 1024).toFixed(2)} KB`);
+    // debug 级别：流量统计已由 trafficLogger 写入 sqlite，此处日志仅为排查辅助，避免高频磁盘 IO
+    getLogger().debug(`[Traffic] ${type} | ${info} | Transferred: ${(bytes / 1024).toFixed(2)} KB`);
   }
 }
 

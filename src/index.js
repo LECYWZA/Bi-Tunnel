@@ -319,3 +319,22 @@ process.on('SIGINT', async () => {
 });
 
 init();
+
+// 运行健康诊断：每 60s 记录内存/句柄/事件循环延迟，
+// 便于定位“跑久后 Web 卡顿”（事件循环被同步阻塞）类问题
+try {
+  const { monitorEventLoopDelay } = require('perf_hooks');
+  const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+  loopDelay.enable();
+  const healthTimer = setInterval(() => {
+    const mem = process.memoryUsage();
+    const handles = process._getActiveHandles ? process._getActiveHandles().length : -1;
+    const delayAvg = (loopDelay.mean / 1e6).toFixed(1);
+    const delayMax = (loopDelay.max / 1e6).toFixed(1);
+    getLogger().info(`[Health] rss=${(mem.rss / 1048576).toFixed(1)}MB heap=${(mem.heapUsed / 1048576).toFixed(1)}MB handles=${handles} loopDelayAvg=${delayAvg}ms loopDelayMax=${delayMax}ms`);
+    loopDelay.reset();
+  }, 60000);
+  if (healthTimer.unref) healthTimer.unref();
+} catch (e) {
+  getLogger().error(`[Health] monitor init failed: ${e.message}`);
+}
