@@ -7,6 +7,7 @@ import ProxyChains from '../views/ProxyChains.vue';
 import TrafficLogs from '../components/TrafficLogs.vue';
 import RuleCards from '../views/RuleCards.vue';
 import RouterSystem from '../views/RouterSystem.vue';
+import ChatPanel from '../views/ChatPanel.vue';
 
 const routes = [
   { path: '/', redirect: '/config' },
@@ -17,7 +18,8 @@ const routes = [
   { path: '/rules', name: 'RuleCards', component: RuleCards },
   { path: '/router', name: 'RouterSystem', component: RouterSystem },
   { path: '/tester', name: 'ProxyTester', component: ProxyTester },
-  { path: '/logs', name: 'TrafficLogs', component: TrafficLogs }
+  { path: '/logs', name: 'TrafficLogs', component: TrafficLogs },
+  { path: '/chat', name: 'ChatPanel', component: ChatPanel }
 ];
 
 const router = createRouter({

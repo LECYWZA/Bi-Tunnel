@@ -1,6 +1,7 @@
 const configManager = require('./config/config');
 const tunnelServer = require('./core/tunnelServer');
 const tunnelClient = require('./core/tunnelClient');
+const channelHandler = require('./core/channelHandler');
 const PortForwarder = require('./core/portForwarder');
 const ProxyServer = require('./core/proxyServer');
 const { createWebServer } = require('./web/api');
@@ -40,11 +41,23 @@ function init() {
         tun: require('./core/xrayManager').getTunStatus()
     }));
 
+    // Chat/File channel handler: 广播消息与文件事件到 WebSocket
+    const broadcastChat = (type, data) => {
+        if (webApp.locals.broadcastWsMessage) {
+            webApp.locals.broadcastWsMessage({ type, data });
+        }
+    };
+    channelHandler.on('msg', (m) => broadcastChat('chat_msg', m));
+    channelHandler.on('file', (f) => broadcastChat('file_received', f));
+    channelHandler.on('file_sent', (f) => broadcastChat('file_sent', f));
+    channelHandler.on('file_progress', (p) => broadcastChat('file_progress', p));
+
     // Bind tunnelServer events once globally
     tunnelServer.on('session', (session, clientId) => {
         getLogger().info(`=== Server Tunnel Session Established [${clientId}] ===`);
         serverForwarder.setSession(session, clientId);
         serverProxy.setSession(session, clientId);
+        channelHandler.bindSession(session, clientId, 'server');
 
         if (webApp.locals.broadcastClientsUpdate) {
             webApp.locals.broadcastClientsUpdate();
@@ -66,6 +79,7 @@ function init() {
         getLogger().info(`=== Client Tunnel Session Established [${connId}] ===`);
         clientForwarder.setSession(session, connId);
         clientProxy.setSession(session, connId);
+        channelHandler.bindSession(session, connId, 'client');
     });
 
     tunnelClient.on('session_closed', (connId) => {

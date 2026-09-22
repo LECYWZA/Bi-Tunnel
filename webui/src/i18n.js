@@ -54,7 +54,8 @@ export const messages = {
       rules: '分流规则',
       router: '路由系统',
       tester: '测试台',
-      logs: '审计'
+      logs: '审计',
+      chat: '消息中心'
     },
     logs: {
       title: '实时流量审计',
@@ -812,7 +813,8 @@ export const messages = {
       rules: 'Split Rules',
       router: 'Router',
       tester: 'Tester',
-      logs: 'Audit'
+      logs: 'Audit',
+      chat: 'Messages'
     },
     logs: {
       title: 'Real-time Traffic Audit',

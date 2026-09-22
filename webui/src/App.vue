@@ -95,6 +95,9 @@
           <el-menu-item index="/config">
             <el-icon><Setting /></el-icon> {{ t('nav.tunnel') }}
           </el-menu-item>
+          <el-menu-item index="/chat">
+            <el-icon><ChatDotRound /></el-icon> {{ t('nav.chat') }}
+          </el-menu-item>
           <el-menu-item index="/proxies">
             <el-icon><Connection /></el-icon> {{ t('nav.proxies') }}
           </el-menu-item>
@@ -146,6 +149,8 @@
                 {{ isHttps ? 'HTTP' : 'HTTPS' }}
               </el-dropdown-item>
               <el-dropdown-item command="password" :icon="Lock" divided>{{ locale === 'zh' ? '修改密码' : 'Change Password' }}</el-dropdown-item>
+              <el-dropdown-item command="exportConfig" :icon="Download" divided>{{ locale === 'zh' ? '导出配置 (JSONC)' : 'Export Config (JSONC)' }}</el-dropdown-item>
+              <el-dropdown-item command="importConfig" :icon="Upload">{{ locale === 'zh' ? '导入配置' : 'Import Config' }}</el-dropdown-item>
               <el-dropdown-item command="restart" :icon="RefreshRight">{{ t('header.restartService') }}</el-dropdown-item>
               <el-dropdown-item command="stop" :icon="SwitchButton" divided>{{ t('header.stopService') }}</el-dropdown-item>
               <el-dropdown-item command="logout" :icon="CircleClose" divided>{{ locale === 'zh' ? '退出登录' : 'Logout' }}</el-dropdown-item>
@@ -330,7 +335,7 @@
 import { ref, reactive, onMounted, computed, watch, onUnmounted, provide, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus';
-import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank, Operation, Share, Lock, CircleClose } from '@element-plus/icons-vue';
+import { Connection, Setting, Odometer, InfoFilled, Check, DataLine, Link, Monitor, SwitchButton, RefreshRight, Warning, Memo, Loading, Plus, Delete, Rank, Operation, Share, Lock, CircleClose, ChatDotRound, Download, Upload } from '@element-plus/icons-vue';
 import Login from './components/Login.vue';
 import { t, locale, setLocale } from './i18n';
 
@@ -1225,6 +1230,11 @@ const connectWebSocket = () => {
         if (forwardErrorListeners.length > 0) {
           forwardErrorListeners.forEach(fn => fn(msg.data));
         }
+      } else if (msg.type === 'chat_msg' || msg.type === 'file_received' || msg.type === 'file_sent' || msg.type === 'file_progress') {
+        // Dispatch chat/file events to registered listeners
+        if (chatEventListeners.length > 0) {
+          chatEventListeners.forEach(fn => fn({ type: msg.type, data: msg.data }));
+        }
       }
     } catch (e) {
       console.error("WS message parse error:", e);
@@ -1269,6 +1279,16 @@ provide('onForwardError', (fn) => {
   return () => {
     const idx = forwardErrorListeners.indexOf(fn);
     if (idx !== -1) forwardErrorListeners.splice(idx, 1);
+  };
+});
+
+// Chat / file transfer event listener registry (for WS-pushed chat events)
+const chatEventListeners = [];
+provide('onChatEvent', (fn) => {
+  chatEventListeners.push(fn);
+  return () => {
+    const idx = chatEventListeners.indexOf(fn);
+    if (idx !== -1) chatEventListeners.splice(idx, 1);
   };
 });
 
@@ -1343,9 +1363,61 @@ const handleSettingCmd = (cmd) => {
   if (cmd === 'dns') dnsDialogVisible.value = true;
   else if (cmd === 'protocol') toggleProtocol();
   else if (cmd === 'password') passwordDialogVisible.value = true;
+  else if (cmd === 'exportConfig') exportConfig();
+  else if (cmd === 'importConfig') importConfig();
   else if (cmd === 'restart') restartService();
   else if (cmd === 'stop') stopService();
   else if (cmd === 'logout') logout();
+};
+
+// ============ 配置导出/导入 (JSONC) ============
+const exportConfig = async () => {
+  try {
+    const res = await authFetch('/api/config/export');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^";]+)"?/);
+    const filename = m ? m[1] : 'nbplus-config.jsonc';
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    ElMessage.success('配置已导出');
+  } catch (e) {
+    ElMessage.error('导出失败: ' + e.message);
+  }
+};
+
+const importConfig = () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.jsonc,.json,application/json,text/plain';
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const text = await file.text();
+    try {
+      const res = await authFetch('/api/config/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: text
+      });
+      const data = await res.json();
+      if (data.success) {
+        ElMessage.success(data.message || '配置导入成功');
+        await fetchConfig();
+      } else {
+        ElMessage.error(data.message || '导入失败');
+      }
+    } catch (e) {
+      ElMessage.error('导入失败: ' + e.message);
+    }
+  };
+  input.click();
 };
 
 onUnmounted(() => {

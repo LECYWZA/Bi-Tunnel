@@ -241,8 +241,239 @@ function createWebServer(statusCallback) {
         res.json({ success: true, message: 'Config saved and applied successfully.' });
     });
 
+    // ============== 配置导出/导入 (JSONC) ==============
+    // JSONC -> JSON: 剥离注释与尾逗号(状态机,字符串内不受影响)
+    function stripJsonc(text) {
+        let out = '';
+        let inStr = false;
+        let strCh = '';
+        let i = 0;
+        const n = text.length;
+        while (i < n) {
+            const ch = text[i];
+            const next = i + 1 < n ? text[i + 1] : '';
+            if (inStr) {
+                out += ch;
+                if (ch === '\\') {
+                    out += next || '';
+                    i += 2;
+                    continue;
+                }
+                if (ch === strCh) inStr = false;
+                i++;
+                continue;
+            }
+            if (ch === '"' || ch === "'") {
+                inStr = true;
+                strCh = ch;
+                out += ch;
+                i++;
+                continue;
+            }
+            if (ch === '/' && next === '/') {
+                while (i < n && text[i] !== '\n') i++;
+                out += '\n';
+                continue;
+            }
+            if (ch === '/' && next === '*') {
+                i += 2;
+                while (i < n && !(text[i] === '*' && (i + 1 < n ? text[i + 1] : '') === '/')) i++;
+                i += 2;
+                continue;
+            }
+            // 剥离尾逗号
+            if (ch === ',') {
+                let j = i + 1;
+                while (j < n && /\s/.test(text[j])) j++;
+                if (j < n && (text[j] === '}' || text[j] === ']')) {
+                    i++;
+                    continue;
+                }
+            }
+            out += ch;
+            i++;
+        }
+        return out;
+    }
+
+    app.get('/api/config/export', (req, res) => {
+        try {
+            const cfg = JSON.parse(JSON.stringify(configManager.getConfig()));
+            const dateStr = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+            const jsonc = [
+                '// NB-PLUS 配置导出',
+                '// 时间: ' + new Date().toISOString(),
+                '// 包含: 隧道/混合代理/节点/链/规则/路由等全部配置',
+                '// 导入方式: WebUI 设置 -> 导入配置 (支持 JSONC: 可含注释与尾逗号)',
+                JSON.stringify(cfg, null, 2)
+            ].join('\n');
+            res.setHeader('Content-Disposition', `attachment; filename="nbplus-config-${dateStr}.jsonc"`);
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.send(jsonc);
+        } catch (e) {
+            res.status(500).json({ success: false, message: '导出失败: ' + e.message });
+        }
+    });
+
+    app.post('/api/config/import', express.text({ type: 'text/plain', limit: '50mb' }), (req, res) => {
+        try {
+            const raw = (req.body || '').replace(/^\uFEFF/, '').trim();
+            if (!raw) {
+                return res.json({ success: false, message: '导入内容为空' });
+            }
+            let parsed;
+            try {
+                parsed = JSON.parse(stripJsonc(raw));
+            } catch (e) {
+                return res.json({ success: false, message: 'JSON 解析失败: ' + e.message });
+            }
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                return res.json({ success: false, message: '配置内容必须是 JSON 对象' });
+            }
+            if (!parsed.server || !String(parsed.server.password || '').trim()) {
+                return res.json({ success: false, message: '服务端密码不能为空' });
+            }
+            if (!parsed.client || !String(parsed.client.password || '').trim()) {
+                return res.json({ success: false, message: '客户端密码不能为空' });
+            }
+            // 深合并(缺省字段保留默认值),并清理已知运行时字段
+            configManager.saveConfig(parsed);
+            if (app.locals.onConfigSaved) {
+                app.locals.onConfigSaved();
+            }
+            getLogger().info('[API] Config imported via JSONC');
+            res.json({ success: true, message: '配置导入成功,已自动应用' });
+        } catch (e) {
+            res.status(500).json({ success: false, message: '导入失败: ' + e.message });
+        }
+    });
+
     app.get('/api/status', (req, res) => {
         res.json(getStatus());
+    });
+
+    // ============== 消息中心 / 文件传输 (走隧道) ==============
+    const channelHandler = require('../core/channelHandler');
+
+    // 根据方向解析目标隧道会话列表:
+    // direction='server' -> 本机作为服务端,目标为已连接客户端
+    // direction='client' -> 本机作为客户端,目标为上游服务端连接
+    function resolveTargetSessions(direction, targetClientId) {
+        const dir = direction === 'client' ? 'client' : 'server';
+        if (dir === 'server') {
+            const ts = require('../core/tunnelServer');
+            if (targetClientId) {
+                const s = ts.getSession(targetClientId);
+                return s ? [s] : [];
+            }
+            return Array.from(ts.sessions.values()).filter(s => s.isAuthenticated);
+        }
+        const tc = require('../core/tunnelClient');
+        const s = tc.getSession(targetClientId || undefined);
+        return s ? [s] : [];
+    }
+
+    function defaultDirection() {
+        const mode = (configManager.getConfig() || {}).mode || 'server';
+        return mode === 'client' ? 'client' : 'server';
+    }
+
+    app.get('/api/chat/history', (req, res) => {
+        res.json({
+            success: true,
+            mode: (configManager.getConfig() || {}).mode || 'server',
+            messages: channelHandler.getMessages(),
+            files: channelHandler.getFileRecords()
+        });
+    });
+
+    app.post('/api/chat/send', (req, res) => {
+        const text = req.body && typeof req.body.text === 'string' ? req.body.text.trim() : '';
+        if (!text) {
+            return res.json({ success: false, message: '消息内容不能为空' });
+        }
+        const direction = req.body.direction || defaultDirection();
+        const targetClientId = req.body.targetClientId || '';
+        const sessions = resolveTargetSessions(direction, targetClientId);
+        if (sessions.length === 0) {
+            const hint = direction === 'server' ? '服务端未连接任何客户端' : '客户端隧道未连接服务端';
+            return res.json({ success: false, message: `消息未发送:${hint}` });
+        }
+        const result = channelHandler.sendMessageToSessions(sessions, { text, targetId: targetClientId, via: direction });
+        res.json({
+            success: result.success,
+            count: result.count,
+            direction,
+            message: result.success ? '消息已发送' : result.message,
+            record: result.record
+        });
+    });
+
+    // 文件上传(body 为原始文件字节) -> 经隧道发送到对端
+    app.post('/api/file/send', express.raw({ type: 'application/octet-stream', limit: '2gb' }), (req, res) => {
+        const name = (req.query.name || req.query.filename || 'file.bin').slice(0, 512);
+        const direction = req.query.direction === 'client' ? 'client' : (req.query.direction || defaultDirection());
+        const targetClientId = req.query.targetClientId || '';
+        const buf = req.body;
+        if (!buf || buf.length === 0) {
+            return res.json({ success: false, message: '文件内容为空' });
+        }
+        const sessions = resolveTargetSessions(direction, targetClientId);
+        if (sessions.length === 0) {
+            const hint = direction === 'server' ? '服务端未连接任何客户端' : '客户端隧道未连接服务端';
+            return res.json({ success: false, message: `文件未发送:${hint}` });
+        }
+        const tmpPath = path.join(os.tmpdir(), `nbplus_upload_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+        fs.writeFile(tmpPath, buf, async (err) => {
+            if (err) return res.json({ success: false, message: `临时文件写入失败: ${err.message}` });
+            try {
+                if (res && res.headersSent) return;
+                const results = [];
+                for (const s of sessions) {
+                    results.push(await channelHandler.sendFile(s, { filePath: tmpPath, targetId: targetClientId, via: direction }));
+                }
+                const ok = results.length > 0 && results.every(r => r.success);
+                res.json({
+                    success: ok,
+                    count: results.length,
+                    direction,
+                    message: ok ? '文件已发送' : (results[0]?.message || '文件发送失败'),
+                    records: results.map(r => r.record).filter(Boolean)
+                });
+            } catch (e) {
+                res.json({ success: false, message: e.message });
+            } finally {
+                try { fs.unlinkSync(tmpPath); } catch (e) {}
+            }
+        });
+    });
+
+    // 已接收文件列表
+    app.get('/api/files', (req, res) => {
+        res.json({ success: true, dir: channelHandler.receiveDir, files: channelHandler.listFiles() });
+    });
+
+    // 下载已接收文件
+    app.get('/api/files/:name', (req, res) => {
+        const name = path.basename(req.params.name);
+        const filePath = path.join(channelHandler.receiveDir, name);
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ success: false, message: '文件不存在' });
+        }
+        res.download(filePath, name);
+    });
+
+    // 删除已接收文件
+    app.delete('/api/files/:name', (req, res) => {
+        const name = path.basename(req.params.name);
+        const filePath = path.join(channelHandler.receiveDir, name);
+        if (!fs.existsSync(filePath)) {
+            return res.json({ success: false, message: '文件不存在' });
+        }
+        fs.unlink(filePath, (err) => {
+            if (err) return res.json({ success: false, message: err.message });
+            res.json({ success: true });
+        });
     });
 
     app.get('/api/network-interfaces', (req, res) => {
