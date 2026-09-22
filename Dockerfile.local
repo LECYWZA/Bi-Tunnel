@@ -1,0 +1,9 @@
+FROM node:24
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY package*.json .npmrc* ./
+RUN npm install
+COPY . .
+RUN cd webui && npm install && npm run build
+EXPOSE 8899 33891 1080 1111 1112 8080
+CMD ["node", "src/index.js"]

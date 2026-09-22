@@ -763,7 +763,7 @@ function createWebServer(statusCallback) {
                 res.json({ success: true, available: true, message: `端口 ${port} 可用` });
             });
         });
-        tester.listen(port, '0.0.0.0');
+        tester.listen(port);
     });
 
     // 验证单个 DNS 服务器是否可用（支持纯IP/udp://IP/tcp://IP/https://IP/tls://IP）
@@ -1691,8 +1691,8 @@ function createWebServer(statusCallback) {
             };
             mainSrv.once('error', (err) => fail(`端口 ${port} 绑定失败：${err.message}`));
             secSrv.once('error', (err) => fail(`端口 ${httpPort} 绑定失败：${err.message}`));
-            mainSrv.listen(port, '0.0.0.0', () => {
-                secSrv.listen(httpPort, '0.0.0.0', () => {
+            mainSrv.listen(port, () => {
+                secSrv.listen(httpPort, () => {
                     if (done) return;
                     done = true;
                     cb({ ok: true, mainSrv, secSrv });
@@ -1770,11 +1770,11 @@ function createWebServer(statusCallback) {
     if (webProtocol === 'http') {
         // Main port uses HTTP, secondary port uses HTTPS
         httpServer = http.createServer(app);
-        httpServer.listen(port, '0.0.0.0', () => {
+        httpServer.listen(port, () => {
             getLogger().info(`Web Control Panel running on http://127.0.0.1:${port}`);
         });
         server = https.createServer({ key: certs.key, cert: certs.cert }, app);
-        server.listen(httpPort, '0.0.0.0', () => {
+        server.listen(httpPort, () => {
             getLogger().info(`Web Control Panel also available on https://127.0.0.1:${httpPort}`);
         });
         wssHttp = new WebSocket.Server({ server: httpServer });
@@ -1782,11 +1782,11 @@ function createWebServer(statusCallback) {
     } else {
         // Main port uses HTTPS, secondary port uses HTTP (default)
         server = https.createServer({ key: certs.key, cert: certs.cert }, app);
-        server.listen(port, '0.0.0.0', () => {
+        server.listen(port, () => {
             getLogger().info(`Web Control Panel running securely on https://127.0.0.1:${port}`);
         });
         httpServer = http.createServer(app);
-        httpServer.listen(httpPort, '0.0.0.0', () => {
+        httpServer.listen(httpPort, () => {
             getLogger().info(`Web Control Panel also available on http://127.0.0.1:${httpPort}`);
         });
         wss = new WebSocket.Server({ server });
